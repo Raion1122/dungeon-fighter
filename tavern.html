@@ -3858,6 +3858,32 @@
       locked: true,
       unlockAfter: "lizard-swamp",
     },
+    /* ★[#107] 新しい行き先の 5 か所目「霜の巨人の砦」(本筋の外・神殿の後)。
+       ⭐ 初めて**ワールドマップに点と道を足した**行き先 (js/world-map.js の frost_peak・temple からの袋小路)。
+       ⭐ side = 卓の抽選の母集団には入るが、「本筋」「次の未解放」の判定からは外れる (#82 と同じ)。
+       ⭐ locked:true = 開始直後の卓・神殿より前の卓は今日のまま。神殿のクリアで竜の巣と同時に解放。
+       ⚠ id は index.html の SCENARIOS / js/world-map.js の SITES・UNLOCK と同じ (verify_world_map (4s) が照合)。 */
+    {
+      id: "frost-hold",
+      place: "霜の峠",            /* ⚠ id の直後に置く (検証ドライバが id → place の並びで配信バイトを読む) */
+      side: true,
+      title: "霜の巨人の砦",
+      difficulty: "★★★★",
+      recommendedLevel: 8,        /* 神殿 8 の後・竜の巣 10 の前。⚠ 強さの実測 (依頼書 #107 §8 ⑤) で直してよい */
+      reward: "隊商組合の懸賞金",
+      client: { name: "ブラン", role: "峠を越える隊商の護衛", type: "soldier" },
+      dialog:
+        "「峠で隊商がやられた。空から岩が降ってきて、荷車ごと潰されたんだ……生き残ったのは俺だけだ。" +
+        "雪の峠の古い氷の砦に、霜の巨人が住みついてる。だが妙だった。あの巨人、何かから逃げてきたような目をしていた。" +
+        "隊商組合が懸賞金を出す。頼む、峠を取り戻してくれ」",
+      enemies: [
+        { name: "巨人に雇われたオークたち", boss: false },
+        { name: "冬狼", boss: false },
+        { name: "霜の巨人(フロスト・ジャイアント)", boss: true },
+      ],
+      locked: true,
+      unlockAfter: "undead-temple",   /* ★[#107] 神殿のクリア後 (js/world-map.js の UNLOCK と同じ) */
+    },
   ];
   /* ══ 撤退スイッチ ?tower=0 (実装依頼書 #82 §7) ═════════════════════════════
      ⭐ このページだけで読む (world.html も自分で読む = ?heromark=0 と同じ「ページ単位で独立」)。
@@ -3914,6 +3940,17 @@
     if (!off) return;
     for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "witch-hut") scenarios.splice(i, 1);
     try { if (window.WORLD_MAP && window.WORLD_MAP.retireHag) window.WORLD_MAP.retireHag(); } catch (e) {}
+  })();
+  /* ══ 撤退スイッチ ?giant=0 (実装依頼書 #107 §7) ═════════════════════════════
+     ⭐ ?tower=0 〜 ?hag=0 と同じ「ページ単位で独立」(world.html も自分で読む)。⛔ sessionStorage へ写さない。
+     配列から frost-hold を外し、ワールドマップの写しからも点 frost_peak・神殿からの道・札・依頼を消す
+     (cleared に神殿を含む卓の母集団は今日どおりの件数へ戻る)。 */
+  (function () {
+    var off = false;
+    try { off = new URLSearchParams(location.search).get("giant") === "0"; } catch (e) { off = false; }
+    if (!off) return;
+    for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "frost-hold") scenarios.splice(i, 1);
+    try { if (window.WORLD_MAP && window.WORLD_MAP.retireGiant) window.WORLD_MAP.retireGiant(); } catch (e) {}
   })();
   /* ★[#82] 本筋 6 本 (side を除いた scenarios)。1 枚絵 (renderTables の既定) と奥の間が使う。
      ⭐ 毎回 scenarios から引く (別表を作らない = side を足し引きしても写しがズレない)。 */

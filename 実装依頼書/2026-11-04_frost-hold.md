@@ -504,3 +504,76 @@ n1big 氷の砦の大広間 (24x16)
 
 - 画面上の身長の物差し = (walk H_max / セル) × displaySize(`pack_codex1_sprites.py` の docstring)。既存の値は `r107/item1/sprite/screen_h.py` で測った: orcGrunt 49.2 / orcArcher 48.6 / garrock 70.0 / stoneGolem 79.8 / minotaur 86.7 / greenHag 80.3 / mummy 80.2 / shadowBeast 132.0 / goblinChariot 125.6 / direBear 104.3 / 主人公(warrior_walk)58。
 - `meleeRange` の材料(⛔ 決めるのは項目2): 巨人の attack の斧の先 = 体の中心から 93/192 × 184 ≈ **89px**(画面上)。既存の大型の帯 = garrock 200 / stoneGolem 210 / hydra 210 / chimera 210 / minotaur 190 / orcGrunt 160。SRD の届き 10ft(2 マス = 192px)+ 体の半幅。`attackDuration` / `attackHitFrame` は attack の伸び(幅)= col 2-3 が最大(stoneGolem / hydra と同じ帯の 40 / 20 が候補)。
+
+### 12-2. 項目2 — 本体(2026-11-04・基準 HEAD `6c2680d`)
+
+⭐ §3〜§7 を全部入れた(`index.html` / `tavern.html` / `world.html` / `js/world-map.js` / `js/df-mapdef.js` / `js/changelog.js`)。作業の置き場 = `~/.claude/dev-loop/r107/item2/`(煙検査 `smoke_frost.js`・撮影 `shots/`・golden のログ `golden_logs/`・走らせ方 `run_golden.sh` / `run_rerun.sh`・申し送り `item2_notes.md`)。
+⭐ 既存のコードは 1 行も消していない(`git diff` の `-` 行 = `js/world-map.js` の注記 2 行だけ)。`hydraFireBreath` / `applyFireBreathToAlly` は 1 バイトも変えていない(`driver_cast_circle` 56/56)。
+
+#### (1) 実装した口・決めた値・依頼書との差
+
+| 口 | 中身 |
+|---|---|
+| `js/world-map.js` | `NODES.frost_peak` (1280,288)「霜の峠」`signDx: -112` / `EDGES` 末尾 `["temple","frost_peak"]` / `SITES` / `UNLOCK` / `retireGiant()`(EDGES は splice・STEPS は `on` に frost_peak を含む id を delete・NODES / SITES / UNLOCK は delete = 同じオブジェクト)/ 書き出し 1 行 / 冒頭の注記「拠点 13 個・点 15・道 15」・STEPS の注記「刻み点 10・停留所 25」 |
+| ⚠ 前の行を変えない作法 | `lakeside` / `["lakeside","dragon"]` / SITES・UNLOCK の `witch-hut` の行は末尾にカンマが無い = 足した行は**先頭のカンマ** `, frost_peak: …` で続けた(既存の行は 1 バイトも変えない・変異アンカーが行まるごとを握るため) |
+| `world.html` / `tavern.html` | `?giant=0`(world は `?hag=0` の隣 = `buildNodes` / `buildSteps` より前・tavern は配列から外して `retireGiant()`)。⛔ sessionStorage へ写さない |
+| `tavern.html` `scenarios[]` | `frost-hold`(id の直後に place「霜の峠」・side・★★★★・推奨 Lv8・`locked:true`・`unlockAfter: "undead-temple"` の行にコメント = 竜の巣の行と一意)・依頼人 ブラン(峠を越える隊商の護衛・`soldier`) |
+| `js/df-mapdef.js` | `THEMES` に `frost-hold`(⛔ FIELD_THEMES に入れない)/ `THEME_DEFAULT_ENEMIES` = mob orcGrunt・orcArcher・winterWolf / boss frostGiant。`LINT_PAINTING_ASPECTS` は不要(24x16 は在庫にある・`driver_graph_p6` 250/250) |
+| `index.html` 表 | `ROAD_CHEST_GOLD` 75 / `SCENARIO_TEX` = 神殿と同じ石の組 / `NODE_EXTRA_SPAWN_KINDS` n0 search・loot / n1 search / `ROOM_PAINTINGS_DEF["frost-hold"]` n0big(**outdoor: true**)・n1big(屋内)・MASK = §12-1 (3) を逐語 / `SCENARIOS["frost-hold"]`(clearXp 1200・clearGold 400・trapCount 1・`trapTypeByNode {n0: "avalanche", n1: "iceFloor"}`・hiddenChestCount 3・`?graph=0` 用 spawns)/ `TRAP_TYPES.avalanche` / `iceFloor`(語りだけ違う行・乱数なし)/ `SCENARIO_NARRATIONS` 4 行(dm-narration.md の「君たちは…」の口調)/ `LORE_SKILL_OF.frostGiant = "history"`(Giant = 氏族と掟を持つ巨人 = 既存の人型の分岐・冬狼は Monstrosity = 自然 = 載せない)/ `LORE_CR` frostGiant 8・winterWolf 3 / `ENEMY_TRAITS` 両方 `immune: ["cold"]` / `detectEnemyFamily` winterWolf → beast(既存の語り)/ 振り分け 1 行 / `buildFrostHoldRun()` |
+| `buildFrostHoldRun` | rect `[6,16,21,39]`・start (18,13)・density 0・出口 (39,13)。n0 = オーク兵 (29,14)(30,12)・オーク弓兵 (31,14)(32,13)(§12-1 (3) の 4 か所)/ n1 = 巨人 (34,13)・冬狼 (32,11)(32,15) |
+| `ENEMY_TYPES.frostGiant` | HP 138(⛔ ボス補正なし)/ AC 15 / +9 / 3d12+6 × `attacksPerTurn 2` / **critMult 3**(大斧 = 3.5 の greataxe)/ `displaySize 184` / bodyRatio = §12-1 (4) / **meleeRange 210** / hitRange 300 / attack 40・20・70(stoneGolem の帯)/ speed 0.6 / `maxSummons 0` / `rockDice "4d10"` `rockBonus 6` / deathLine(竜の伏線の 2 本目)/ xp 1200 |
+| `ENEMY_TYPES.winterWolf` | HP 75 / AC 13 / +6 / 2d6+4 / `displaySize 130` / bodyRatio = §12-1 (4) / meleeRange 170 / hitRange 250 / 28・14・50 / speed 0.9 / `breathDice "4d8"` `breathDC 12` `breathBlast 3` `breathElement "cold"` / xp 350。⛔ isBoss / breathChance / packTactics なし |
+| 冷気の息 `coldBreath(idx)` | `hydraFireBreath` の写し(§2-5 の 1〜5)。入口 = `enemyAttackTurn` のハイドラの分岐の直後に `!def.isBoss && def.breathDice && def.breathElement === "cold"` の 1 分岐。Recharge = `enemy.__coldBreathSpent`(最初は使える・使えない間は手番の頭で `rollDiceDD(1,6)`・5〜6 で戻りその手番に吐ける)。演出 = 青白い粒(吸い込み・噴射・3x3 に氷の粒)・半減なし(倍率 1)・「冷気の息」「FROZEN」・年代記 `"冷気の息"`・反射 `fireAcid: false`。仲間は `applyColdBreathToAlly`(`applyFireBreathToAlly` の写し・文言と年代記だけ違う) |
+| ⚠ 依頼書に無い判断 1 | **3x3 の中心** = 狙い (`pickEnemyTarget`) のタイル。ただし狼の中心タイルから Chebyshev 2 より遠ければ 2 マスまで寄せる(`COLD_BREATH_REACH = 2` = 3x3 の遠い縁が 3 マス = 15ft)。寄せた 3x3 にパーティが 0 人なら吐かずに噛む(再充填は使わない)。⇒ §2-5 の 4「3x3 に 1 人も入らないときは噛む」が意味を持つ(ハイドラの中心の決め方そのままだと狙いが必ず 3x3 に入る) |
+| 岩投げ `giantRockThrow(idx)` | 入口 = 霧渡りの直後・ボスの行動選択の前。`rockCooldown > 0` なら 1 減らして普通の行動 / 届く距離に誰か居れば普通の行動 / それ以外は**いちばん遠い**隊員へ。命中 = 既存の敵の攻撃と同じ式(d20 + atkBonus・激怒 +2・煙幕のペナルティ・1 はファンブル・critRange で脅威 → 確認の d20 → ダイスとボーナスを critMult 倍)。命中で 4d10+6。投げたら `rockCooldown = 1`。弾 = `spawnBoulderProjectile`(灰色の丸が放物線・着弾の土煙は固定の角度 = 乱数なし)。頭は `applyEnemySpellDamage({kind:"leader"}, …, "巨人の岩")`・仲間は霧渡りと同じ手順(年代記 `"巨人の岩"`) |
+| ⚠ 依頼書に無い判断 2 | **「届く距離」** = 噛撃の射程チェック(`resolveOneBite`)と**同じ式** `tileChebyshev(巨人, 隊員) ≤ getRange(def.range).tiles`(melee = 1)。§4 の「`meleeRange`」は px の値で、探索中のリアルタイム攻撃モーションの間合い(`moveEnemies`)= 手番の戦闘の届く距離ではない。届かない手番に岩を投げ、届く手番に噛む(殴れない手番を岩で埋める)が成り立つのはこの式 |
+| 大広間の語り | `tryFrostHallNarration`(400ms tick・1 回だけ)。ボスノードで `nodeBusy` / 語り / 選択 / 判定が無く、`#dmMessage` が出ていない(到着・ボス部屋の囁きを上書きしない)ときに「玉座の巨人が、低く唸った——『山の向こうの赤い竜に、我らの住処は焼かれた。逃げ延びた先が、ここだ。ここは譲らぬ』」。⛔ Math.random なし・⛔ 2 択なし |
+| `srdEnemyUsesFire` に 1 行 | `if (def.breathElement === "cold") return false;` を**足した**(既存の行は不変)。無いと冬狼の盤面でポーションオブファイアレジスタンスを飲む。breathDice を持つ既存の 3 体は全部炎 = 結果は不変(`verify_plaza_srd` 27/27) |
+| ⚠ 既知の癖(記録のみ) | スペルターニングリングがあると冷気の息は冬狼へ跳ね返り、**冷気の完全耐性を通らない**(`tryReflectEnemySpell` は炎のときだけ体質を判定する既存の作り)。§2-5 の 2 のとおり既存の判定に任せた |
+| 検証シーム | `window.__frostHoldTV`(ENEMY_TYPES 4 種・buildFrostHoldRun・coldBreath・giantRockThrow・giantRockReachable(idx)・coldBreathCenter(idx)・TRAP_TYPES()・trapTypeForNode()・traps()・nodeId()・hall()・scenario())/ `window.__giantRockProbe`(site rock / skip)/ `window.__coldBreathProbe`(site recharge / breath / bite)/ `window.__frostHallProbe` / `window.buildFrostHoldRun` / `coldBreath` / `giantRockThrow`。形は `r107/item2/item2_notes.md` |
+| changelog | `py tools/add_changelog.py "<b>雪山に新しい行き先「霜の巨人の砦」</b> — …(神殿のクリア後)。"`(§2-11 の文面のまま) |
+
+#### (2) 煙検査(`smoke_frost.js`)
+
+| 腕 | 結果 | 中身 |
+|---|---|---|
+| A 酒場(port 10693) | 7/7 | 依頼(side・locked・神殿の後・Lv8・霜の峠・★★★★)/ 同じページの WORLD_MAP = 点 15・道 15・刻み点 10・frost_peak (1280,288 signDx −112)/ 開始直後と本筋 4 本では出ない / 本筋 5 本で竜の巣と同時に解放 / `?giant=0` で消え 点 14・道 14・刻み点 10 / 件数 ON = OFF + 1 |
+| B 世界(同) | 6/6 | 神殿の前は点と線だけ・札なし / 神殿の後: `#worldNode_frost_peak`・点線 15 本・`temple__frost_peak`・札「霜の峠」1 枚・刻み点 10 / `findWalkPath` は temple を通る / 霜の峠を押すと神殿を**通過して**霜の峠で「〈霜の峠〉へ入りますか?」→ index の frost-hold (n0 start / n1 boss) / `world.html?giant=0` = 点・線・札・frost_peak を含む刻み点の DOM が全部無い・点 14・道 14・刻み点 10・線 14 |
+| C 素(port 10694) | 8/8 | n0 = 絵 24x16・outdoor・オーク兵 2 + 弓兵 2(壁の上に居ない)・罠 avalanche 1 / n1 = 屋内・巨人 1 + 冬狼 2・罠 iceFloor 1 / 大広間の語り 1 回(戦闘の前)/ 岩 1 回(いちばん遠い魔法使い 960px・13+9 = 22 vs AC 12・28 ダメージ)→ 次の手番 cooldown → その次は届く距離に居て skip / 冷気の息 2 回(DC 12・2 人ずつ・セーヴ成功 17→8・失敗 17 / 25)・3x3 が空で噛んだ手番 1・再充填の d6 = 2,3,3,3…(戻らない手番は噛む)/ **全滅**(105 秒・Lv8・4 人)/ pageerror 0 |
+| C 巨人 HP 20(port 10695) | 9/9 | 同じ + **クリア**(113 秒)・金貨 475 = 礼金 400 + 隠し 75・クリア XP 1200・表は 400 / 1200 のまま |
+
+- 画面で目視(`shots/`): 雪の峠道の絵と隊列(C_n0_start)/ 大広間に入った直後(C_n1_enter)/ 冷気の息の DM と「冬狼の冷気の息: 2体に着弾 (1体セーヴ半減)」「霜の巨人が大岩を持ち上げた! イレーナ めがけて投げつける!」のログ・白い冬狼と大斧の巨人が床の上で読める(C_rock)/ 世界の札「霜の峠」が雪の峰の上(B_world)。
+- ⚠ ⑤ の材料(⛔ 判断しない): 素の 1 回は全滅。強さは項目3 の N=10(神殿 Lv8 と並べる)で測る。
+
+#### (3) 名指し golden 32 本の再走(14:51〜15:40・昼)
+
+- 緑のまま: driver_graph_p6 250/250・kobold_warren 21/21・plaza_map 43/43・road_ambush 41/41・road_boon 20/20・tower_mother 19/19・fort_fold・temple_fold・**plaza_srd 27/27**(srdEnemyUsesFire)・**driver_cast_circle 56/56**(火のブレス)。
+- 着手前から赤(範囲外): verify_codex_map_skill (3a)(stag-tavern + frost-hall = §12-1 (3) のユーザー決定どおり)/ driver_mapeditor_painting §1 1d2。
+- **項目2 で言い直した(予告どおり赤・前の値は 1 文字も変えず撤退の段へ移した)**:
+
+| 本 | 節 | 言い直し |
+|---|---|---|
+| verify_lost_cargo / verify_silent_tomb / verify_witch_hut | (4c) | 撤退の 1 段目に `retireGiant()` を足して 6 段。`SHA_AFTER_GIANT = '63f3bce7696bf14a'` = #106 完了時の既定の地図(verify_world_steps の WANT_ON を 1 文字も変えず当て直し)。2〜6 段目は今の固定値のまま。今の既定 `644bf9dac129dffb` はそのどれとも違う |
+| verify_dragon_fold | (7b) | NODE_EXTRA_SPAWN_KINDS のキー集合に `frost-hold`・両腕で同じ中身 |
+| verify_swamp_novice | (4b) | ROOM_PAINTINGS_DEF の例外表に `frost-hold`(着手前 cdaaf91 に無いキー) |
+
+- **予告どおり赤のまま(項目4 で言い直す)** — 中身はすべて件数・枚数・sha1・表の行・HP を引く点。挙動は煙検査と各ログの実測で正しい:
+
+| 本 | 赤い節 | 中身 |
+|---|---|---|
+| verify_quest_draw | (0b)(1d) | side 5→6 / cleared 6 本の解放済みに frost-hold |
+| verify_quest_visibility | (0b)(0c)(3b)(3d)(5c) | side 6・札 12→13・NODES/EDGES 14→15・SITES 11→12(3d は 13 枚とも自分に当たる) |
+| verify_quest_walk | (0z)(2z)(2a)(2b)(2c)(2d)(3d)(3e)(4b)(5a) | 11→12 組・未解放 9→10・`ids.length === 14`→15(2c は 15 ノードとも経路あり・frost_peak 8 手)・札・sha1 |
+| verify_road_events | (4a) | 地図の sha1(撤退の段 +1) |
+| verify_tavern_map | (6a)(6b)(7b) | scenarios 11→12 |
+| verify_world_heromark | (1e)(2a)(2b)(3b)(4b)(4c) | ノード 14→15・札 12→13・照合の組 168→195(交差 0・奪った点 0)/ `EXPECT_NODES = 14`(§12-1 で名簿に足した) |
+| verify_world_map | (7b-data)(7b-dom)(7d)(7e)(7f) | 札 12→13(7d は 13 枚とも自分に当たる)/ (7f) は母集団のガード `札=13/12 ノード=15/14` で止まっている(下の ⚠⚠) |
+| verify_world_steps | (1d)(2d)(5c) | sha1 の段 +1・札 13 |
+| driver_mapeditor_painting | §1 1a / 1a2 / §3 3e | テーマ 11→12・n0big/n1big・optgroup |
+| verify_lore_check | (0b)(0c)(0d)(1h) | ENEMY_TYPES 61・技能あり +1(frostGiant history)・CR の表 +2(frost-giant / winter-wolf の slug)・(1h) は frostGiant の札 `CR8` がドライバの表に無い = 表に行を足す |
+| verify_party_four | (0a) | scenarios 12 件 |
+| verify_enemy_traits | (0b)(0c) | 表のキー 9→11・SRD の表に frostGiant / winterWolf(冷気の完全耐性) |
+| verify_counterspell (4c) / verify_run_chronicle (0c) | 各 1 | HP を引く点 48→**51**(+3 = 冷気の息の仲間 `a.hp -=` / 頭 `hp -=` / 岩の仲間 `ally.hp -=`。3 つとも敵の手番の内)。岩の頭は既存の `applyEnemySpellDamage` = 点は増えない |
+| driver_cleanup_phase1 | (D4) | `MSG_DEFEAT_*` の参照 17→**21**(冷気の息の仲間 1・頭の三項式 2・岩の仲間 1) |
+
+- ⚠⚠ **項目4 の言い直しで判断が要る見込み 1 件(予告外・ユーザー判断)**: verify_world_map **(7f)**「主人公が札を隠さない(札の面積の 10% 以上は重ならない)」。今は母集団のガードで止まっているが、札 13 枚へ言い直すと **主人公が frost_peak に立つと神殿の札を 11.0%(1440)/ 9.2%(390)隠す**(§12-1 (2) の実測・signDx に依らない = 神殿の札の位置の問題)ので 1440 で上限 10% を超える見込み。⛔ 神殿の signDx は動かさない(§11)・⛔ 点の座標は動かさない(§2-3)。#106 の前例 = ユーザー判断 (a) で `COVER_EXCEPT temple->lakeside 0.20`。⇒ 同じ形の例外(`frost_peak->temple` の組だけ上限を上げる)にするかはユーザー判断。札の中心は 13 枚とも押せる(7d)= 押せない欠陥ではない。

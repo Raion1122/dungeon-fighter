@@ -687,6 +687,11 @@
     try {
       if (new URLSearchParams(location.search).get("hag") === "0" && window.WORLD_MAP && window.WORLD_MAP.retireHag) window.WORLD_MAP.retireHag();
     } catch (e) {}
+    /* ★[#107] 撤退スイッチ ?giant=0 (実装依頼書 #107 §7)。?hag=0 と同じ「ページ単位で独立」(⛔ sessionStorage へ写さない)。
+       新しく足した点「霜の峠」(frost_peak)・神殿からの道・刻み点・札・依頼を消す。⚠ buildNodes() / buildSteps() より前で呼ぶこと。 */
+    try {
+      if (new URLSearchParams(location.search).get("giant") === "0" && window.WORLD_MAP && window.WORLD_MAP.retireGiant) window.WORLD_MAP.retireGiant();
+    } catch (e) {}
 
     var WM = window.WORLD_MAP;
     if (!WM) { location.replace("town.html"); return; }   // 保険: データが無ければ街へ

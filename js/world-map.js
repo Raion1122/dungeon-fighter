@@ -39,7 +39,7 @@
   var W = 1536, H = 1024;              // ★assets/world_region.jpg の実寸。座標は全部この px 系
 
   /* ── ノード ───────────────────────────────────────────────────────
-   *  kind: "site" … 拠点 (札が出る。ちょうど 12 個。★[#82] 8 つ目 = pass_n「見張りの塔」/ ★[#103] 9 つ目 = village_s「南の村」/ ★[#104] 10 個目 = pier「港の倉庫街」/ ★[#105] 11 個目 = lake_n「湖の北の島」/ ★[#106] 12 個目 = lakeside「湖畔の集落」)
+   *  kind: "site" … 拠点 (札が出る。ちょうど 13 個。★[#82] 8 つ目 = pass_n「見張りの塔」/ ★[#103] 9 つ目 = village_s「南の村」/ ★[#104] 10 個目 = pier「港の倉庫街」/ ★[#105] 11 個目 = lake_n「湖の北の島」/ ★[#106] 12 個目 = lakeside「湖畔の集落」/ ★[#107] 13 個目 = frost_peak「霜の峠」= 初めて**新しく足した点** (点 15・道 15))
    *        "way"  … 中継点 (札は出ない。線の折れ目)
    *  enter: 入ると遷移するページ。⛔ クエリを足さない (#6 / #12 の確定作法)。
    *         ⭐ v1 で enter を持つのは phlan ただ 1 つ (依頼書 §12-3 のユーザー決定)。
@@ -110,6 +110,15 @@
      *      ⛔ 他の拠点の signDx は動かさない。
      *   ⭐ 撤退 ?hag=0 は world.html / tavern.html が自ページで読み、retireHag() で中継点へ戻す。 */
     lakeside:  { kind: "site", x: 1056, y: 544, label: "湖畔の集落", desc: "湖の東岸の小さな集落。霧の森の奥に魔女の小屋", signDx: 160 }
+    /* ★[#107] 雪山の峠に新しい拠点 frost_peak「霜の峠」(本筋外の依頼「霜の巨人の砦」)。
+     *   ⭐ #82〜#106 と違い、中継点の格上げではなく **点を新しく足した** (空いている中継点は cross_n / farm_n の 2 つだけ = 依頼書 #107 §2-1)。
+     *   ⭐ 袋小路 (道は temple からの 1 本だけ) = 既存の点どうしの最短経路は 1 本も変わらない。
+     *   ⭐ 座標は temple (1184,416) から 160px ちょうど (96,−128) = 刻み点が生えない (依頼書 #107 §2-3)。
+     *   ⭐ signDx: -112 (依頼書 #107 §12-1 (2) の掃引): 390 幅で札が画面の外へ出ない帯 −88〜−136 の中央。
+     *      札 × 他の札 / 停留所 25 点 / 刻み点マーカー / 拠点マーカー / 主人公 = 交わり 0 (1440 / 390)。⛔ 他の拠点の signDx は動かさない。
+     *   ⚠ 前の行 (lakeside) を 1 バイトも変えないため、この行は**先頭のカンマ**で続ける。
+     *   ⭐ 撤退 ?giant=0 は world.html / tavern.html が自ページで読み、retireGiant() で点・道・札・依頼を消す。 */
+    , frost_peak: { kind: "site", x: 1280, y: 288, label: "霜の峠", desc: "地下神殿の谷の奥。雪の峠に霜の巨人の氷の砦", signDx: -112 }
   };
 
   /* ── エッジ ───────────────────────────────────────────────────────
@@ -123,6 +132,9 @@
     ["cross_n", "swamp"], ["swamp", "village_s"], ["village_s", "fort"], ["fort", "lakeside"],
     ["lakeside", "mine"], ["mine", "temple"],
     ["lakeside", "dragon"]
+    /* ★[#107] 初めて足した道 (神殿 → 霜の峠の袋小路・160px = 刻み点なし)。⛔ 上の行は 1 バイトも変えない (先頭のカンマで続ける)。
+     *   ⚠ これで 15 本。撤退 retireGiant() は splice でこの 1 本を外す (同じ配列のまま)。 */
+    , ["temple", "frost_peak"]
   ];
 
   function has(id) { return Object.prototype.hasOwnProperty.call(NODES, id); }
@@ -197,6 +209,7 @@
     "lost-cargo":     "pier",      /* ★[#104] 本筋外の 9 本目 (廃坑の後に解放) */
     "silent-tomb":    "lake_n",    /* ★[#105] 本筋外の 10 本目 (森の後に解放) */
     "witch-hut":      "lakeside"   /* ★[#106] 本筋外の 11 本目 (沼地の後に解放) */
+    , "frost-hold":   "frost_peak" /* ★[#107] 本筋外の 12 本目 (神殿の後に解放)。⛔ 上の行は変えない (先頭のカンマ) */
   };
 
   /* ── 解放の鎖 (依頼書 #23 §2-5) ─────────────────────────────
@@ -218,6 +231,7 @@
     "lost-cargo":     "goblin-mine", /* ★[#104] 廃坑のクリア後 (tavern.html の unlockAfter と同じ) */
     "silent-tomb":    "bandits-forest", /* ★[#105] 森のクリア後 (tavern.html の unlockAfter と同じ) */
     "witch-hut":      "lizard-swamp" /* ★[#106] 沼地のクリア後 (tavern.html の unlockAfter と同じ) */
+    , "frost-hold":   "undead-temple" /* ★[#107] 神殿のクリア後 (tavern.html の unlockAfter と同じ)。⛔ 上の行は変えない (先頭のカンマ) */
   };
 
   /* シナリオが地図に出るか。cleared は localStorage["dragonfighters.cleared"] の配列そのもの。
@@ -315,7 +329,8 @@
    *    cross_n__swamp@1   (512.0, 576.0)     lakeside__dragon@1 (1184.0, 608.0)
    *  ⚠⚠ うち cross_n__swamp@1 (沼地の札) と fort__lakeside@1 (廃墟の砦の札) の 2 個は
    *    羊皮紙の札の矩形へ食い込む (中心は 2.0px だけ逃げている)。⭐ 札のクリック点を
-   *    奪っていないことと逃げ幅は verify_world_steps.js の (2d) が毎回測る。 */
+   *    奪っていないことと逃げ幅は verify_world_steps.js の (2d) が毎回測る。
+   *  ★[#107] temple-frost_peak の道は 160px ちょうど = 刻み点は生えない ⇒ 刻み点 10 件のまま・停留所 25 箇所 (点 15 + 刻み点 10)。 */
   var STEPS = (function () {
     var m = {};
     for (var i = 0; i < EDGES.length; i++) {
@@ -449,6 +464,23 @@
     delete UNLOCK["witch-hut"];
   }
 
+  /* ★[#107] 撤退 ?giant=0 の器。⚠ 前の 5 つ (中継点へ戻す) と形が違う = **点も道も消す**。
+   *   ⚠⚠ STEPS は読み込み時に出来ている = 道を消すなら刻み点も消す (依頼書 #107 §2-2)。
+   *      今の座標 (160px) では frost_peak の刻み点は 0 個だが、座標を動かしたとき・同じ器を写したときに効く。
+   *   ⚠ NODES / EDGES / STEPS / SITES / UNLOCK の**同じオブジェクト**を書き換える (写しを作らない・EDGES は splice)。
+   *   ⭐ 呼ぶと #106 完了時の地図そのもの (点 14・道 14・刻み点 10・SITES 11)。クエリを読むのは各ページ。 */
+  function retireGiant() {
+    for (var i = EDGES.length - 1; i >= 0; i--) {
+      if (EDGES[i][0] === "frost_peak" || EDGES[i][1] === "frost_peak") EDGES.splice(i, 1);
+    }
+    for (var k in STEPS) {
+      if (Object.prototype.hasOwnProperty.call(STEPS, k) && STEPS[k].on.indexOf("frost_peak") >= 0) delete STEPS[k];
+    }
+    delete NODES.frost_peak;
+    delete SITES["frost-hold"];
+    delete UNLOCK["frost-hold"];
+  }
+
   global.WORLD_MAP = {
     W: W, H: H,
     NODES: NODES, EDGES: EDGES, SITES: SITES, UNLOCK: UNLOCK,
@@ -459,6 +491,7 @@
     retireCargo: retireCargo,   /* ★[#104] 撤退 ?cargo=0 の器 */
     retireTomb: retireTomb,     /* ★[#105] 撤退 ?tomb=0 の器 */
     retireHag: retireHag,       /* ★[#106] 撤退 ?hag=0 の器 */
+    retireGiant: retireGiant,   /* ★[#107] 撤退 ?giant=0 の器 */
     /* ── #40 の追加。⛔ 上の行は 1 バイトも変えない ── */
     STEP_MAX_PX: STEP_MAX_PX, STEPS: STEPS, stepsOfEdge: stepsOfEdge,
     walkNodes: walkNodes, walkEdges: walkEdges,

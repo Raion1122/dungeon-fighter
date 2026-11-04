@@ -58,6 +58,9 @@
     /* ★[#106] 霧の中の魔女の小屋 (本筋外の 11 本目)。塔の母と同じ理由でここに要る。
      *   ⛔ 屋外テーマ (FIELD_THEME_IDS) には入れない (森の小道も outdoor を付けない = 暗幕を「霧」として効かせる)。 */
     { id: "witch-hut",      name: "霧の中の魔女の小屋 (witch-hut)" },
+    /* ★[#107] 霜の巨人の砦 (本筋外の 12 本目)。塔の母と同じ理由でここに要る。
+     *   ⛔ 屋外テーマ (FIELD_THEME_IDS) には入れない (峠 n0 の屋外は ROOM_PAINTINGS_DEF の outdoor: true で表す・大広間は屋内)。 */
+    { id: "frost-hold",     name: "霜の巨人の砦 (frost-hold)" },
     { id: "caravan-road",   name: "屋外・街道 (caravan-road)" },
   ];
   var THEME_IDS = THEMES.map(function (t) { return t.id; });
@@ -1903,6 +1906,7 @@
     "lost-cargo":     { mob: ["rat", "zombie", "plagueFrog"],                    boss: "plaguePriest" }, // ★[#104] 2026-10-29 index.html の ENEMY_TYPES に plaguePriest を足した
     "silent-tomb":    { mob: ["skeleton", "tombArmor", "tombGargoyle"],          boss: "mummy" },        // ★[#105] 2026-10-30 index.html の ENEMY_TYPES に mummy / tombArmor / tombGargoyle を足した (⛔ 砦の animatedArmor / gargoyle ではない)
     "witch-hut":      { mob: ["zombie", "rat"],                                  boss: "greenHag" },     // ★[#106] 2026-11-02 index.html の ENEMY_TYPES に greenHag を足した (手下は既存の絵のまま)
+    "frost-hold":     { mob: ["orcGrunt", "orcArcher", "winterWolf"],            boss: "frostGiant" },   // ★[#107] 2026-11-04 index.html の ENEMY_TYPES に frostGiant / winterWolf を足した (オークは既存の絵のまま)
     // 屋外は resolve() でカスタム幾何を排他にしているのでこの経路には来ないが、
     // テーマ表の穴を作らないために置く (穴があると || の既定へ落ちて廃坑の敵が出る)。
     "caravan-road":   { mob: ["goblin", "goblinArcher", "hobgoblin"],            boss: "goblinRider" },

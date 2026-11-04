@@ -3749,6 +3749,7 @@
       "lost-cargo":      50,   // ★[#104] 隠し 2 (礼金 200 と合わせて 250)
       "silent-tomb":     75,   // ★[#105] 隠し 3 (礼金 250 と合わせて 325)
       "witch-hut":       75,   // ★[#106] 隠し 3 (礼金 250 と合わせて 325。取り引きを選ぶと礼金 0 = 75 だけ)
+      "frost-hold":      75,   // ★[#107] 隠し 3 (礼金 400 と合わせて 475)
     };
     function roadChestBonusGold() {
       if (!ROAD_CHEST_ON || !currentScenario) return 0;
@@ -4084,6 +4085,12 @@
                           wallFace: "wall_face_goblin-mine.png",
                           wallTop:  "wall_top_goblin-mine.png",
                           wallTint: { color: "228,234,244", a: 0.34 } },
+      /* ★[#107] 霜の巨人の砦 (本筋外の 12 本目)。新しい素材は足さない (峠も大広間も 1 枚絵が覆う)。
+       *   神殿と同じ石の組を当てる (依頼書 #107 §2-7)。⚠ 無いと SCENARIO_TEX の既定 (廃坑) へ落ちる = 宣言して落ちていないことを明示する。 */
+      "frost-hold":     { floor: "シナリオ5床.png", wall: "シナリオ5壁.png",
+                          wallFace: "wall_face_undead-temple.png",
+                          wallTop:  "wall_top_undead-temple.png",
+                          wallTint: { color: "92,100,116",  a: 0.42 } },
       // 隊商護衛 (7.9-3): 屋外の街道。専用テクスチャ = 踏み固めた土の道 + 街道脇の路肩(低い乾式石積み)。
       // ChatGPT 自動生成 (painterly・シームレス)。iOS の 96px/タイル制約に合わせ粒度は粗め。
       // ⚠️ [地平線ビュー STEP4] wall は**路肩専用の横長ストリップ 1024×96**。旧 caravan_road_wall.png は
@@ -4721,6 +4728,10 @@
        *   (trapCount:1 × search を両方に宣言) / 宝箱は n0 (森の小道) だけ。
        *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。 */
       t["witch-hut"] = { n0: ["search", "loot"], n1: ["search"] };
+      /* ★[#107] 霜の巨人の砦も最初から 2 ノード (雪の峠道 n0 → 氷の砦の大広間 n1)。罠は「部屋ごとに 1 つ」
+       *   (trapCount:1 × search を両方に宣言) / 宝箱は n0 (峠道) だけ。
+       *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。 */
+      t["frost-hold"] = { n0: ["search", "loot"], n1: ["search"] };
       return t;
     })();
     /* ★[P9 / 2026-08-20 ユーザー決定] 大部屋 n1 の「行かない小部屋」への寄り道の撤退スイッチ。
@@ -7038,6 +7049,68 @@
                ".#####..............###.",   // 12  南西の籠 col 1-5 / 床 col 6-19 / 樽と箱 col 20-22
                ".######################.",   // 13  南の棚 (瓶・きのこ・頭骨)
                ".######################.",   // 14  南の壁
+               "........................",   // 15  外周
+             ] },
+      },
+      /* ══ ★[#107] 霜の巨人の砦 — codex1 納品の卓上バトルマップ 2 枚 (v1) ══════════════════════
+       *   n0big = 雪の峠道 (道中・屋外) / n1big = 氷の砦の大広間 (ボス・屋内)。
+       * ⭐ 峠 n0 だけ outdoor: true (昼の雪の峠・空の下 = 依頼書 #107 §12-1 (3) の判断)。大広間 n1 は屋内 (暗幕を効かせる)。
+       * ⚠⚠⚠ テーマは **frost-hold** (js/df-mapdef.js の THEMES に載せた非屋外テーマ)。⛔ FIELD_THEMES に入れない。
+       * ⚠⚠⚠ **node: true が必須**。
+       * ⚠ 格子は 64px (tools/make_grid_map.py の frost-pass / frost-hall の注記が唯一の正。線は 2px 幅・中心 64k−0.5)。
+       *   2 枚とも 24x16 (1536x1024)。行数 16 = 偶数 → midR = 絵ローカル row 7 (半行上)。
+       * ⚠ tileBounds は buildFrostHoldRun の rect と**同値**。
+       * ⭐ MASK は依頼書 #107 §12-1 (3) の草案 (唯一の正・5 規則・sealRing を模した 4 近傍 BFS)。外周 1 マスは '.' (sealRing の仕事)。
+       *   ⚠ 本番で塞ぐのは '#' だけ (df-mapdef.js PAINTING_BLOCK_CHAR)。歩けない理由は行コメントで分ける。
+       *   敵のタイル (buildFrostHoldRun の slots) は全部 '.'。写像: 絵ローカル (col,row) + (16, 6) = global。 */
+      "frost-hold": {
+        n0big: { src: "assets/room_frost-hold_n0_map.jpg",
+             tileBounds: [6, 16, 21, 39], node: true,      // 16 行 x 24 列 (雪の峠道)。⚠ 行が先
+             sealRing: true,   /* 外周 1 タイルを通行不能に (西の端の入口と東の門だけが外周に開く) */
+             outdoor: true,    /* 雪の峠は屋外。入った瞬間から峠道の全体が見えている */
+             /*  ★障害物 (16 行 x 24 列)。row 7 が col 0 → col 23 を 1 マスも切らさない (西の端 → 東の門)。
+              *   西の端の入口 (0,7) → 東の砦の門 (23,7) = n1 への出口 global (39,13)。
+              *   獣の足跡の雪・毛皮・焚き火の跡は平置き = 塞がない。 */
+             blocked: [
+               "........................",   //  0  外周 (sealRing)
+               ".######################.",   //  1  北の岩・氷の塊
+               ".######################.",   //  2  岩・氷・潰れた荷車と木箱 (col 12-16)
+               ".######...#######..####.",   //  3  獣の足跡の雪 col 7-9 (平置き) / 荷車と岩 col 10-16 / 雪 col 17-18 / 岩・氷柱 col 19-22
+               ".#...........##......##.",   //  4  毛皮 col 2-3・焚き火の跡 col 4 (平置き = 塞がない) / 荷車の車輪 col 13-14 / 東の雪 col 15-20 / col 21-22 砦の壁
+               ".#.....###...........##.",   //  5  岩 col 7-8・小石と氷 col 9 / col 21-22 門扉 (開いた扉板)
+               "........#...............",   //  6  岩 col 8 / ⭐ 門の通路 col 21-23
+               "........................",   //  7  ⭐ 入口の行 = 西の端 → 東の門 (23,7) まで端から端まで開ける (midR)
+               "........................",   //  8  門の通路 col 21-23
+               ".#.......##.###......##.",   //  9  岩 col 9-10 / 氷の塊と岩 col 12-14 / col 21-22 門扉
+               ".##.....###.####.....##.",   // 10  氷の塊 col 1-2 / 岩 col 8-10 / 氷と岩 col 12-15
+               ".##########.#####...###.",   // 11  崖の縁 (col 11 と col 17-19 だけ雪)
+               ".######################.",   // 12  崖・凍った滝
+               ".######################.",   // 13
+               ".######################.",   // 14
+               "........................",   // 15  外周
+             ] },
+        n1big: { src: "assets/room_frost-hold_n1_map.jpg",
+             tileBounds: [6, 16, 21, 39], node: true,      // 16 行 x 24 列 (氷の砦の大広間)。⚠ 行が先
+             sealRing: true,   /* 外周 1 タイルを通行不能に (西の門だけが外周に開く) */
+             /*  ★障害物 (16 行 x 24 列)。⚠ outdoor は付けない (砦の中 = 暗幕を効かせる)。
+              *   西の門 (0,7) → 石畳 → **玉座 col 20-22 (rows 6-9) と青い火鉢 col 20-21 は '#'** (上に立たせない)。玉座の前 col 19 は '.'。
+              *   東の中点 (23,7) は玉座の裏の行き止まり (ボス部屋なので出口は使わない)。 */
+             blocked: [
+               "........................",   //  0  外周
+               ".######################.",   //  1  北の壁際: 氷の柱・樽・卓 (骨と角杯)・毛皮の寝床・骨の山・武器掛け・大斧
+               ".######################.",   //  2
+               ".#..................###.",   //  3  col 1 西の壁 / 石畳 col 2-19 / ⭐ 北の青い火鉢 col 20-21 (上に立たせない)・col 22 東の壁際
+               ".#..................###.",   //  4
+               ".#..................###.",   //  5  col 1 = 内開きの門扉
+               ".#..................###.",   //  6  ⭐ 玉座 col 20-22 (rows 6-9)。玉座の前 col 19 は '.'
+               "....................###.",   //  7  ⭐ 入口の行 (西の門 col 0 → 石畳 → 玉座で止まる)
+               "....................###.",   //  8  col 1 = 門の敷居
+               ".#..................###.",   //  9  col 1 = 南の門扉
+               ".#..................###.",   // 10  ⭐ 南の青い火鉢 col 20-21 (rows 10-11)
+               ".#..................###.",   // 11
+               ".#...................##.",   // 12  石畳 col 2-20
+               ".######################.",   // 13  南の壁際: 氷の柱・毛皮の寝床 (平置きだが瓦礫に囲まれる)・樽・瓦礫
+               ".######################.",   // 14
                "........................",   // 15  外周
              ] },
       },
@@ -10782,6 +10855,68 @@
         isWitchHag: true,    /* ★[#106] 戦う / 取り引きの 2 択の器 (initWitchHag) の目印 */
         xp: 700,
       },
+      /* ★[#107] 霜の巨人 (フロスト・ジャイアント)。5e SRD の Frost Giant (Huge Giant・CR8・AC15・HP138 (12d12+60)・
+       *   大斧 +9 3d12+6 x2・届き 10ft・岩 +9 4d10+6 60/240ft・冷気に完全耐性) をもとにしたボス。
+       * ⛔ 最初は SRD どおり (ボス補正をしない = HP 138 のまま)。値は出発点。強さの実測 (依頼書 #107 §8 ⑤) と合わせて直してよい。
+       * ⭐ 岩投げ (giantRockThrow): 届く距離に生きた隊員が 1 人も居ない手番に、いちばん遠い隊員へ岩を投げる (ボスの行動選択の前)。
+       *   rockDice を持つのは frostGiant だけ (⛔ 他の敵に付けない = 既存の敵の手番と乱数列は 1 ビットも動かない)。
+       * ⚠ シートは codex1 の v3 (tools/codex1_sprites.json の frostGiant・セル 192・char_ratio 0.76)。
+       *   displaySize 184 = 画面上 ≈ 140px (主人公 58 の 2.4 倍・依頼書 #107 §12-1 (4))。⚠ 当たり判定に直結。
+       *   体の実寸比は row2 の alpha bbox (§12-1 (4))。
+       * ⚠ meleeRange 210 = 大型ボスの帯 (stoneGolem / hydra / chimera と同じ)。斧の先は中心から画面上 ≈ 89px + 届き 10ft。
+       *   attackDuration 40 / attackHitFrame 20 = 攻撃の伸び col 2-3 (stoneGolem と同じ帯)。
+       * ⚠ critMult 3 = 大斧 (D&D 3.5 の greataxe ×3)。⛔ fearDC / glareDC / snareDC / inflictDice / breathDice を持たせない
+       *   (他のボスの入口が誤って動く)。冷気の完全耐性は ENEMY_TRAITS。 */
+      frostGiant: {
+        name: "霜の巨人(フロスト・ジャイアント)",
+        flavor: "雪山から下りてきた青白い肌の巨人。大斧を振るい、遠くの敵には岩を投げつける",
+        sprite: "assets/frostGiant_anim.png?v=1",
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 184,    // ★[#107] 画面上の身長 ≈ 140px (依頼書 #107 §12-1 (4))。⚠ 当たり判定に直結
+        // ★体の実寸比 (依頼書 #107 §12-1 (4)・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.505, bodyRatioY: 0.766, bodyOffX: 0.240, bodyOffY: 0.182,
+        hp: 138, speed: 0.6, // 歩行 40ft (大型ボスの帯)
+        hasAttackAnim: true,
+        meleeRange: 210, hitRange: 300,
+        attackDuration: 40, attackHitFrame: 20, attackCooldown: 70,
+        str: 6, dex: -1, atkBonus: 9, ac: 15,
+        dmgDice: "3d12", dmgBonus: 6, critRange: 20, critMult: 3,   // 大斧 (SRD の Greataxe)
+        range: "melee",
+        isBoss: true,
+        attacksPerTurn: 2,   // SRD の Multiattack (大斧 2 回)
+        maxSummons: 0,       // 召喚なし (summon 抽選を無効化)
+        rockDice: "4d10", rockBonus: 6,   /* ★[#107] 岩投げ (giantRockThrow)。⛔ 他の敵に付けない */
+        deathLine: "…山の向こうの…赤い竜は…次は…お前たちの町を……",
+        xp: 1200,
+      },
+      /* ★[#107] 冬狼 (ウィンター・ウルフ)。5e SRD の Winter Wolf (Large Monstrosity・CR3・AC13・HP75 (10d10+20)・
+       *   噛みつき +6 2d6+4・冷気の息 Recharge 5-6 (DEX DC12・4d8・セーヴで半減)・冷気に完全耐性)。
+       * ⭐ 冷気の息 (coldBreath) = 「ボスでない敵の息」の分岐 (入口 !def.isBoss && def.breathDice && def.breathElement === "cold")。
+       *   最初は使える → 使ったら再充填待ち → 自分の手番の頭で d6 を 1 回振り 5〜6 で戻る。使えるときは必ず吐く (breathChance を持たない)。
+       *   着弾は 3x3 (ハイドラと同じ形・⛔ 円錐にしない)。3x3 にパーティが 1 人も入らないときは噛む。
+       * ⛔ isBoss を付けない・breathChance を付けない・packTactics を付けない (SRD の群れの戦術と転倒は入れない = 依頼書 #107 §11)。
+       * ⚠ シートは codex1 の v3 (tools/codex1_sprites.json の winterWolf・セル 192・char_ratio 0.47)。
+       *   displaySize 130 = 画面上 高さ ≈ 61px・体長 ≈ 113px (依頼書 #107 §12-1 (4))。⚠ 当たり判定に直結。 */
+      winterWolf: {
+        name: "冬狼(ウィンター・ウルフ)",
+        flavor: "雪のように白い毛の大狼。凍てつく息で獲物を凍らせ、牙で噛み裂く",
+        sprite: "assets/winterWolf_anim.png?v=1",
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 130,    // ★[#107] 画面上 高さ ≈ 61px / 体長 ≈ 113px (依頼書 #107 §12-1 (4))。⚠ 当たり判定に直結
+        // ★体の実寸比 (依頼書 #107 §12-1 (4)・row2=移動中の行の 6 コマの alpha bbox)
+        bodyRatioX: 0.922, bodyRatioY: 0.474, bodyOffX: 0.057, bodyOffY: 0.474,
+        hp: 75, speed: 0.9,  // 歩行 50ft (四足獣)
+        hasAttackAnim: true,
+        meleeRange: 170, hitRange: 250,
+        attackDuration: 28, attackHitFrame: 14, attackCooldown: 50,
+        str: 4, dex: 1, atkBonus: 6, ac: 13,
+        dmgDice: "2d6", dmgBonus: 4, critRange: 20, critMult: 2,   // 噛みつき (SRD の Bite)
+        range: "melee",
+        breathDice: "4d8", breathDC: 12, breathBlast: 3, breathElement: "cold",   /* ★[#107] 冷気の息 (coldBreath)。⛔ 冬狼以外に付けない */
+        xp: 350,
+      },
       skeleton: {
         name: "スケルトン",
         flavor: "墓から甦りし骨の兵士",
@@ -12146,6 +12281,30 @@
           // 小屋: 溺れた村人 3 + 霧の魔女
           ["zombie", 55, 12], ["zombie", 55, 14], ["zombie", 56, 13],
           ["greenHag", 57, 13],
+        ],
+      },
+      /* ★[#107] 霜の巨人の砦 (本筋外の 12 本目・神殿の後・推奨 Lv8)。
+       * ⭐ 実際の盤面は buildFrostHoldRun (卓上マップ 2 枚)。spawns は ?graph=0 の単一マップ用の退避先。
+       * ⭐ trapCount:1 × NODE_EXTRA_SPAWN_KINDS の n0/n1 両方の search = 罠は部屋ごとに 1 つ。
+       *   trapTypeByNode は罠の**語り**だけを変える (乱数を 1 つも足さない)。
+       * ⭐ clearXp 1200 = 神殿と同じ段 / clearGold 400 = 本筋外の礼金 120 → 200 → 250 → 300 の次の段 (依頼書 #107 §4)。
+       * ⚠ 値は出発点。強さの実測 (依頼書 #107 §8 ⑤) と合わせて直してよい。 */
+      "frost-hold": {
+        title: "霜の巨人の砦 — 雪の峠の氷の砦",
+        flavor: "雪の峠の古い氷の砦に住みついた霜の巨人を討ち、峠を取り戻せ",
+        perceptionDC: 15,
+        trapCount: 1,
+        trapTypeByNode: { n0: "avalanche", n1: "iceFloor" },
+        hiddenChestCount: 3,
+        clearXp: 1200,
+        clearGold: 400,
+        spawns: [
+          /* ?graph=0 用。buildFrostHoldRun の slots と同じ顔ぶれを並べる */
+          // 雪の峠道: 巨人に雇われたオーク 4
+          ["orcGrunt", 30, 12], ["orcGrunt", 31, 14], ["orcArcher", 32, 13], ["orcArcher", 29, 14],
+          // 大広間: 冬狼 2 + 霜の巨人
+          ["winterWolf", 55, 11], ["winterWolf", 55, 15],
+          ["frostGiant", 57, 13],
         ],
       },
     };
@@ -15877,6 +16036,7 @@
         else if (t === "kobold" || t === "koboldChief") fam = "kobold";   // v2: 廃坑の主力雑魚なのに generic に落ちていた / ★[#103] 族長もコボルドの家系
         else if (t === "ghostFlame") fam = "undead";   // v2: def.undead を持つのに generic に落ちていた
         else if (t === "mummy") fam = "undead";   // ★[#105] 墓所の主 (マミー)。既存のアンデッドの語りを引くだけ (⛔ 新しい台詞は足さない)
+        else if (t === "winterWolf") fam = "beast";   // ★[#107] 冬狼。既存の獣の語りを引くだけ (⛔ 新しい台詞は足さない・巨人は generic のまま)
         else if (t.startsWith("lizard")) fam = "lizardman";   // Sce3 沼の敵 (Warrior/Hunter/Raider/Priest/Chieftain)。従来 generic に落ちていた
         else if (t === "hydra") fam = "hydra";   // Sce3 隠し要素: 沼の守護神 (専用エンカ気配)
         else if (t === "pharaxus") fam = "dragon"; // Sce6 最終ボス: レッドドラゴン・ファラクサス
@@ -16120,6 +16280,13 @@
         "霧の向こうから、子どもの声がする——いや、本当に子どもの声だろうか。",
         "このあたりの者は言う。霧の深い夜、森の奥の小屋の魔女は、欲しいものと引き換えに、なんでも返してくれると。",
         "さあ、霧の森へ踏み込め。",
+      ],
+      /* ★[#107] 霜の巨人の砦 (神殿の谷の奥・雪の峠・岩に潰された隊商・巨人の砦) */
+      "frost-hold": [
+        "君たちは、地下神殿の谷をさらに奥へと進んだ。吐く息が白く凍り、足もとの雪が音を立てて軋む。",
+        "峠の道には、潰れた荷車が転がっている。空から降ってきた岩が、隊商を荷ごと押し潰したのだ。",
+        "峠の上に、古い氷の砦がある。山から下りてきた霜の巨人が、そこを新しい住処にしたという。",
+        "さあ、雪の峠へ踏み込め。",
       ],
     };
 
@@ -19097,6 +19264,25 @@
       traps: function () { return traps.map(t => ({ tx: t.tx, ty: t.ty, type: t.type, found: t.found, triggered: t.triggered })); },
       nodeId: function () { try { return currentNodeId; } catch (e) { return null; } },
       hag: function () { return { hagIdx: hagIdx, hagResolved: hagResolved, choice: sceneFlags.hag_choice }; },   // ⚠ let の宣言はここより下 = 関数で包む (TDZ)
+      scenario: function () { return currentScenario; },
+    };
+    /* ★[#107] 検証シーム (霜の巨人の砦)。⛔ 状態の置き場にしない (読むための窓)。__witchHutTV と同じ形。 */
+    window.buildFrostHoldRun = buildFrostHoldRun;
+    window.coldBreath = coldBreath;
+    window.giantRockThrow = giantRockThrow;
+    window.__frostHoldTV = {
+      ENEMY_TYPES: { frostGiant: ENEMY_TYPES.frostGiant, winterWolf: ENEMY_TYPES.winterWolf,
+                     orcGrunt: ENEMY_TYPES.orcGrunt, orcArcher: ENEMY_TYPES.orcArcher },
+      buildFrostHoldRun: buildFrostHoldRun,
+      coldBreath: coldBreath,
+      giantRockThrow: giantRockThrow,
+      giantRockReachable: function (idx) { return giantRockReachable(idx); },
+      coldBreathCenter: function (idx) { return coldBreathCenter(idx); },
+      TRAP_TYPES: function () { return TRAP_TYPES; },   // ⚠ const の宣言 (罠の節) はここより下 = 関数で包む (TDZ)
+      trapTypeForNode: function () { return trapTypeForNode(); },
+      traps: function () { return traps.map(t => ({ tx: t.tx, ty: t.ty, type: t.type, found: t.found, triggered: t.triggered })); },
+      nodeId: function () { try { return currentNodeId; } catch (e) { return null; } },
+      hall: function () { return { narrated: frostHallNarrated }; },   // ⚠ let の宣言はここより下 = 関数で包む (TDZ)
       scenario: function () { return currentScenario; },
     };
     window.__towerMotherTV = {
@@ -23806,6 +23992,7 @@
     // 炎を使う敵 = 炎の息 (breathDice) を持つか、炎の呪文を唱える。
     function srdEnemyUsesFire(def) {
       if (!def) return false;
+      if (def.breathElement === "cold") return false;   // ★[#107] 冬狼の冷気の息は炎ではない (既存の breathDice 持ちは 3 体とも炎 = 結果は不変)
       if (def.breathDice) return true;
       return Array.isArray(def.spells) && def.spells.some(s => s === "fireBolt" || s === "scorchingRay" || s === "fireball");
     }
@@ -27773,6 +27960,27 @@
     }
     setInterval(tryWitchHagDialog, 400);
 
+    /* ══ ★[#107] 氷の砦の大広間の語り (n1 に入ったとき 1 回・竜の伏線) ═══════════════════════
+     * ⭐ 巨人は「山の向こうの赤い竜に住処を焼かれて逃げてきた」= ファラクサスの脅威を本筋の外から語る (依頼書 #107 §1・§4)。
+     * ⭐ 到着の語り・ボス部屋の囁き (narrate("boss_room_enter")) を上書きしない = #dmMessage が出ていない tick を待つ。
+     *   戦闘は止めない (語りの最中も showDMMessage が narrationHold を立てる = 普段のプレイでは時間が止まる)。
+     * ⛔ 2 択を作らない (#106 の形を流用しない・§11)。⛔ Math.random を 1 度も引かない。
+     * ⚠ ?graph=0 の単一マップ (RUN = null) では語らない。 */
+    let frostHallNarrated = false;
+    window.__frostHallProbe = window.__frostHallProbe || [];
+    function tryFrostHallNarration() {
+      if (frostHallNarrated) return;
+      if (!RUN || !gameStarted || gameOver || dungeonCleared) return;
+      if (scenarioId !== "frost-hold" || currentNodeId !== RUN.bossNodeId) return;
+      if (nodeBusy || narrationPlaying || dialogPaused || skillCheckActive) return;
+      const dm = document.getElementById("dmMessage");
+      if (dm && dm.classList.contains("show")) return;   // 到着・ボス部屋の語りを上書きしない
+      frostHallNarrated = true;
+      window.__frostHallProbe.push({ node: currentNodeId, at: Date.now(), encounter: !!(encounterActive || encounterRunning) });
+      showDMMessage("玉座の巨人が、低く唸った——「山の向こうの赤い竜に、我らの住処は焼かれた。逃げ延びた先が、ここだ。ここは譲らぬ」", 4600);
+    }
+    setInterval(tryFrostHallNarration, 400);
+
     async function runWitchHagDialog() {
       showDMMessage("大鍋の湯気の向こうで、緑の肌の老婆が笑った。霧の中に、溺れた村人たちが立ち尽くしている。", 4200);
       await sleepMs(1200);
@@ -28360,6 +28568,9 @@
       /* ★[#106] 茨の罠 / 呪いの人形 = 語りだけ違う罠 (ダイス・解除 XP は damage と同じ)。霧の中の魔女の小屋の n0 (森の小道) / n1 (小屋) が宣言する。 */
       thorn:    { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "落ち葉の下の茨の罠が、足に絡みついた!" },
       hex:      { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "吊るされた枝の人形がけたけた笑った——呪いの罠だ!" },
+      /* ★[#107] 雪崩の罠 / 氷の床 = 語りだけ違う罠 (ダイス・解除 XP は damage と同じ)。霜の巨人の砦の n0 (峠道) / n1 (大広間) が宣言する。 */
+      avalanche: { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "張られた綱が切れた——崖の上から雪と岩が崩れ落ちてくる!" },
+      iceFloor:  { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "磨かれた氷の床で足が滑った——氷の棘の上へ叩きつけられる!" },
     };
     /* ★[#103] いまのノードの罠の種類。⛔ Math.random を呼ばない (spawnTraps の乱数の消費順を変えない = 依頼書 §2-4)。 */
     function trapTypeForNode() {
@@ -30665,6 +30876,8 @@
       animatedArmor:  { sleepImmune: true },
       stoneLegionary: { sleepImmune: true },                                     // 独自。ゴーレムと揃える (依頼書 §2-7)
       tombArmor:      { sleepImmune: true },                                     // ★[#105] 墓所の動く鎧 = animatedArmor と同じ構造体
+      frostGiant:     { immune: ["cold"] },                                      // ★[#107] Frost Giant (SRD の Damage Immunities)
+      winterWolf:     { immune: ["cold"] },                                      // ★[#107] Winter Wolf (SRD の Damage Immunities)
     };
     /* 属性の倍率。0 = 効かない / 0.5 = 効きにくい / 1 = 等倍。element は "fire" | "cold" | "lightning"。 */
     function enemyElementMult(e, element) {
@@ -30713,6 +30926,7 @@
       wyvern: "arcana", wyvernBoss: "arcana",   // ★[#82] 5e SRD の Wyvern は竜 (creature_type: Dragon) ⇒ 魔法学
       tombArmor: "arcana", tombGargoyle: "arcana",   // ★[#105] 墓所専用の動く鎧 / ガーゴイル (元の 2 種と同じ)
       greenHag: "arcana",   // ★[#106] 霧の魔女 (SRD の Green Hag = Fey。妖精は次元界の住人 = 魔法学・依頼書 #106 §12-1 (1))
+      frostGiant: "history",   // ★[#107] 霜の巨人 (SRD の Frost Giant = Giant。氏族と掟を持つ人型の巨人 = 歴史・既存の分岐へ)。冬狼 (Monstrosity) は自然 = 載せない
     };
     /* 呪文 → 体質の表と同じ属性語。⚠ 演出の dfPlayCast の element ('ice' 等) を読まない (依頼書 §2-2 罠 3)。 */
     const SPELL_ELEMENT = {
@@ -30746,6 +30960,7 @@
       mummy: 3,          // ★[#105] SRD raw/srd/monsters/mummy.md の CR 3 (ボス補正は HP だけ)
       tombArmor: 1, tombGargoyle: 2,   // ★[#105] 元の animatedArmor / gargoyle と同じ SRD の CR
       greenHag: 3,       // ★[#106] SRD raw/srd/monsters/green-hag.md の CR 3 (ボス補正は HP だけ)
+      frostGiant: 8, winterWolf: 3,   // ★[#107] SRD raw/srd/monsters/frost-giant.md の CR 8 / winter-wolf.md の CR 3 (ボス補正なし)
     };
     function loreCrText(type) {   // 0.125 → "1/8"。表に無ければ "" (= 出さない)
       const cr = LORE_CR[type];
@@ -36756,6 +36971,413 @@
       }
     }
 
+    /* ══ ★[#107] 冬狼の「冷気の息」(5e SRD Winter Wolf の Cold Breath・Recharge 5-6・DEX DC12・4d8 セーヴで半減) ══════════
+     * ⛔ hydraFireBreath / applyFireBreathToAlly は 1 バイトも変えない (検証 3 本が中身を握る・火のブレスの見た目と文言はそのまま)。
+     *   これはその**写し**。違いは: 演出 = 青白い粒 (spawnFrostFleck の色) / 半減 = 無し (味方の冷気耐性の器は今無い = 倍率 1) /
+     *   文言「冷気の息」「FROZEN」/ 年代記 "冷気の息" / 反射 fireAcid: false (指輪の扱いは tryReflectEnemySpell の既存の判定に任せる)。
+     * ⭐ 着弾の形はハイドラと同じ 3x3 (SRD は 15ft の円錐だが、敵 → パーティの円錐は今の作りに無い = ⛔ 円錐にしない)。
+     *   3x3 の中心は狙った相手のタイル。ただし狼から 2 マス (中心) より遠ければ狼の側へ 2 マスまで寄せる
+     *   (= 3x3 の遠い縁が狼から 3 マス = 15ft)。寄せた 3x3 にパーティが 1 人も入らなければ吐かない (噛む・再充填は使わない)。
+     * ⭐ 入口は enemyAttackTurn の「ボスでない敵の息」の分岐 1 つ (!def.isBoss && def.breathDice && def.breathElement === "cold")。
+     *   Recharge 5-6: 最初は使える。使ったら __coldBreathSpent。使えない間は自分の手番の頭で d6 を 1 回振り 5〜6 で戻る (戻った手番に吐ける)。
+     * ⚠ 乱数: d6 と DEX セーヴとダメージのダイスは**冬狼の手番の中だけ**で振る (冬狼が居ない盤面の乱数列は 1 ビットも動かない)。
+     * 検証用 probe = window.__coldBreathProbe (site: "recharge" / "breath" / "bite")。⛔ ゲームの判定には使わない。 */
+    window.__coldBreathProbe = window.__coldBreathProbe || [];
+    const COLD_BREATH_REACH = 2;   // 3x3 の中心タイルは狼の中心タイルから最大 2 マス (Chebyshev) = 遠い縁が 3 マス = 15ft
+    function coldBreathCenter(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.def) return null;
+      const def = enemy.def;
+      const pick = pickEnemyTarget(enemyIdx);
+      let centerWX, centerWY;
+      if (pick && (pick.kind === "leader" || pick.kind === "ally")) {
+        centerWX = pick.cx; centerWY = pick.cy;
+      } else if (hp > 0 && !gameOver) {
+        centerWX = playerX + 48; centerWY = playerY + 58;
+      } else {
+        const a0 = allies.find(a => a.alive);
+        if (!a0) return null;
+        centerWX = a0.x + a0.def.displaySize / 2; centerWY = a0.y + a0.def.displaySize / 2;
+      }
+      const blast = def.breathBlast || 3;
+      const half = Math.floor(blast / 2);
+      const wTX = Math.floor((enemy.x + def.displaySize / 2) / TILE_SIZE);
+      const wTY = Math.floor((enemy.y + def.displaySize / 2) / TILE_SIZE);
+      let cTX = Math.floor(centerWX / TILE_SIZE), cTY = Math.floor(centerWY / TILE_SIZE);
+      const d = Math.max(Math.abs(cTX - wTX), Math.abs(cTY - wTY));
+      const clamped = d > COLD_BREATH_REACH;
+      if (clamped) {
+        cTX = wTX + Math.round((cTX - wTX) * COLD_BREATH_REACH / d);
+        cTY = wTY + Math.round((cTY - wTY) * COLD_BREATH_REACH / d);
+      }
+      const tx0 = cTX - half, ty0 = cTY - half;
+      const inBlast = (wx, wy) => {
+        const mtx = Math.floor(wx / TILE_SIZE), mty = Math.floor(wy / TILE_SIZE);
+        return mtx >= tx0 && mtx < tx0 + blast && mty >= ty0 && mty < ty0 + blast;
+      };
+      let members = 0;
+      for (const a of allies) {
+        if (a && a.alive && inBlast(a.x + a.def.displaySize / 2, a.y + a.def.displaySize / 2)) members++;
+      }
+      if (hp > 0 && !gameOver && inBlast(playerX + 48, playerY + 58)) members++;
+      return { tx0, ty0, blast, cTX, cTY, wTX, wTY, dist: d, clamped, members, inBlast };
+    }
+
+    // 冷気の息の仲間ダメージ適用 (applyFireBreathToAlly の写し。⛔ 元は変えない。違いは文言と年代記だけ)
+    function applyColdBreathToAlly(a, dmg) {
+      const tCX = a.x + a.def.displaySize / 2;
+      // 不屈 (resilient): 致命傷を 1d4 HP で耐える (1戦1回・戦士系仲間のみ)
+      if (a.equippedSkills && a.equippedSkills.includes("resilient")
+          && !a.buffs.resilientFired && (a.hp - dmg) <= 0 && dmg > 0) {
+        a.buffs.resilientFired = true;
+        const sRoll = rollDiceDD(1, 4);
+        showDmgAt(tCX, a.y, dmg, false);
+        a.hp = sRoll.total;
+        showRollAtAlly(a,
+          `<span class="label">不屈!</span>致命傷を 1d4(<span class="big">${sRoll.total}</span>) HP で耐える`, "crit");
+        return;
+      }
+      a.hp -= dmg; if (a.hp < 0) a.hp = 0;
+      showDmgAt(tCX, a.y, dmg, false);
+      updateInfo(`${a.npcName || a.def.name} は冷気の息で ${dmg} ダメージ! HP ${a.hp}/${a.maxHp}`);
+      if (a.hp <= 0) {
+        RunChronicle.fall(a, "冷気の息");   // 年代記 (#37)
+        a.alive = false;
+        updateInfo(`${a.npcName || a.def.name} は倒れた…`);
+        if (a.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
+      }
+    }
+
+    // 冷気の息の本体。吐いたら true / 3x3 にパーティが居ない (= 噛む) なら false。
+    async function coldBreath(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return false;
+      const def = enemy.def;
+      const turn = enemy.__wolfTurn || 0;
+      const C = coldBreathCenter(enemyIdx);
+      if (!C || C.members === 0) {
+        window.__coldBreathProbe.push({ site: "bite", reason: "empty", enemyIdx, turn,
+                                        center: C ? [C.cTX, C.cTY] : null, clamped: C ? C.clamped : null });
+        return false;
+      }
+      const { tx0, ty0, blast, inBlast } = C;
+      const dc = def.breathDC || 12;
+      enemy.__coldBreathSpent = true;                       // Recharge 5-6 (次の手番の頭から d6 で戻す)
+      const rec = { site: "breath", enemyIdx, turn, center: [C.cTX, C.cTY], tx0, ty0, from: [C.wTX, C.wTY],
+                    clamped: C.clamped, dc, dice: def.breathDice || "4d8", hits: [], hitCount: 0, savedCount: 0, reflected: false };
+
+      // ── 発動宣言 + 演出 ──
+      showBanner("❄ 冷気の息 ❄", 1500);
+      updateInfo(`${def.name}: 凍てつく冷気の息を吐き出す! (DEX セーヴ DC ${dc})`);
+      if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
+      if (!enemy.__breathNarrated && typeof showDMMessage === "function") {
+        enemy.__breathNarrated = true;
+        showDMMessage("「白い狼が大きく息を吸い込む。牙の間から、骨まで凍らせる冷気があふれ出した。」", 3200);
+      }
+      const mouthWX = enemy.x + def.displaySize / 2;
+      const mouthWY = enemy.y + def.displaySize * 0.5;
+      // 溜めの吸い込み: 口元へ冷気の粒が収束 (Canvas)。⚠ 粒の乱数は冬狼の手番の中 = 演出のみ
+      if (fxEnabled()) {
+        for (let i = 0; i < 14; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          const r0 = 50 + Math.random() * 80;
+          const sx = mouthWX + Math.cos(ang) * r0, sy = mouthWY + Math.sin(ang) * r0;
+          emitParticle({
+            x: sx, y: sy, vx: (mouthWX - sx) * 2.6, vy: (mouthWY - sy) * 2.6,
+            life: 360, size0: 4 + Math.random() * 4, size1: 8,
+            r: 200, g: 235, b: 255, a0: 0.0, a1: 0.9, kind: "dot", blend: true,
+          });
+        }
+      }
+      await sleepMs(400);
+
+      // スペルターニングリング: 反射の扱いは既存の判定に任せる (fireAcid: false = 体質の判定は通らない)
+      if (await tryReflectEnemySpell(enemyIdx, {
+        name: "冷気の息",
+        fireAcid: false,
+        rollDamage: () => { const dd = parseDiceDD(def.breathDice || "4d8"); return rollDiceDD(dd.n, dd.sides).total; },
+      })) {
+        rec.reflected = true;
+        window.__coldBreathProbe.push(rec);
+        return true;
+      }
+
+      // ── 噴射 → 着弾 (青白い粒の流れ + 3x3 に氷の粒) ──
+      const blastCWX = (tx0 + blast / 2) * TILE_SIZE;
+      const blastCWY = (ty0 + blast / 2) * TILE_SIZE;
+      if (fxEnabled()) {
+        const dcx = blastCWX - mouthWX, dcy = blastCWY - mouthWY;
+        const len = Math.max(1, Math.hypot(dcx, dcy));
+        for (let i = 0; i < 26; i++) {
+          const spread = (Math.random() - 0.5) * 0.6;
+          const c = Math.cos(spread), s = Math.sin(spread);
+          const vx = (dcx * c - dcy * s) / len, vy = (dcx * s + dcy * c) / len;
+          const sp = len * (1.6 + Math.random() * 0.8);
+          emitParticle({
+            x: mouthWX, y: mouthWY, vx: vx * sp, vy: vy * sp,
+            life: 420 + Math.random() * 160, size0: 6 + Math.random() * 6, size1: 14,
+            r: 200, g: 235, b: 255, a0: 0.9, a1: 0, kind: "dot", blend: true,
+          });
+        }
+        for (let ty = ty0; ty < ty0 + blast; ty++) {
+          for (let tx = tx0; tx < tx0 + blast; tx++) {
+            for (let k = 0; k < 3; k++) {
+              emitParticle({
+                x: tx * TILE_SIZE + Math.random() * TILE_SIZE, y: ty * TILE_SIZE + Math.random() * TILE_SIZE * 0.6,
+                vx: (Math.random() - 0.5) * 14, vy: 28 + Math.random() * 36, ay: 60,
+                life: 700 + Math.random() * 200, size0: 5 + Math.random() * 4, size1: 1.5,
+                r: 200, g: 235, b: 255, a0: 0.9, a1: 0,
+                kind: "flake", blend: true, rot: Math.random() * 6.28, vrot: (Math.random() - 0.5) * 6,
+              });
+            }
+          }
+        }
+      }
+      triggerScreenShake(SHAKE_SPELL.mag, SHAKE_SPELL.dur);
+      await sleepMs(450);
+
+      // ── 着弾 3x3 内のメンバー判定 + DEX セーヴ + 冷気ダメージ (倍率 1 = 味方の冷気耐性の器は無い) ──
+      const rollBreath = () => {
+        const dd = parseDiceDD(def.breathDice || "4d8");
+        return Math.max(1, rollDiceDD(dd.n, dd.sides).total);
+      };
+      // 仲間を先に解決 (頭の委譲で allies が再編される前に確定させる)
+      for (let ai = 0; ai < allies.length; ai++) {
+        const a = allies[ai];
+        if (!a.alive || gameOver) continue;
+        const acx = a.x + a.def.displaySize / 2, acy = a.y + a.def.displaySize / 2;
+        if (!inBlast(acx, acy)) continue;
+        const roll = d20();
+        const sb = getSaveBonus(a);
+        const total = roll + (a.dex || 0) + sb;
+        const saved = total >= dc;
+        const raw = rollBreath();
+        let dmg = raw;
+        if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); rec.savedCount++; }
+        rec.hitCount++;
+        rec.hits.push({ kind: "ally", idx: ai, roll, total, saved, raw, dmg });
+        showRollAtAlly(a,
+          `<span class="label">${saved ? "DEX SAVE" : "FROZEN"}</span>` +
+          `1d20(<b>${roll}</b>)${saveModDD(a.dex || 0, sb)} = ${total}<br>vs DC ${dc}`,
+          saved ? "hit" : "miss");
+        applyColdBreathToAlly(a, dmg);
+      }
+      // 頭 (player) を最後に解決
+      if (hp > 0 && !gameOver && inBlast(playerX + 48, playerY + 58)) {
+        const roll = d20();
+        const sb = getSaveBonus("player");                                  // ⚠ 仲間側と別行 = 片方だけ挿すと頭だけ効かない
+        const total = roll + (playerStats.dex || 0) + sb;
+        const saved = total >= dc;
+        const raw = rollBreath();
+        let dmg = raw;
+        if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); rec.savedCount++; }
+        rec.hitCount++;
+        rec.hits.push({ kind: "leader", idx: null, roll, total, saved, raw, dmg });
+        showRollAtPlayer(
+          `<span class="label">${saved ? "DEX SAVE" : "FROZEN"}</span>` +
+          `1d20(<b>${roll}</b>)${saveModDD(playerStats.dex || 0, sb)} = ${total}<br>vs DC ${dc}`,
+          saved ? "hit" : "miss");
+        // 不屈 (resilient): 致命傷を 1d4 HP で耐える (1戦1回・戦士系)
+        const wouldDie = (hp - dmg) <= 0;
+        if (equippedSkills.includes("resilient") && !playerBuffs.resilientFired && wouldDie && dmg > 0) {
+          playerBuffs.resilientFired = true;
+          const sRoll = rollDiceDD(1, 4);
+          showDmgAt(playerX + 48, playerY, dmg, false);
+          hp = sRoll.total;
+          showBuffPop(`<span class="label">不屈!</span>致命傷を 1d4(<span class="big">${sRoll.total}</span>) HP で耐える`);
+        } else {
+          hp -= dmg; if (hp < 0) hp = 0;
+          showDmgAt(playerX + 48, playerY, dmg, false);
+          updateInfo(`${getLeaderName()} は冷気の息で ${dmg} ダメージ! HP ${hp}/${maxHp}`);
+        }
+        await sleepMs(500);
+        if (hp <= 0 && !onHeadDowned("battle")) {
+          gameOver = true;
+          invincible = false; guardInvincible = false; counterInvincible = false; counterVisualActive = false;
+          stopDamageBlink();
+          player.style.opacity = "1"; player.style.filter = "none";
+          updateInfo(isPartyWiped() ? MSG_DEFEAT_PARTY : MSG_DEFEAT_YOU);
+        }
+      }
+      updateInfo(`${def.name}の冷気の息: ${rec.hitCount}体に着弾 (${rec.savedCount}体セーヴ半減)`);
+      window.__coldBreathProbe.push(rec);
+      await sleepMs(600);
+      return true;
+    }
+
+    /* ══ ★[#107] 霜の巨人の「岩投げ」(5e SRD Frost Giant の Rock・+9・4d10+6・60/240ft) ══════════
+     * ⭐ 条件 = def.rockDice を持ち、**届く距離に生きた隊員が 1 人も居ない**手番で、enemy.rockCooldown が 0。
+     *   「届く距離」= 噛撃の射程チェック (enemyAttackTurn の resolveOneBite) と**同じ式**
+     *   (tileChebyshev(巨人の中心, 隊員の中心) ≤ getRange(def.range).tiles)。⚠ meleeRange (px) は探索中のリアルタイムの
+     *   攻撃モーションの間合いで、手番の戦闘の届く距離ではない (依頼書 #107 §12-2 (1))。
+     * ⭐ 狙い = **いちばん遠い**生きた隊員 (後衛を狙う巨人)。⛔ Math.random を引かない (乱数列を動かさない)。
+     * ⭐ 命中は既存の敵の攻撃と同じ式: d20 + atkBonus (激怒 +2・煙幕のペナルティ込み) vs AC。1 はファンブル。
+     *   critRange 以上で脅威 → 確認の d20 が AC 以上ならクリティカル (ダイスとボーナスを critMult 倍)。
+     *   当たれば rockDice + rockBonus (4d10+6)。
+     * ⭐ 投げたら rockCooldown = 1 (次の手番は前へ出る)。1 戦闘の回数の上限は付けない (SRD どおり何度でも)。
+     * 乱数の順 = d20 → (脅威なら) 確認の d20 → (命中なら) rockDice。
+     * 検証用 probe = window.__giantRockProbe (site: "rock" = 投げた / "skip" = 投げなかった理由)。⛔ ゲームの判定には使わない。 */
+    window.__giantRockProbe = window.__giantRockProbe || [];
+    function giantRockReachable(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.def) return null;
+      const def = enemy.def;
+      const eCX = enemy.x + def.displaySize / 2, eCY = enemy.y + def.displaySize / 2;
+      const tiles = getRange(def.range || "melee").tiles;
+      const all = [];
+      if (hp > 0 && !gameOver) all.push({ kind: "leader", idx: null, cx: playerX + 48, cy: playerY + 58 });
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i];
+        if (!a || !a.alive) continue;
+        all.push({ kind: "ally", idx: i, cx: a.x + a.def.displaySize / 2, cy: a.y + a.def.displaySize / 2 });
+      }
+      for (const c of all) {
+        c.cheb = tileChebyshev(eCX, eCY, c.cx, c.cy);
+        c.dist = Math.hypot(c.cx - eCX, c.cy - eCY);
+      }
+      return { tiles, all, inReach: all.filter(c => c.cheb <= tiles) };
+    }
+    // 岩の弾: 灰色の丸が放物線で飛ぶ (スプライト不要)。⛔ Math.random を引かない。
+    function spawnBoulderProjectile(fromWX, fromWY, toWX, toWY, durationMs = 520) {
+      return new Promise((resolve) => {
+        const ball = document.createElement("div");
+        ball.className = "fxBoulderProjectile";
+        ball.style.cssText = "position:absolute;pointer-events:none;z-index:7;width:30px;height:30px;border-radius:50%;" +
+          "transform:translate(-50%,-50%);background:radial-gradient(circle at 35% 35%, #c9c4bb 0%, #8d877e 45%, #57524b 80%, #3a3631 100%);" +
+          "box-shadow:0 2px 4px rgba(0,0,0,0.55);";
+        vfxHost().appendChild(ball);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
+        const arc = Math.min(180, Math.hypot(toWX - fromWX, toWY - fromWY) * 0.35);   // 放物線の高さ
+        const start = performance.now();
+        const _tracking = beginProjectileTrack(fromWX, fromWY, toWX, toWY, durationMs);   // [camera-focus-v7.4] 弾追従
+        function step(now) {
+          const t = Math.min(1, (now - start) / durationMs);
+          const wx = fromWX + (toWX - fromWX) * t;
+          const wy = fromWY + (toWY - fromWY) * t - arc * 4 * t * (1 - t);
+          ball.style.left = SX(wx) + "px";
+          ball.style.top  = SY(wy) + "px";
+          if (_tracking) trackProjectileTo(wx, wy);
+          if (t < 1) requestAnimationFrame(step);
+          else {
+            if (_tracking) { trackProjectileTo(wx, wy); endProjectileTrack(); }
+            try { ball.remove(); } catch (e) {}
+            // 着弾の小さな土煙 (角度は固定 = 乱数なし)
+            if (fxEnabled()) {
+              for (let i = 0; i < 10; i++) {
+                const ang = (i / 10) * Math.PI * 2;
+                emitParticle({
+                  x: toWX, y: toWY, vx: Math.cos(ang) * 70, vy: Math.sin(ang) * 40 - 20,
+                  life: 520, size0: 8, size1: 18,
+                  r: 170, g: 160, b: 148, a0: 0.75, a1: 0, kind: "dot", blend: false,
+                });
+              }
+            }
+            resolve();
+          }
+        }
+        requestAnimationFrame(step);
+      });
+    }
+    async function giantRockThrow(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return false;
+      const def = enemy.def;
+      const R = giantRockReachable(enemyIdx);
+      if (!R || R.all.length === 0) return false;
+      if (R.inReach.length > 0) {
+        window.__giantRockProbe.push({ site: "skip", reason: "reach", enemyIdx, inReach: R.inReach.length });
+        return false;
+      }
+      // いちばん遠い隊員 (同じ距離なら先に並んだ方 = 頭 → 仲間の順)
+      let tgt = null;
+      for (const c of R.all) if (!tgt || c.dist > tgt.dist) tgt = c;
+      let ac = 10, targetName = "", ally = null, showAtTarget = null;
+      if (tgt.kind === "leader") {
+        ac = currentPlayerAc();
+        targetName = getLeaderName();
+        showAtTarget = (t, c) => showRollAtPlayer(t, c);
+      } else {
+        ally = allies[tgt.idx];
+        ac = currentAllyAc(ally);
+        targetName = ally.npcName || ally.def.name;
+        showAtTarget = (t, c) => showRollAtAlly(ally, t, c);
+      }
+      enemy.rockCooldown = 1;                               // 次の手番は前へ出る
+      const rec = { site: "rock", enemyIdx, kind: tgt.kind, idx: tgt.idx, target: targetName,
+                    dist: tgt.dist, dists: R.all.map(c => ({ kind: c.kind, idx: c.idx, dist: c.dist, cheb: c.cheb })),
+                    roll: null, confirm: null, atk: null, total: null, ac, hit: false, crit: false, fumble: false, rolls: [], dmg: 0 };
+
+      // 命中 (既存の敵の攻撃と同じ式)
+      const offensiveRage = (enemy.phase === 1) && !def.ragePhaseDefensive;
+      const phaseAtkBonus = offensiveRage ? 2 : 0;
+      const phaseDmgBonus = offensiveRage ? 2 : 0;
+      const smokePen = (enemy.atkPenaltyRemaining > 0) ? (enemy.atkPenaltyAmount || 0) : 0;   // 盗賊 煙幕
+      const atk = (def.atkBonus || 0) + phaseAtkBonus - smokePen;
+      const nat = d20();
+      const fumble = nat === 1;
+      const threat = nat >= (def.critRange || 20) && !fumble;
+      const total = nat + atk;
+      const hit = !fumble && (threat || total >= ac);
+      let crit = false;
+      if (hit && threat) {
+        const cn = d20();
+        rec.confirm = cn;
+        if (cn + atk >= ac) crit = true;
+      }
+      rec.roll = nat; rec.atk = atk; rec.total = total; rec.hit = hit; rec.crit = crit; rec.fumble = fumble;
+
+      // 演出: 大岩を持ち上げて投げる
+      showBanner("🪨 岩投げ 🪨", 1300);
+      updateInfo(`${def.name} が大岩を持ち上げた! ${targetName} めがけて投げつける!`);
+      const el = enemyElements[enemyIdx];
+      if (el) flashAction(el, "attack");
+      enemy.facing = tgt.cx >= enemy.x + def.displaySize / 2 ? "right" : "left";
+      await sleepMs(300);
+      await spawnBoulderProjectile(enemy.x + def.displaySize / 2, enemy.y + def.displaySize * 0.25, tgt.cx, tgt.cy, 520);
+      triggerScreenShake(SHAKE_SPELL.mag, SHAKE_SPELL.dur);
+
+      const atkText = `1d20(<b>${nat}</b>)${signedDD(atk)} = ${total}<br>vs AC ${ac}`;
+      if (!hit) {
+        showAtTarget(`<span class="label">${fumble ? "FUMBLE!" : "MISS"}</span>岩 ${atkText}`, "hit");
+        updateInfo(`${targetName} は飛んできた岩をかわした`);
+        window.__giantRockProbe.push(rec);
+        return true;
+      }
+      const dd = parseDiceDD(def.rockDice || "4d10");
+      const times = crit ? (def.critMult || 2) : 1;
+      let rolls = [];
+      for (let k = 0; k < times; k++) rolls = rolls.concat(rollDiceDD(dd.n, dd.sides).rolls);
+      const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + ((def.rockBonus || 0) + phaseDmgBonus) * times);
+      rec.rolls = rolls; rec.dmg = dmg;
+      showAtTarget(`<span class="label">${crit ? "CRIT!" : "HIT"}</span>岩 ${atkText}`, crit ? "crit" : "miss");
+      window.__giantRockProbe.push(rec);
+      await sleepMs(300);
+      if (ally) {
+        /* 仲間へのダメージ (hagMistPassage と同じ手順。語りだけ「岩」) */
+        const tCX = ally.x + ally.def.displaySize / 2;
+        if (ally.equippedSkills && ally.equippedSkills.includes("resilient")
+            && !ally.buffs.resilientFired && (ally.hp - dmg) <= 0 && dmg > 0) {
+          ally.buffs.resilientFired = true;
+          const sRoll = rollDiceDD(1, 4);
+          showDmgAt(tCX, ally.y, dmg, crit);
+          ally.hp = sRoll.total;
+          showRollAtAlly(ally, `<span class="label">不屈!</span>致命傷を 1d4(<span class="big">${sRoll.total}</span>) HP で耐える`, "crit");
+          return true;
+        }
+        ally.hp -= dmg; if (ally.hp < 0) ally.hp = 0;
+        showDmgAt(tCX, ally.y, dmg, crit);
+        updateInfo(`${targetName} は岩で ${dmg} ダメージ! HP ${ally.hp}/${ally.maxHp}`);
+        if (ally.hp <= 0) {
+          RunChronicle.fall(ally, "巨人の岩");
+          ally.alive = false;
+          updateInfo(`${targetName} は倒れた…`);
+          if (ally.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
+        }
+        return true;
+      }
+      await applyEnemySpellDamage({ kind: "leader" }, dmg, crit, "巨人の岩");   // 頭 (不屈・頭の委譲・全滅は既存経路)
+      return true;
+    }
+
     // ══════════ 敵キャスターの実スペル (SRD 5.1準拠) ══════════
     // [SYNC df-ranged-7.9] STEP2 = 敵の魔法使いを「謎の遠距離攻撃」から実際の呪文へ。
     //   単体系 (Fire Bolt / Magic Missile / Scorching Ray): 命中判定 (MM は必中)。
@@ -38147,6 +38769,20 @@
         if (await hagMistPassage(idx)) { await sleepMs(1100); return; }
         // 移動先が無い = 霧渡りをしない。この手番は下の普通の行動へ落ちる
       }
+      // ── ★[#107] 霜の巨人の「岩投げ」: 届く距離に誰も居ない手番に、いちばん遠い隊員へ (この手番は岩投げで消費) ──
+      // ⭐ 行動選択 (pickBossAction の Math.random) より**前** = 霧渡り・まなざしと同じ理由。
+      //   rockDice を持つのは frostGiant だけ = 既存の敵の手番と乱数列は 1 ビットも動かない。
+      //   投げた次の手番は rockCooldown で前へ出る (連投しない)。回数の上限は付けない (SRD どおり)。
+      if (def.rockDice) {
+        if (enemy.rockCooldown > 0) {
+          enemy.rockCooldown--;
+          window.__giantRockProbe.push({ site: "skip", reason: "cooldown", enemyIdx: idx });
+        } else if (await giantRockThrow(idx)) {
+          await sleepMs(900);
+          return;
+        }
+        // 届く距離に誰か居る / 冷却中 = この手番は下の普通の行動へ落ちる
+      }
       // ── ボス: 行動選択 (normal / smash / summon) ──
       let bossAction = "normal";
       if (def.isBoss && !def.multiHead) {   // ハイドラは召喚/smash抽選せず頭数ぶん噛撃
@@ -38199,6 +38835,24 @@
             await hydraFireBreath(idx);
             return;                                // このターンは噛まない (ブレスで消費)
           }
+        }
+      }
+      // ── ★[#107] ボスでない敵の息 (冬狼の冷気の息・Recharge 5-6) ──
+      // ⭐ 既存のボスのブレス (上の 2 つ) は触らない。今 breathDice を持つ既存の敵は 3 体ともボス = ここは通らない。
+      //   使えない間は手番の頭で d6 を 1 回 (5〜6 で戻る = 戻った手番に吐ける)。使えるときは必ず吐く (breathChance を見ない)。
+      //   3x3 にパーティが居なければ吐かずに噛む (再充填は使わない)。⚠ d6 もセーヴも冬狼の手番の中だけで振る。
+      if (!def.isBoss && def.breathDice && def.breathElement === "cold") {
+        enemy.__wolfTurn = (enemy.__wolfTurn || 0) + 1;
+        if (enemy.__coldBreathSpent) {
+          const r = rollDiceDD(1, 6).total;
+          const back = r >= 5;
+          if (back) enemy.__coldBreathSpent = false;
+          window.__coldBreathProbe.push({ site: "recharge", enemyIdx: idx, turn: enemy.__wolfTurn, d6: r, ready: back });
+        }
+        if (!enemy.__coldBreathSpent) {
+          if (await coldBreath(idx)) return;      // このターンは息で消費 (噛まない)
+        } else {
+          window.__coldBreathProbe.push({ site: "bite", reason: "spent", enemyIdx: idx, turn: enemy.__wolfTurn });
         }
       }
 
@@ -41561,6 +42215,7 @@
       if (scenId === "lost-cargo") return buildLostCargoRun();   // ★[#104] 本筋外の 9 本目
       if (scenId === "silent-tomb") return buildSilentTombRun();   // ★[#105] 本筋外の 10 本目
       if (scenId === "witch-hut") return buildWitchHutRun();   // ★[#106] 本筋外の 11 本目
+      if (scenId === "frost-hold") return buildFrostHoldRun();   // ★[#107] 本筋外の 12 本目
       return null;                         // 生成クエスト / 未対応 ID は従来の単一マップ
     }
 
@@ -42962,6 +43617,49 @@
         entry: "n0",
         nodes: [
           /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13) = 絵ローカル (23,7) = 小屋の戸口。 */
+          { id: "n0", kind: "start", mapDef: n0,
+            exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
+          { id: "n1", kind: "boss", mapDef: n1, exits: [] },
+        ],
+      };
+    }
+
+    /* ── ★[#107] 霜の巨人の砦 (本筋外の 12 本目) — 卓上マップ 2 枚 ──────────────────────
+     *
+     *   n0 start 雪の峠道 ── right → n1 boss 氷の砦の大広間
+     *
+     * ⭐ 魔女の小屋 (#106) の型 = p6Node() を直接 2 回呼ぶ。id は n0/n1 (NODE_EXTRA_SPAWN_KINDS の n0/n1 と対)。
+     * ⚠ p6Node の既定 3 つは全部明示する (#53 の罠): density 0 / start / paint。
+     * ⚠ rect は ROOM_PAINTINGS_DEF["frost-hold"] の tileBounds と**同値**。格子は 64px の焼き上がり
+     *   (峠道も大広間も 24x16 = 依頼書 #107 §12-1 (3))。
+     * ⭐ 出口を持つ n0 の rect は唯一解 (#53): 右辺の中点が出口ゲート (39,13) に一致する 16 行 x 24 列は
+     *   [6, 16, 21, 39] だけ (16 行 = 偶数 → midR = floor((6+21)/2) = 13 = 絵ローカル row 7 = 峠道と門の行)。
+     *   n1 も同じ位置に揃える (入場の行 = 絵ローカル row 7 = 西の門)。
+     * ⚠ 座標はすべて global = 絵ローカル + (16, 6)。敵の置き場は依頼書 #107 §12-1 (3) の案のまま (全部 '.')。 */
+    function buildFrostHoldRun() {
+      /* n0 雪の峠道 (屋外)。入場 = 西の端 (16,13) + NODE_ENTRY_INSET(2) = (18,13) = 絵ローカル (2,7)。
+       *   巨人に雇われたオーク 4 = 前にオーク兵 2 (絵ローカル (13,8) (14,6))・後ろにオーク弓兵 2 ((15,8) (16,7))。
+       *   入場から 11.05〜14.00 タイル。4 体は 1 つの戦闘に入る。⚠ 敵のタイルは n0big のマスクで全部 '.'。 */
+      const n0 = p6Node("frost-hold", "frost-hold", "n0", "雪の峠道", [6, 16, 21, 39], {
+        paint: "n0big", density: 0, start: { tx: 18, ty: 13 },
+        slots: [[29, 14, "orcGrunt"], [30, 12, "orcGrunt"],
+                [31, 14, "orcArcher"], [32, 13, "orcArcher"]],
+      });
+      /* n1 氷の砦の大広間 (ボス・屋内)。入場 = 西の門 (16,13) + 2 = (18,13) = 絵ローカル (2,7)。
+       *   霜の巨人 = 玉座の手前の石畳 (絵ローカル (18,7) = 入場から 16.00 タイル)。
+       *   冬狼 2 = 巨人の左右の前 ((16,5) (16,9) = 入場から 14.14 タイル > DETECTION_RANGE 12.5 = 入場の語りの最中に戦闘が始まらない)。
+       *   巨人との最大 2.83 タイル = 3 体は 1 つの戦闘に入る。
+       *   ⚠ 玉座 (絵ローカル col 20-22 / rows 6-9) と青い火鉢は n1big のマスクで塞いである。
+       *   ⭐ 巨人の体は縦 1x3 マス (displaySize 184・bodyRatio) = (18,6)〜(18,8) はどれも '.' (依頼書 #107 §12-1 (3))。 */
+      const n1 = p6Node("frost-hold", "frost-hold", "n1", "氷の砦の大広間", [6, 16, 21, 39], {
+        paint: "n1big", density: 0, start: { tx: 18, ty: 13 },
+        slots: [[32, 11, "winterWolf"], [32, 15, "winterWolf"]],
+        boss: [34, 13, "frostGiant"],
+      });
+      return {
+        entry: "n0",
+        nodes: [
+          /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13) = 絵ローカル (23,7) = 砦の門。 */
           { id: "n0", kind: "start", mapDef: n0,
             exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
           { id: "n1", kind: "boss", mapDef: n1, exits: [] },
