@@ -273,6 +273,22 @@
       "attack_dir": "green-hag/green-hag-walk-attack-right-6-v2-aligned/*attack*frame-*.png",
       "note": "霧の中の魔女の小屋 (#106) のボス、霧の魔女 (グリーン・ハグ) (2026-11-02 新設・codex1 依頼文 2026-11-01_green-hag.md → v2 2026-11-02_green-hag-v2.md)。⚠ v2 のフォルダ (…-v2-aligned) を使う (v1 は attack 01〜05 に隣のコマの絵が入り込んでいた)。第3陣テンプレ (walk と attack が同一ディレクトリ) なので mummy と同じく glob で分離する。セル 96 は手下 (rat / zombie) と同じ物差し。新設なので --match-current の対象は無い。⚠ char_ratio は 0.80 だと attack 3〜4 コマ目の伸ばした爪が右へ 5px はみ出す (CLIP WARNING right=101)。0.73 / 0.72 は右端ちょうど (right=96) なので 0.71 へ下げた = fit left=30 right=95 top=22 (cell=96) クリップ無し。attack_scale=auto (walk 体高 470.5 / attack 474.5 = 0.9916)。H_max(walk)=480px / scale 0.1420。check_sprite_doubling = 候補 2 コマ (attack col 2-3) は指先の 1px の点 (2 つ目以降の塊は全部 1 画素) で体は 1 塊 = 分身ではない / check_alpha_bg_residue = 疑い 0 件。本番の小屋の床 (room_witch-hut_n1_map.jpg) と森の小道 (room_witch-hut_n0_map.jpg) の上で 2 倍で目視して縁の残りなし (#106 項目1)。体高 67/96 (walk・前かがみの老婆)。displaySize 115 で画面上 80px (mummy 80 / plaguePriest 79 / zombie 69)。"
     },
+    {
+      "key": "frostGiant", "out": "assets/frostGiant_anim.png", "format": "enemy",
+      "cell": 192, "cols": 6, "char_ratio": 0.76, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "frost-giant/frost-giant-walk-attack-right-6-v3-aligned/*walk*frame-*.png",
+      "attack_dir": "frost-giant/frost-giant-walk-attack-right-6-v3-aligned/*attack*frame-*.png",
+      "note": "霜の巨人の砦 (#107) のボス、霜の巨人 (フロスト・ジャイアント) (2026-11-04 新設・codex1 依頼文 2026-11-04_frost-giant.md)。⚠ v3 のフォルダ (…-v3-aligned) を使う (v1 = attack 03〜05、v2 = attack 02 の斧の刃がシートの切り分けで切れていた)。キャンバス 768x720 (ハグ等の 768x768 と違う)。大型ボスなのでセル 192 (garrock / stoneGolem / shadowBeast と同じ)。第3陣テンプレ (walk と attack が同一ディレクトリ) なので glob で分離する。新設なので --match-current の対象は無い。⚠ char_ratio は 0.80 だと attack の振り抜いた斧が右へ 3px はみ出す (CLIP WARNING right=195)・0.78 は 1px・0.77 は右端ちょうど (right=192) ⇒ 0.76 = fit left=29 right=190 top=33 (cell=192) クリップ無し。attack_scale=auto (walk 体高 481.0 / attack 468.5 = 1.0267)。H_max(walk)=501px / scale 0.2913。check_sprite_doubling = 候補 1 コマ (attack col 1 clusters=2 2nd=23 = 頭上に振りかぶった斧の刃・8 近傍では 1 塊) で分身ではない / check_alpha_bg_residue = 疑い 0 件。本番の大広間の床 (room_frost-hold_n1_map.jpg) の上で目視して縁の残りなし (#107 項目1)。体高 146/192 (walk)。displaySize 184 で画面上 140px (主人公 58 / orcGrunt 49 / greenHag 80 / shadowBeast 132)。体の実寸比 (row2・alpha>0) bodyRatioX 0.505 / bodyRatioY 0.766 / bodyOffX 0.240 / bodyOffY 0.182。"
+    },
+    {
+      "key": "winterWolf", "out": "assets/winterWolf_anim.png", "format": "enemy",
+      "cell": 192, "cols": 6, "char_ratio": 0.47, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "winter-wolf/winter-wolf-walk-attack-right-6-v3-aligned/*walk*frame-*.png",
+      "attack_dir": "winter-wolf/winter-wolf-walk-attack-right-6-v3-aligned/*attack*frame-*.png",
+      "note": "霜の巨人の砦 (#107) の手下、冬狼 (ウィンター・ウルフ) (2026-11-04 新設・codex1 依頼文 2026-11-04_winter-wolf.md)。⚠ v3 のフォルダ (…-v3-aligned) を使う (v1 = walk の腰に黒い塊、v2 = walk と attack が別の個体)。キャンバス 768x720・白い毛 (クロマキーは白以外)。大型の四足獣なのでセル 192 (direBear / shadowBeast と同じ)。第3陣テンプレなので glob で分離する。⚠ 横長 (walk 幅 / 高さ = 1.85) なので幅で決まる: char_ratio 0.52 は右へ 8px・0.48 は 1px はみ出す ⇒ 0.47 = fit left=11 right=190 top=90 (cell=192) クリップ無し。attack_scale=auto (walk 体高 117.0 / attack 115.5 = 1.0130)。H_max(walk)=130px / scale 0.6942。check_sprite_doubling = clean / check_alpha_bg_residue = 疑い 0 件。本番の大広間の床の上で目視して白い毛の抜け・縁の残りなし (#107 項目1)。体高 90/192・体長 167/192 (walk)。displaySize 130 で画面上 高さ 61px・体長 113px (主人公 58 / orcGrunt 49)。体の実寸比 (row2・alpha>0) bodyRatioX 0.922 / bodyRatioY 0.474 / bodyOffX 0.057 / bodyOffY 0.474。"
+    },
 
     {
       "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",
