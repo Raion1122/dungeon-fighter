@@ -97,6 +97,9 @@ const SRD = {
    *   #105 §11 で「足さない」(ユーザー決定 = 弱点 0 件) ⇒ 眠らない (アンデッド = isUndeadEnemy) だけを写す。 */
   mummy:          { sleep: true },                                               // Mummy (アンデッド・表に書かない)
   tombArmor:      { sleep: true, construct: true },                              // Animated Armor (墓所専用 = animatedArmor と同じ)
+  /* ★[#107 2026-11-05] 霜の巨人の砦の 2 種 = SRD frost-giant.md / winter-wolf.md の Damage Immunities: cold (眠りの免疫は無い) */
+  frostGiant:     { el: { cold: 0 } },                                           // Frost Giant
+  winterWolf:     { el: { cold: 0 } },                                           // Winter Wolf
 };
 const ELEMENTS = ['fire', 'cold', 'lightning'];
 function srdMult(type, el) { const s = SRD[type]; return (s && s.el && Object.prototype.hasOwnProperty.call(s.el, el)) ? s.el[el] : 1; }
@@ -517,8 +520,8 @@ function judge(ctx, D, R) {
   /* ── (0b) 窓と表 ── */
   {
     const t = ON.traits, to = OFF.traits;
-    const ok = !!t && t.on === true && t.keys.length === 9 && t.missing.length === 0 && t.fns === 'function,function,function' && !!to && to.on === false;
-    R.check('(0b)', '__dfEnemyTraits が在り on === true・表のキー 9 個 (★[#105] tombArmor の 1 行を足した)・全キーが ENEMY_TYPES に実在 (?enemytraits=0 の腕で on === false)', ok,
+    const ok = !!t && t.on === true && t.keys.length === 11 && t.missing.length === 0 && t.fns === 'function,function,function' && !!to && to.on === false;
+    R.check('(0b)', '__dfEnemyTraits が在り on === true・表のキー 11 個 (★[#105] tombArmor の 1 行・★[#107] frostGiant / winterWolf の 2 行を足した)・全キーが ENEMY_TYPES に実在 (?enemytraits=0 の腕で on === false)', ok,
       t ? 'on=' + t.on + ' keys(' + t.keys.length + ')=' + t.keys.join(',') + ' 実在しない=' + J(t.missing) + ' fns=' + t.fns + ' / OFF on=' + (to && to.on) : '⛔ 窓が無い');
   }
   /* ── (0c) SRD の表 (ドライバ) とページの表の中身 ── */

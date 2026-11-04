@@ -115,7 +115,10 @@ for (const k of ['tombArmor', 'tombGargoyle']) DRV_SKILL[k] = 'arcana';
 /* ★[#106 2026-11-02] 霧の中の魔女の小屋: グリーン・ハグ = SRD green-hag.md の creature_type: Fey ⇒ 魔法学
    (5e の Arcana は「次元界とその住人」・SRD の Skills に arcana +3・依頼書 #106 §12-1 (1))。 */
 DRV_SKILL.greenHag = 'arcana';
-const DRV_NATURE = ['rat', 'plagueFrog', 'ruinSpider', 'direBear', 'chimera', 'griffon', 'umber_hulk', 'minotaur', 'shadowBeast', 'mimic', 'caravanWagon'];
+/* ★[#107 2026-11-05] 霜の巨人の砦: 霜の巨人 = SRD frost-giant.md の creature_type: Giant ⇒ 歴史 (巨人の古い王国の伝承・依頼書 #107 §12-2 の LORE history)。
+   冬狼 = SRD winter-wolf.md の creature_type: Monstrosity ⇒ 伝承の対象外 (ミノタウロス・キマイラ・グリフォンと同じ = 自然の獣)。 */
+DRV_SKILL.frostGiant = 'history';
+const DRV_NATURE = ['rat', 'plagueFrog', 'ruinSpider', 'direBear', 'chimera', 'griffon', 'umber_hulk', 'minotaur', 'shadowBeast', 'mimic', 'caravanWagon', 'winterWolf'];
 const DRV_ELEMENT = { 'fire-bolt': 'fire', 'fireball': 'fire', 'burning-hands': 'fire', 'lightning-bolt': 'lightning',
   'lightning-arrow': 'lightning', 'cone-of-cold': 'cold', 'ice-storm': 'cold' };
 /* 習熟 (js/skill-check.js CLASS_PROFICIENCIES の書き写し。(1b) で「渡された全員が宗教を持つ」を独立に見る) */
@@ -133,6 +136,7 @@ const DRV_SLUG = {
   plaguePriest: 'cult-fanatic',             /* ★[#104 2026-10-29] 規則 ① (SRD cult-fanatic.md の cr: 2.0) */
   mummy: 'mummy', tombArmor: 'animated-armor', tombGargoyle: 'gargoyle',   /* ★[#105 2026-10-30] 規則 ① (mummy.md cr: 3.0 / animated-armor.md 1.0 / gargoyle.md 2.0) */
   greenHag: 'green-hag',                    /* ★[#106 2026-11-02] 規則 ① (green-hag.md cr: 3.0) */
+  frostGiant: 'frost-giant', winterWolf: 'winter-wolf',   /* ★[#107 2026-11-05] 規則 ① (frost-giant.md cr: 8.0 / winter-wolf.md cr: 3.0) */
 };
 /* ★[#82 2026-10-03] 本数の期待値 = 着手時 (#76) の数 + 塔の母のワイバーン 2 キー。⛔ 緩めない (≥ にしない)。
    ★[#103 2026-10-28] + コボルドの族長 koboldChief 1 キー (技能あり = history / 脅威度は出さない = 規則 ③)。
@@ -142,8 +146,10 @@ const DRV_SLUG = {
    ★[#105 2026-10-30] + マミー mummy・墓所の動く鎧 tombArmor・墓所のガーゴイル tombGargoyle の 3 キー (3 つとも技能あり・脅威度を出す = 規則 ①)。
    数え直し (2026-10-30・HEAD b5fe415 のページの ENEMY_TYPES) = 58 キー (技能あり 47 / 対象外 11・cr 40 / 出さない 18 = 依頼書 #105 §2-6)。
    ★[#106 2026-11-02] + グリーン・ハグ greenHag 1 キー (技能あり = arcana / 脅威度を出す = 規則 ① green-hag の CR 3)。
-   数え直し (2026-11-02・HEAD 516da05 のページの ENEMY_TYPES) = 59 キー (技能あり 48 / 対象外 11・cr 41 / 出さない 18 = 依頼書 #106 §12-1 (1))。 */
-const N_TYPES = 51 + 2 + 1 + 1 + 3 + 1, N_SKILL = 40 + 2 + 1 + 1 + 3 + 1, N_NATURE = 11, N_CRKEYS = 34 + 2 + 1 + 3 + 1, N_NOCR = 17 + 1;
+   数え直し (2026-11-02・HEAD 516da05 のページの ENEMY_TYPES) = 59 キー (技能あり 48 / 対象外 11・cr 41 / 出さない 18 = 依頼書 #106 §12-1 (1))。
+   ★[#107 2026-11-05] + 霜の巨人 frostGiant (技能あり = history / 脅威度を出す = 規則 ① frost-giant の CR 8)・冬狼 winterWolf (対象外 / 脅威度を出す = 規則 ① winter-wolf の CR 3) の 2 キー。
+   数え直し (2026-11-05・HEAD b59766e のページの ENEMY_TYPES) = 61 キー (技能あり 49 / 対象外 12・cr 43 / 出さない 18)。 */
+const N_TYPES = 51 + 2 + 1 + 1 + 3 + 1 + 2, N_SKILL = 40 + 2 + 1 + 1 + 3 + 1 + 1, N_NATURE = 11 + 1, N_CRKEYS = 34 + 2 + 1 + 3 + 1 + 2, N_NOCR = 17 + 1;
 /* 規則 ③ = 表に載せない (脅威度を出さない) 18 キー (★[#103] koboldChief = SRD に族長は無い) */
 const DRV_NO_CR = ['goblinShaman', 'goblinBrute', 'goblinKing', 'goblinChariot', 'orcShaman', 'orcBerserker', 'garrock', 'banditMage',
   'lizardPriest', 'swampNovice', 'lizardChieftain', 'stoneLegionary', 'sovereignEye', 'shadowBeast', 'direBear', 'umber_hulk', 'caravanWagon',

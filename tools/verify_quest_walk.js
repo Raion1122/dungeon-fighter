@@ -617,12 +617,15 @@ async function measureWorld(browser, port, errs, opts) {
   /* ★[#104] その前にもう 1 段: ⓪ retireCargo() だけ (= #103 の地図・倉庫街の前) → ① → ②。 */
   /* ★[#105] さらにその前にもう 1 段: retireTomb() だけ (= #104 の地図・墓所の前) → ⓪ → ① → ②。 */
   /* ★[#106] さらにその前にもう 1 段: retireHag() だけ (= #105 の地図・魔女の小屋の前) → retireTomb → ⓪ → ① → ②。 */
+  /* ★[#107] さらにその前にもう 1 段: retireGiant() だけ (= #106 の地図・霜の巨人の砦の前) → retireHag → retireTomb → ⓪ → ① → ②。 */
   out.retiredMap = await page.evaluate(() => {
     const WM = window.WORLD_MAP;
-    if (!WM || typeof WM.retireTower !== 'function' || typeof WM.retireWarren !== 'function' || typeof WM.retireCargo !== 'function' || typeof WM.retireTomb !== 'function' || typeof WM.retireHag !== 'function') return null;
+    if (!WM || typeof WM.retireTower !== 'function' || typeof WM.retireWarren !== 'function' || typeof WM.retireCargo !== 'function' || typeof WM.retireTomb !== 'function' || typeof WM.retireHag !== 'function' || typeof WM.retireGiant !== 'function') return null;
     const fp = () => ({ sites: JSON.parse(JSON.stringify(WM.SITES)), edges: WM.EDGES.map(e => e[0] + '__' + e[1]),
       nodesFP: Object.keys(WM.NODES).map(id => { const n = WM.NODES[id];
         return id + ':' + n.kind + ':' + n.x + ',' + n.y + ':' + (n.enter !== undefined ? 'enter' : '—'); }) });
+    WM.retireGiant();
+    const giantOff = fp();
     WM.retireHag();
     const hagOff = fp();
     WM.retireTomb();
@@ -633,7 +636,7 @@ async function measureWorld(browser, port, errs, opts) {
     const warrenOff = fp();
     WM.retireTower();
     const both = fp();
-    return { sites: both.sites, edges: both.edges, nodesFP: both.nodesFP, warrenOff: warrenOff, cargoOff: cargoOff, tombOff: tombOff, hagOff: hagOff };
+    return { sites: both.sites, edges: both.edges, nodesFP: both.nodesFP, warrenOff: warrenOff, cargoOff: cargoOff, tombOff: tombOff, hagOff: hagOff, giantOff: giantOff };
   }).catch(() => null);
   await page.close();
   return out;
@@ -1229,15 +1232,15 @@ async function negMeasure(browser, port, errs, tav, need) {
 
 const ASSERTS = [
   // ── §0 装置 (先に母集団を確かめる) ─────────────────────────────────────────
-  ['0z', '[装置] 配信中の tavern.html から id / place / locked / unlockAfter を 11 組 (★[#82][#103][#104][#105][#106] 本筋 6 + side 5) 抜けている'
+  ['0z', '[装置] 配信中の tavern.html から id / place / locked / unlockAfter を 12 組 (★[#82][#103][#104][#105][#106][#107] 本筋 6 + side 6) 抜けている'
     + ' (正規表現が空振りしていない) ⭐⭐⭐ これが無いと (2z) の照合が「両方 0 件で一致」= 永久緑になる',
     m => {
       const t = m.tavern;
-      const ok = t.status === 200 && t.found === true && t.rows.length === 11
+      const ok = t.status === 200 && t.found === true && t.rows.length === 12
         && t.rows.every(r => !!r.id && !!r.place && r.locked !== null)
         && t.rows.filter(r => r.locked === false).length === 2   /* ★[#103] 廃坑 + 巣穴 (side・locked:false) */
-        && t.rows.filter(r => r.unlockAfter !== null).length === 9   /* ★[#104] 本筋 5 + 塔の母 + 倉庫街 (unlockAfter goblin-mine)・★[#105] + 墓所 (unlockAfter bandits-forest)・★[#106] + 魔女の小屋 (unlockAfter lizard-swamp) */
-        && t.rows.filter(r => r.side).length === 5;   /* ★[#82][#103][#104][#105][#106] side 印はちょうど 5 組 (塔の母・巣穴・倉庫街・墓所・魔女の小屋) */
+        && t.rows.filter(r => r.unlockAfter !== null).length === 10   /* ★[#104] 本筋 5 + 塔の母 + 倉庫街 (unlockAfter goblin-mine)・★[#105] + 墓所 (unlockAfter bandits-forest)・★[#106] + 魔女の小屋 (unlockAfter lizard-swamp)・★[#107] + 霜の巨人の砦 (unlockAfter undead-temple) */
+        && t.rows.filter(r => r.side).length === 6;   /* ★[#82][#103][#104][#105][#106][#107] side 印はちょうど 6 組 (塔の母・巣穴・倉庫街・墓所・魔女の小屋・霜の巨人の砦) */
       return [ok, 'status=' + t.status + ' region=' + t.regionBytes + 'B 組数=' + t.rows.length
         + ' locked:false=' + t.rows.filter(r => r.locked === false).length
         + ' unlockAfter有=' + t.rows.filter(r => r.unlockAfter !== null).length
@@ -1370,13 +1373,13 @@ const ASSERTS = [
       }
       for (const k of keys) if (!tav.map[k]) diffs.push(k + ':tavern に無い');
       /* ★[#82][#103][#104] 本筋 6 + 本筋の外 (side) 3 = 9 件どうし。side の件数も配信バイトから数えて 3 を要求する。 */
-      return [tav.rows.length === 11 && keys.length === 11 && tav.rows.filter(r => r.side).length === 5 && diffs.length === 0,   /* ★[#105] 10 組・side 4 / ★[#106] 11 組・side 5 */
+      return [tav.rows.length === 12 && keys.length === 12 && tav.rows.filter(r => r.side).length === 6 && diffs.length === 0,   /* ★[#105] 10 組・side 4 / ★[#106] 11 組・side 5 / ★[#107] 12 組・side 6 */
         'js/world-map.js UNLOCK=' + JSON.stringify(unlock)
         + '  vs  配信中の tavern.html='
         + JSON.stringify(tav.rows.reduce((o, r) => { o[r.id] = (r.locked ? r.unlockAfter : null); return o; }, {}))
         + (diffs.length ? '  ⛔ ' + diffs.join(' / ') : '')];
     }],
-  ['2a', '★cleared = [] のとき、札は 港町フランと廃坑と南の村 (★[#103] 巣穴は最初から解放) の 3 枚だけ。未解放 9 拠点 (★[#104] 倉庫街は廃坑の後・★[#105] 墓所は森の後・★[#106] 魔女の小屋は沼地の後) は'
+  ['2a', '★cleared = [] のとき、札は 港町フランと廃坑と南の村 (★[#103] 巣穴は最初から解放) の 3 枚だけ。未解放 10 拠点 (★[#104] 倉庫街は廃坑の後・★[#105] 墓所は森の後・★[#106] 魔女の小屋は沼地の後・★[#107] 霜の峠は神殿の後) は'
     + ' .worldSign が 0 枚・.worldNode-site でなく .worldNode-way・title 属性が空',
     m => {
       const st = m.stages[0], md = st.mapData;
@@ -1406,7 +1409,7 @@ const ASSERTS = [
         bad.push('revealed()=' + JSON.stringify(st.revealed) + ' ≠ 期待 ' + JSON.stringify(wantRevealed));
       }
       const ok = JSON.stringify(st.clearedParsed) === '[]'
-        && wantShown.length === 3 && wantHidden.length === 9   /* ★[#82] 未解放 = 本筋 5 + side 1 (塔の母)。★[#103] 出す = 港町 + 廃坑 + 南の村。★[#104] 未解放に倉庫街 (side) を足して 7。★[#105] 墓所 (side) を足して 8。★[#106] 魔女の小屋 (side) を足して 9 */
+        && wantShown.length === 3 && wantHidden.length === 10   /* ★[#82] 未解放 = 本筋 5 + side 1 (塔の母)。★[#103] 出す = 港町 + 廃坑 + 南の村。★[#104] 未解放に倉庫街 (side) を足して 7。★[#105] 墓所 (side) を足して 8。★[#106] 魔女の小屋 (side) を足して 9。★[#107] 霜の峠 (side) を足して 10 */
         && st.signCount === 3 && bad.length === 0;
       return [ok, 'cleared=[] → .worldSign ' + st.signCount + ' 枚 (' + st.signIds.join(',') + ')'
         + '  ⭐ UNLOCK から導いた 出す=' + JSON.stringify(wantShown)
@@ -1416,7 +1419,7 @@ const ASSERTS = [
         + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
     }],
   ['2b', 'cleared を 0 → 1 → 2 → 3 → 4 → 5 本と伸ばすと、本筋の札が 1 枚ずつ増える'
-    + ' (6 段階を実測。順序も UNLOCK の鎖どおり。★[#103] 巣穴の札は 0 本目から・塔の母の札は砦の後に乗る。★[#104] 倉庫街の札は廃坑の後 = 1 本目から。★[#105] 墓所の札は森の後 = 2 本目から。★[#106] 魔女の小屋の札は沼地の後 = 3 本目から = 3 → 5 → 7 → 9 → 11 → 12 枚)',
+    + ' (6 段階を実測。順序も UNLOCK の鎖どおり。★[#103] 巣穴の札は 0 本目から・塔の母の札は砦の後に乗る。★[#104] 倉庫街の札は廃坑の後 = 1 本目から。★[#105] 墓所の札は森の後 = 2 本目から。★[#106] 魔女の小屋の札は沼地の後 = 3 本目から。★[#107] 霜の峠の札は神殿の後 = 5 本目から = 3 → 5 → 7 → 9 → 11 → 13 枚)',
     m => {
       /* ★[#82] side (本筋の外) の拠点。⭐ 配信中の tavern.html の side 印 → SITES で引く (⛔ 直書きしない)。 */
       const sideIds = (m.tavern.rows || []).filter(r => r.side).map(r => r.id);
@@ -1450,13 +1453,14 @@ const ASSERTS = [
       /* ★[#104] side は 3 件。0 本目 = 巣穴だけ (1)・1 本目 = 巣穴 + 倉庫街 (2)・3 件とも出る段がある (3)。 */
       /* ★[#105] side は 4 件。0 本目 = 巣穴だけ (1)・1 本目 = + 倉庫街 (2)・2 本目 = + 墓所 (3)・4 件とも出る段がある (4)。 */
       /* ★[#106] side は 5 件。0 本目 = 巣穴だけ (1)・1 本目 = + 倉庫街 (2)・2 本目 = + 墓所 (3)・3 本目 = + 魔女の小屋 (4)・5 件とも出る段がある (5)。 */
-      if (sideIds.length !== 5 || rows[0].sideShown !== 1 || rows[1].sideShown !== 2 || rows[2].sideShown !== 3 || rows[3].sideShown !== 4 || !rows.some(r => r.sideShown === 5)) bad.push('side の札の出方が違う sideIds=' + JSON.stringify(sideIds) + ' 段ごと=' + JSON.stringify(rows.map(r => r.sideShown)));
+      /* ★[#107] side は 6 件。… 4 本目 = + 塔の母 (5)・5 本目 = + 霜の峠 (6 = 6 件とも出る段がある)。 */
+      if (sideIds.length !== 6 || rows[0].sideShown !== 1 || rows[1].sideShown !== 2 || rows[2].sideShown !== 3 || rows[3].sideShown !== 4 || !rows.some(r => r.sideShown === 6)) bad.push('side の札の出方が違う sideIds=' + JSON.stringify(sideIds) + ' 段ごと=' + JSON.stringify(rows.map(r => r.sideShown)));
       return [m.stages.length === 6 && bad.length === 0,
         rows.map(r => r.n + '本[' + r.cleared.length + ']→' + r.count + '枚(' + r.got.join(',') + ')').join('   ')
         + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
     }],
   ['2c', '★★★ 未解放でも歩ける。cleared = [] の状態で、本番の WORLD_MAP.findPath("phlan", X) が'
-    + ' 14 ノードすべてに対して null を返さない ⭐ 特に mine と temple を名指しで見る'
+    + ' 15 ノード (★[#107] 霜の峠を足した) すべてに対して null を返さない ⭐ 特に mine と temple を名指しで見る'
     + ' (§2-2 の詰みが起きていない証明)',
     m => {
       const st = m.stages[0], p = st.paths, md = st.mapData;
@@ -1469,7 +1473,7 @@ const ASSERTS = [
         .map(sc => ({ sc: sc, node: md.sites[sc] }));
       const namedBad = named.filter(x => !x.node || p.len[x.node] === null || p.len[x.node] === undefined);
       const ok = JSON.stringify(st.clearedParsed) === '[]'
-        && !!p.start && ids.length === 14
+        && !!p.start && ids.length === 15   /* ★[#107] 霜の峠 frost_peak を新しく足して 15 */
         && unreachable.length === 0 && namedBad.length === 0;
       return [ok, 'cleared=[] / 起点=' + p.start + ' (enter を持つノード = 港町)  '
         + ids.length + ' ノードすべてへ本番の findPath が経路を返す'
@@ -1495,8 +1499,8 @@ const ASSERTS = [
         if (r.node !== r.id) bad.push(r.id + ':歩けていない heroNode=' + r.node);
         if (r.askOpen !== false) bad.push(r.id + ':askOpen=' + r.askOpen);
       }
-      const ok = w.signCount === 3 && hidden.length === 9   /* ★[#82] 未解放 = 本筋 5 + side 1 / ★[#103] 拠点 = 8 (南の村を足した)・札 = 港町 + 廃坑 + 南の村 / ★[#104] 拠点 9・未解放 7 (倉庫街) / ★[#105] 拠点 10・未解放 8 (墓所) / ★[#106] 拠点 11・未解放 9 (魔女の小屋) */
-        && w.clickIds.length === 11 && bad.length === 0;
+      const ok = w.signCount === 3 && hidden.length === 10   /* ★[#82] 未解放 = 本筋 5 + side 1 / ★[#103] 拠点 = 8 (南の村を足した)・札 = 港町 + 廃坑 + 南の村 / ★[#104] 拠点 9・未解放 7 (倉庫街) / ★[#105] 拠点 10・未解放 8 (墓所) / ★[#106] 拠点 11・未解放 9 (魔女の小屋) / ★[#107] 拠点 12・未解放 10 (霜の峠) */
+        && w.clickIds.length === 12 && bad.length === 0;
       return [ok, 'cleared=[] (札 ' + w.signCount + ' 枚) で 拠点 ' + w.clickIds.length
         + ' 件を実クリック — うち **未解放が ' + hidden.length + ' 件** (' + hidden.join(',') + ')'
         + '  着いた先=' + JSON.stringify(w.clicks.map(r => r.id + '→' + r.node))
@@ -1577,7 +1581,7 @@ const ASSERTS = [
     + 'まま森をタップ) → 歩くだけ・遷移せず・確認も出ない',
     m => {
       const o = m.askOther, s = o.st || {}, st = o.storage ? o.storage.session : {};
-      const ok = !!o.seam && o.seam.signCount === 12           /* ★ 母集団: 全部解放済み (★[#82][#103][#104][#105][#106] side 5 件を足して 12 枚) */
+      const ok = !!o.seam && o.seam.signCount === 13           /* ★ 母集団: 全部解放済み (★[#82][#103][#104][#105][#106][#107] side 6 件を足して 13 枚) */
         && o.seam.questDest === 'goblin-mine'                  /* ★ 受注はしている */
         && !!o.target && o.targetScenario !== 'goblin-mine'    /* ★ 押したのは受注地ではない */
         && s.heroNode === o.target                             /* 歩けている */
@@ -1593,7 +1597,7 @@ const ASSERTS = [
         + ' / index.html への遷移 ' + (o.blocked || []).length + ' 件'
         + ' / questDest=' + st[KEY_QUEST_DEST] + ' (消費されていない)'];
     }],
-  ['3e', '確認ダイアログが閉じているとき、12 枚 (★[#82][#103][#104][#105][#106] side 5 件を足した) の札の中心の elementFromPoint が 自分自身か子孫'
+  ['3e', '確認ダイアログが閉じているとき、13 枚 (★[#82][#103][#104][#105][#106][#107] side 6 件を足した) の札の中心の elementFromPoint が 自分自身か子孫'
     + ' (#21 の (7d) を壊していない = ダイアログが display:none である証明)',
     m => {
       const st = m.device.stages[m.device.hi];   /* cleared = 6 本 = 札 7 枚の母集団 */
@@ -1601,7 +1605,7 @@ const ASSERTS = [
       const bad = rows.filter(r => !r.onScreen || !r.self)
         .map(r => r.id + '[' + (r.onScreen ? '' : '画面外/') + '押した先=' + r.top + ']');
       const ok = st.askOpen === false && st.askDisplay === 'none'
-        && rows.length === 12 && bad.length === 0;   /* ★[#82][#103][#104][#105][#106] side 5 件を足して 12 枚 */
+        && rows.length === 13 && bad.length === 0;   /* ★[#82][#103][#104][#105][#106][#107] side 6 件を足して 13 枚 */
       return [ok, 'cleared=6本 → 札 ' + rows.length + ' 枚 (' + rows.map(r => r.id).join(',')
         + ') の中心の elementFromPoint がすべて自分自身か子孫'
         + '  ダイアログ: askOpen=' + st.askOpen + ' / display=' + st.askDisplay
@@ -1626,7 +1630,7 @@ const ASSERTS = [
         + '  questDest=' + (s[KEY_QUEST_DEST] === null ? '(無し)' : s[KEY_QUEST_DEST])
         + '  [装置] 酒場で typeof window.WORLD_MAP=' + d.seam.worldMapInTavern];
     }],
-  ['4b', 'world.html?questwalk=0 → 札が 12 枚 (★[#82][#103][#104][#105][#106] side 5 件を足した) とも出る (cleared = [] でも)。'
+  ['4b', 'world.html?questwalk=0 → 札が 13 枚 (★[#82][#103][#104][#105][#106][#107] side 6 件を足した) とも出る (cleared = [] でも)。'
     + ' ★[#106] 神殿の点は湖畔の集落の札の下 = 神殿は自分の札を押して歩く (ユーザー決定 (a)・COVERED_BY_SIGN の明示の組だけ)。'
     + ' 港町フラン以外はどれも遷移しない = #21 の (7e) と同じ姿',
     m => {
@@ -1643,8 +1647,8 @@ const ASSERTS = [
          ⚠ 今は world.html が未実装なので 7 枚は自明だが、項目 3 の実装後も 7 枚のままで
            あることを守る番人になる (撤退スイッチが効いている証明)。 */
       const ok = w.search === '?questwalk=0'        /* 装置: クエリが本当に届いている */
-        && w.signCount === 12                       /* ★[#82][#103][#104][#105][#106] side 5 件を足して 12 枚 */
-        && w.clickIds.length === 11                 /* 港町フラン以外 = enter を持たない site (★[#82][#103][#104][#105][#106] 11) */
+        && w.signCount === 13                       /* ★[#82][#103][#104][#105][#106][#107] side 6 件を足して 13 枚 */
+        && w.clickIds.length === 12                 /* 港町フラン以外 = enter を持たない site (★[#82][#103][#104][#105][#106][#107] 12) */
         && bad.length === 0;
       return [ok, 'URL search="' + w.search + '"  .worldSign=' + w.signCount + ' 枚'
         + '  押した札 ' + w.clickIds.length + ' 枚 (' + w.clickIds.join(',') + ')'
@@ -1745,29 +1749,38 @@ const ASSERTS = [
          #105 の固定値 3dd5550782057025 は **1 文字も変えず**、当てる先を「本番の撤退 retireHag() だけを呼んだ後の地図」
          (= 魔女の小屋の前の地図) へ移した。44b1de14f8b2c9d0 は + retireTomb()・3918d569e7f3f7db は + retireCargo()・
          647e71f6b2956389 は + retireWarren()・876c5f6336f96811 は 5 段すべての後に当てる (verify_world_steps (1d) と同じ式・同じ 6 値)。 */
+      /* ★[#107] さらにもう 1 段。既定の地図は frost_peak「霜の峠」を**新しく足した** (NODES 15 / EDGES 15・SITES に frost-hold) 姿で、
+         その実測 (2026-11-05 #107。js/world-map.js を node の vm で読んで同じ式で求めた値とも一致 = r107/item4/sha_vm.js) を WANT_ON として焼き直す。
+         #106 の固定値 63f3bce7696bf14a は **1 文字も変えず**、当てる先を「本番の撤退 retireGiant() だけを呼んだ後の地図」
+         (= 霜の巨人の砦の前の地図) へ移した。3dd5550782057025 は + retireHag()・以下 1 段ずつ後ろへずれ、
+         876c5f6336f96811 は 6 段すべての後に当てる (verify_world_steps (1d) と同じ式・同じ 7 値)。 */
       const WANT = '876c5f6336f96811';   /* 2026-08-26 実測 (NODES 14 / EDGES 14 / SITES 6) */
       const WANT_W0 = '647e71f6b2956389';   /* ★[#82] 2026-10-03 実測 (NODES 14 / EDGES 14 / SITES 7) */
       const WANT_C0 = '3918d569e7f3f7db';   /* ★[#103] 2026-10-28 実測 (NODES 14 / EDGES 14 / SITES 8) */
       const WANT_T0 = '44b1de14f8b2c9d0';   /* ★[#104] 2026-10-29 実測 (NODES 14 / EDGES 14 / SITES 9) */
       const WANT_H0 = '3dd5550782057025';   /* ★[#105] 2026-10-30 実測 (NODES 14 / EDGES 14 / SITES 10) */
-      const WANT_ON = '63f3bce7696bf14a';   /* ★[#106] 2026-11-02 実測 (NODES 14 / EDGES 14 / SITES 11) */
+      const WANT_G0 = '63f3bce7696bf14a';   /* ★[#106] 2026-11-02 実測 (NODES 14 / EDGES 14 / SITES 11) */
+      const WANT_ON = '644bf9dac129dffb';   /* ★[#107] 2026-11-05 実測 (NODES 15 / EDGES 15 / SITES 12) */
       const rm = m.stages[0].retiredMap;
       const sha = (o) => crypto.createHash('sha1').update(JSON.stringify({ nodes: o.nodesFP, edges: o.edges, sites: o.sites })).digest('hex').slice(0, 16);
       const canonOff = rm ? JSON.stringify({ nodes: rm.nodesFP, edges: rm.edges, sites: rm.sites }) : '';
-      const gotOff = rm ? sha(rm) : '(retireTower / retireWarren / retireCargo / retireTomb / retireHag が無い)';
+      const gotOff = rm ? sha(rm) : '(retireTower / retireWarren / retireCargo / retireTomb / retireHag / retireGiant が無い)';
+      const gotG0 = rm && rm.giantOff ? sha(rm.giantOff) : '(retireGiant が無い)';
       const gotH0 = rm && rm.hagOff ? sha(rm.hagOff) : '(retireHag が無い)';
       const gotT0 = rm && rm.tombOff ? sha(rm.tombOff) : '(retireTomb が無い)';
       const gotW0 = rm && rm.warrenOff ? sha(rm.warrenOff) : '(retireWarren が無い)';
       const gotC0 = rm && rm.cargoOff ? sha(rm.cargoOff) : '(retireCargo が無い)';
-      return [got === WANT_ON && gotH0 === WANT_H0 && gotT0 === WANT_T0 && gotC0 === WANT_C0 && gotW0 === WANT_W0 && gotOff === WANT, 'NODES ' + md.nodesFP.length + ' 件 / EDGES ' + md.edges.length
+      return [got === WANT_ON && gotG0 === WANT_G0 && gotH0 === WANT_H0 && gotT0 === WANT_T0 && gotC0 === WANT_C0 && gotW0 === WANT_W0 && gotOff === WANT, 'NODES ' + md.nodesFP.length + ' 件 / EDGES ' + md.edges.length
         + ' 本 / SITES ' + Object.keys(md.sites).length + ' 件'
         + '  sha1(先頭16)=' + got + ' (固定値 ' + WANT_ON + ')'
-        + '  / 撤退後 (retireHag) sha1=' + gotH0 + ' (固定値 ' + WANT_H0 + ')'
+        + '  / 撤退後 (retireGiant) sha1=' + gotG0 + ' (固定値 ' + WANT_G0 + ')'
+        + '  / 撤退後 (+ retireHag) sha1=' + gotH0 + ' (固定値 ' + WANT_H0 + ')'
         + '  / 撤退後 (+ retireTomb) sha1=' + gotT0 + ' (固定値 ' + WANT_T0 + ')'
         + '  / 撤退後 (+ retireCargo) sha1=' + gotC0 + ' (固定値 ' + WANT_C0 + ')'
         + '  / 撤退後 (+ retireWarren) sha1=' + gotW0 + ' (固定値 ' + WANT_W0 + ')'
-        + '  / 撤退後 (5 段すべて) sha1=' + gotOff + ' (固定値 ' + WANT + ')'
+        + '  / 撤退後 (6 段すべて) sha1=' + gotOff + ' (固定値 ' + WANT + ')'
         + (got === WANT_ON ? '' : '  ⛔ 実測の中身= ' + canon)
+        + (gotG0 === WANT_G0 || !rm || !rm.giantOff ? '' : '  ⛔ retireGiant 後の中身= ' + JSON.stringify({ nodes: rm.giantOff.nodesFP, edges: rm.giantOff.edges, sites: rm.giantOff.sites }))
         + (gotH0 === WANT_H0 || !rm || !rm.hagOff ? '' : '  ⛔ retireHag 後の中身= ' + JSON.stringify({ nodes: rm.hagOff.nodesFP, edges: rm.hagOff.edges, sites: rm.hagOff.sites }))
         + (gotT0 === WANT_T0 || !rm ? '' : '  ⛔ retireTomb 後の中身= ' + JSON.stringify({ nodes: rm.tombOff.nodesFP, edges: rm.tombOff.edges, sites: rm.tombOff.sites }))
         + (gotC0 === WANT_C0 || !rm ? '' : '  ⛔ retireCargo 後の中身= ' + JSON.stringify({ nodes: rm.cargoOff.nodesFP, edges: rm.cargoOff.edges, sites: rm.cargoOff.sites }))
@@ -1946,8 +1959,8 @@ const SECTIONS = [
 
       mark('欠陥を注入すると担当の節が赤くなること (⭐ 素と同じ装置・同じ述語を変異ポートへ)');
       const negTav = await readTavernScenarios(PORT);
-      check('(n1z) [装置] 変異の母集団 — 配信中の tavern.html から解放の鎖を 11 組 (★[#82][#103][#104][#105][#106] 本筋 6 + side 5) 読めている',
-        negTav.status === 200 && negTav.rows.length === 11 && negTav.rows.filter(r => r.side).length === 5,
+      check('(n1z) [装置] 変異の母集団 — 配信中の tavern.html から解放の鎖を 12 組 (★[#82][#103][#104][#105][#106][#107] 本筋 6 + side 6) 読めている',
+        negTav.status === 200 && negTav.rows.length === 12 && negTav.rows.filter(r => r.side).length === 6,
         'status=' + negTav.status + ' 組数=' + negTav.rows.length
         + ' order=' + JSON.stringify(negTav.order));
 

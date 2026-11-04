@@ -32,13 +32,14 @@
  *           ★[#104] + side 3 件目 lost-cargo (locked・前提は本筋の廃坑)
  *           ★[#105] + side 4 件目 silent-tomb (locked・前提は本筋の 2 番目 = 森)
  *           ★[#106] + side 5 件目 witch-hut (locked・前提は本筋の 3 番目 = 沼地)
+ *           ★[#107] + side 6 件目 frost-hold (locked・前提は本筋の 5 番目 = 神殿)
  *      (0c) [装置] 全ページで pageerror 0 件 (本ドライバ独自の追加)
  *   §1 (1a) 新規 (cleared=[]) を 6 回引く → 毎回 札は questTable_goblin-mine + questTable_kobold-warren (両方押せる) の 2 枚ちょうど (★[#103])
  *           + 撤退 ?warren=0 で 6 回 → 毎回 questTable_goblin-mine (押せる) + questTable_bandits-forest (???・.locked) の 2 枚ちょうど (#82 までの (1a))
  *      (1b) cleared=[廃坑] を 6 回引く → 毎回 盤面 = {森 (本筋), 廃坑 か 巣穴 か 倉庫街}・両方押せる (★[#103] 解放済みが 3 件・★[#104] 4 件になった)
  *           + 撤退 ?cargo=0 で 6 回 → 毎回 {森, 廃坑 か 巣穴} (#103 までの (1b) そのもの)
  *      (1c) cleared 1〜5 本の各状態で鍵を消して 8 回読み直す → 全回で本筋が入り、もう 1 件は解放済み、未解放の札 0 枚・盤面が独立計算で妥当
- *      (1d) cleared 6 本を 4 回引く → 本筋なし・2 件とも解放済み・重複なし (★[#104] 解放済み 9 件・★[#105] 10 件・★[#106] 11 件)
+ *      (1d) cleared 6 本を 4 回引く → 本筋なし・2 件とも解放済み・重複なし (★[#104] 解放済み 9 件・★[#105] 10 件・★[#106] 11 件・★[#107] 12 件)
  *      (1e) 2 経路: §1 の全読み込みで DOM の札 id 集合 === board().seats の値集合 === localStorage の保存値の集合
  *           (+ 保存値 === board() の写し・各札が自分の席 (TABLES の sign タイル) に立っている)
  *   §2 (2a) cleared 3 本で盤面を作らせた後、再読込 5 回・町へ出て戻る 3 回で nonce も席も 1 文字も変わらない
@@ -101,6 +102,7 @@ const WARREN = 'kobold-warren';   /* ★[#103] 本筋の外・最初から受け
 const CARGO = 'lost-cargo';       /* ★[#104] 本筋の外・廃坑の後に受けられる行き先 (撤退 ?cargo=0 で配列から外れる) */
 const TOMB = 'silent-tomb';       /* ★[#105] 本筋の外・森の後に受けられる行き先 (撤退 ?tomb=0 で配列から外れる)。cleared=[廃坑] の (1b) には入らない */
 const HAG = 'witch-hut';          /* ★[#106] 本筋の外・沼地の後に受けられる行き先 (撤退 ?hag=0 で配列から外れる)。cleared=[廃坑] の (1b) には入らない */
+const GIANT = 'frost-hold';       /* ★[#107] 本筋の外・神殿の後に受けられる行き先 (撤退 ?giant=0 で配列から外れる)。cleared=[廃坑] の (1b) には入らない */
 const SHOP_NAME = '武器防具屋';
 const BACK_NAME = '奥の間へ';
 const VIEW = { width: 1440, height: 900 };
@@ -467,16 +469,18 @@ async function runSuite(browser, port, mutKey, label) {
          ★[#103] + 巣穴 kobold-warren 1 件 (side・locked なし = 最初から受けられる) = side ちょうど 2 件・全 8 件。
          ★[#104] + lost-cargo 1 件 (side・locked・前提 = 本筋の先頭 = 廃坑) = side ちょうど 3 件・全 9 件。
          ★[#105] + silent-tomb 1 件 (side・locked・前提 = 本筋の 2 番目 = 森) = side ちょうど 4 件・全 10 件。
-         ★[#106] + witch-hut 1 件 (side・locked・前提 = 本筋の 3 番目 = 沼地) = side ちょうど 5 件・全 11 件。 */
+         ★[#106] + witch-hut 1 件 (side・locked・前提 = 本筋の 3 番目 = 沼地) = side ちょうど 5 件・全 11 件。
+         ★[#107] + frost-hold 1 件 (side・locked・前提 = 本筋の 5 番目 = 神殿) = side ちょうど 6 件・全 12 件。 */
       const sc = SC_ALL.filter((x) => !x.side), sd = SC_ALL.filter((x) => x.side);
-      const sdL = sd.filter((x) => x.locked), sdW = sd.filter((x) => x.id === WARREN), sdC = sd.filter((x) => x.id === CARGO), sdT = sd.filter((x) => x.id === TOMB), sdH = sd.filter((x) => x.id === HAG);
+      const sdL = sd.filter((x) => x.locked), sdW = sd.filter((x) => x.id === WARREN), sdC = sd.filter((x) => x.id === CARGO), sdT = sd.filter((x) => x.id === TOMB), sdH = sd.filter((x) => x.id === HAG), sdG = sd.filter((x) => x.id === GIANT);
       const chain = sc.length === 6 && !sc[0].locked && sc.slice(1).every((x, i) => x.locked && x.unlockAfter === sc[i].id)
-        && sd.length === 5 && sdL.length === 4 && sdL.every((y) => sc.some((x) => x.id === y.unlockAfter))
+        && sd.length === 6 && sdL.length === 5 && sdL.every((y) => sc.some((x) => x.id === y.unlockAfter))
         && sdW.length === 1 && !sdW[0].locked && !sdW[0].unlockAfter
         && sdC.length === 1 && sdC[0].locked && sdC[0].unlockAfter === sc[0].id
         && sdT.length === 1 && sdT[0].locked && sdT[0].unlockAfter === sc[1].id
-        && sdH.length === 1 && sdH[0].locked && sdH[0].unlockAfter === sc[2].id && SC_ALL.length === 11;
-      R.check('(0b)', '[装置] scenarios が本筋 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前) + 本筋の外 (side) 5 件 (塔の母 = locked・前提は本筋 / 巣穴 ' + WARREN + ' = locked なし / ' + CARGO + ' = locked・前提は本筋の先頭 / ' + TOMB + ' = locked・前提は本筋の 2 番目 / ' + HAG + ' = locked・前提は本筋の 3 番目)', chain,
+        && sdH.length === 1 && sdH[0].locked && sdH[0].unlockAfter === sc[2].id
+        && sdG.length === 1 && sdG[0].locked && sdG[0].unlockAfter === sc[4].id && SC_ALL.length === 12;
+      R.check('(0b)', '[装置] scenarios が本筋 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前) + 本筋の外 (side) 6 件 (塔の母 = locked・前提は本筋 / 巣穴 ' + WARREN + ' = locked なし / ' + CARGO + ' = locked・前提は本筋の先頭 / ' + TOMB + ' = locked・前提は本筋の 2 番目 / ' + HAG + ' = locked・前提は本筋の 3 番目 / ' + GIANT + ' = locked・前提は本筋の 5 番目)', chain,
         SC_ALL.map((x) => x.id + (x.side ? '[side]' : '') + (x.locked ? '<' + x.unlockAfter : '')).join(' → '));
     }
     const ID = SC_ALL.filter((x) => !x.side).map((x) => x.id);   // 本筋の一本道の並び (0b が守る)
@@ -581,7 +585,7 @@ async function runSuite(browser, port, mutKey, label) {
       const cl = ID.slice();
       await prep({ cleared: cl });
       const fx = F(cl);
-      const det = []; let ok = fx.frontier === null && fx.unlocked.length === 11;   /* ★[#82][#103][#104][#105][#106] 本筋 6 + side 5 (塔の母・巣穴・倉庫街・墓所・魔女の小屋) が全部解放済み */
+      const det = []; let ok = fx.frontier === null && fx.unlocked.length === 12;   /* ★[#82][#103][#104][#105][#106][#107] 本筋 6 + side 6 (塔の母・巣穴・倉庫街・墓所・魔女の小屋・霜の巨人の砦) が全部解放済み */
       for (let i = 0; i < N_1D; i++) {
         const s = i === 0 ? await open('') : await redraw();
         routes.push(['1d#' + i, s]);

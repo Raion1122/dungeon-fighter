@@ -287,7 +287,10 @@ const pageErrors = [];
    呼び口は enemyAttackTurn の中 (ボスの手番の入口) = 手番の内 = 加害者は司祭 (2026-10-30 確認: inflictWoundsTouch の呼び出しは enemyAttackTurn の 1 か所だけ)。 */
 /* ★[#106] 47 → 48 (17 + 31)。増えた 1 点 = 霧の魔女の「霧渡り」(hagMistPassage) の爪が仲間に与える傷 `ally.hp -= dmg`。
    呼び口は enemyAttackTurn の中 (ボスの手番の入口・pickBossAction の前) = 手番の内 = 加害者は魔女 (2026-11-02 確認: hagMistPassage の呼び出しは enemyAttackTurn の 1 か所だけ)。 */
-const HP_WRITE_EXPECTED = 48;   // 2026-08-29 / 基準 4f7710d 実測 (14 + 29) → #95 で 44 → #95 STEP2 で 45 → #103 で 46 → #104 で 47 → #106 で 48
+/* ★[#107] 48 → 51 (20 + 31)。増えた 3 点 = 冬狼の冷気の息 (coldBreath) の仲間 `a.hp -= dmg`・頭 `hp -= dmg` と、
+   霜の巨人の岩投げ (giantRockThrow) の仲間 `ally.hp -= dmg` (岩の頭は既存の applyEnemySpellDamage)。
+   呼び口は 2 つとも enemyAttackTurn の中の 1 か所ずつ = 手番の内 = 加害者は冬狼 / 巨人 (2026-11-05 確認: HEAD b59766e)。 */
+const HP_WRITE_EXPECTED = 51;   // 2026-08-29 / 基準 4f7710d 実測 (14 + 29) → #95 で 44 → #95 STEP2 で 45 → #103 で 46 → #104 で 47 → #106 で 48 → #107 で 51
 function countHpWrites(src) {
   const reA = new RegExp('\\bhp\\s*-=', 'g');
   const reB = new RegExp('\\bhp\\s*=\\s*Math\\.max\\(\\s*0\\s*,\\s*[A-Za-z0-9_.\\[\\]]*\\.?hp\\s*-', 'g');

@@ -420,7 +420,12 @@ const COVER_MAX = 0.10;
 /* ★[#106] (7f) の例外の組 (ユーザー決定 (a) 2026-11-02 の帰結)。lakeside の札 (signDx 160) は temple の点の上に被さるので、
  *   主人公が temple に立つと駒が lakeside の札の下端に掛かる (実測 18.1% = 96.0x23.8px・2026-11-02)。
  *   ⇒ この組だけ上限を実測の直上 0.20 に置く (他の組は今どおり 10%)。⛔ これ以上に増えたら赤 (札の位置・駒の寸法の退行)。 */
-const COVER_EXCEPT = { 'temple->lakeside': 0.20 };
+/* ★[#107] (7f) の例外の組をもう 1 つ (ユーザー決定 2026-11-05・#106 の temple->lakeside と同じ形)。新しい点 frost_peak (1280,288) は
+ *   神殿の札の右上の際 (⚠ 机上の見込みは「当たり判定は札の右端から約 4px 離れる」だったが、実描画では当たり判定 (約 36px 角) が札の右端に約 8.6px 食い込む = r107/item4/probe_ws2d.js) にあるので、主人公が frost_peak に立つと駒が神殿の札の右上の角に掛かる
+ *   (依頼書 #107 §12-1 (2) の実測 11.0% (1440) / 9.2% (390)・本ドライバの (7f) の実測 10.9% = 36.5x23.8px・2026-11-05・signDx に依らない = 神殿の札の位置の問題)。
+ *   ⛔ 神殿の signDx も frost_peak の座標も動かさない (依頼書 #107 §11 / §2-3)。⇒ この組だけ上限を実測の直上 0.12 に置く。
+ *   ⛔ これ以上に増えたら赤 (札の位置・駒の寸法の退行)。札の中心は 13 枚とも押せる ((7d) が縛る) = 押せない欠陥ではない。 */
+const COVER_EXCEPT = { 'temple->lakeside': 0.20, 'frost_peak->temple': 0.12 };
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 観測 (⭐ 素でも変異でも **この同じ関数**を回す)
@@ -1776,12 +1781,12 @@ const ASSERTS = [
       return [Object.keys(m.map.sites).length > 0 && bad.length === 0,
         bad.length ? '⛔ ' + bad.join(' / ') : Object.keys(m.map.sites).length + ' 件一致'];
     }],
-  ['7b-data', 'kind === "site" がちょうど 12 件 (★[#82] 本筋 6 + 港町 1 に本筋の外 = 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落の 1 枚ずつを足した数) / enter を持つのはただ 1 つで、それはシナリオ拠点ではない / enter にクエリが無い',
+  ['7b-data', 'kind === "site" がちょうど 13 件 (★[#82] 本筋 6 + 港町 1 に本筋の外 = 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落・★[#107] 霜の峠 (新しい点) の 1 枚ずつを足した数) / enter を持つのはただ 1 つで、それはシナリオ拠点ではない / enter にクエリが無い',
     m => {
       const sites = siteIds(m), ents = enterIds(m);
       const scenTargets = Object.keys(m.map.sites).map(k => m.map.sites[k]);
       const one = ents.length === 1 ? ents[0] : null;
-      const ok = sites.length === 12 && one !== null
+      const ok = sites.length === 13 && one !== null
         && m.map.nodes[one].kind === 'site'
         && scenTargets.indexOf(one) < 0
         && String(m.map.nodes[one].enter).indexOf('?') < 0;
@@ -1831,7 +1836,7 @@ const ASSERTS = [
         '最小 ' + (isFinite(mn) ? mn.toFixed(1) : '-') + 'px (' + who + ')'
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
-  ['7b-dom', '★札の DOM が **ちょうど 12 枚** (★[#82] 本筋 6 + 港町 1 に本筋の外 = 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落の 1 枚ずつを足した数)。kind === "site" の件数と一致し、way には 1 枚も無く、'
+  ['7b-dom', '★札の DOM が **ちょうど 13 枚** (★[#82] 本筋 6 + 港町 1 に本筋の外 = 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落・★[#107] 霜の峠の 1 枚ずつを足した数)。kind === "site" の件数と一致し、way には 1 枚も無く、'
     + 'enter を持つのは 1 つだけ。文言は js/world-map.js の label / desc そのまま (⛔ 写経しない)',
     m => {
       if (!m.signs) return [false, 'signs 未測定'];
@@ -1846,7 +1851,7 @@ const ASSERTS = [
         if (r.name !== n.label) bad.push(r.id + ':name="' + r.name + '" != label="' + n.label + '"');
         if ((n.desc || null) !== (r.desc || null)) bad.push(r.id + ':desc ズレ "' + r.desc + '"');
       }
-      const ok = m.signs.total === 12 && m.signs.rows.length === sites.length && sites.length === 12
+      const ok = m.signs.total === 13 && m.signs.rows.length === sites.length && sites.length === 13
         && JSON.stringify(got) === JSON.stringify(want) && ents.length === 1
         && got.indexOf(ents[0]) >= 0 && bad.length === 0;
       return [ok, '.worldSign=' + m.signs.total + ' / kind:"site"=' + sites.length
@@ -1859,7 +1864,7 @@ const ASSERTS = [
       if (!m.signs) return [false, 'signs 未測定'];
       const bad = m.signs.rows.filter(r => !r.onScreen || !r.self)
         .map(r => r.id + '[' + (r.onScreen ? '' : '画面外/') + '押した先=' + r.top + ']');
-      return [m.signs.rows.length === 12 && bad.length === 0,   /* ★[#82][#103][#104] 10 枚・★[#105] 11 枚・★[#106] 12 枚 */
+      return [m.signs.rows.length === 13 && bad.length === 0,   /* ★[#82][#103][#104] 10 枚・★[#105] 11 枚・★[#106] 12 枚・★[#107] 13 枚 */
         m.signs.rows.length + ' 枚とも自分に当たる  実効文字高 name/desc='
         + (m.signs.rows[0] ? (m.signs.rows[0].fontName * m.render.zoom).toFixed(1) + 'px/'
           + (m.signs.rows[0].fontDesc * m.render.zoom).toFixed(1) + 'px (zoom '
@@ -1867,7 +1872,7 @@ const ASSERTS = [
         + '  札の寸法=' + JSON.stringify(m.signs.rows.map(r => r.id + ':' + r.w + 'x' + r.h))
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
-  ['7e', '★港町フラン **以外**の札をタップ → 歩くだけで location が変わらない (11 枚とも。★[#82] 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落を足した数)'
+  ['7e', '★港町フラン **以外**の札をタップ → 歩くだけで location が変わらない (12 枚とも。★[#82] 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落・★[#107] 霜の峠を足した数)'
     + ' ⛔ 依頼の受注は今日どおり酒場 (依頼書 §12-3)',
     m => {
       if (!m.walk) return [false, 'walk 未測定'];
@@ -1879,19 +1884,19 @@ const ASSERTS = [
         if (r.search !== '') bad.push(r.id + ':search="' + r.search + '"');
         if (r.node !== r.id) bad.push(r.id + ':歩けていない heroNode=' + r.node);
       }
-      return [rows.length === 11 && bad.length === 0,   /* ★[#104] 9 枚・★[#105] 10 枚・★[#106] 11 枚 */
+      return [rows.length === 12 && bad.length === 0,   /* ★[#104] 9 枚・★[#105] 10 枚・★[#106] 11 枚・★[#107] 12 枚 */
         rows.length + ' 枚 (' + rows.map(r => r.id).join(',') + ') を実クリック'
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '  全部 world.html のまま歩いただけ')];
     }],
-  ['7f', '★主人公が札を隠さない — 全 14 ノードに立ったときの駒の矩形が、どの .worldSign とも '
+  ['7f', '★主人公が札を隠さない — 全 15 ノードに立ったときの駒の矩形が、どの .worldSign とも '
     + '**札の面積の ' + (COVER_MAX * 100).toFixed(0) + '% 以上**は重ならない'
     + ' ⛔ 96px / 0.93 をドライバへ写経せず __world.heroGeom() から採る'
     + ' ⭐ 実際に歩かせず座標から出す (enter を持つ港町の札は押すと town.html へ遷移してしまう)',
     m => {
       if (!m.cover) return [false, 'cover 未測定'];
-      if (m.cover.signCount !== 12 || m.cover.nodeCount !== 14) {   /* ★[#82][#103][#104] 札 10 枚・★[#105] 11 枚・★[#106] 12 枚 */
-        return [false, '⛔ 母集団が壊れている 札=' + m.cover.signCount + '/12 ノード='
-          + m.cover.nodeCount + '/14 (装置の cleared 仕込みが効いていない可能性)'];
+      if (m.cover.signCount !== 13 || m.cover.nodeCount !== 15) {   /* ★[#82][#103][#104] 札 10 枚・★[#105] 11 枚・★[#106] 12 枚・★[#107] 13 枚 / ノード 15 (霜の峠は新しい点) */
+        return [false, '⛔ 母集団が壊れている 札=' + m.cover.signCount + '/13 ノード='
+          + m.cover.nodeCount + '/15 (装置の cleared 仕込みが効いていない可能性)'];
       }
       const bad = m.cover.rows.filter(r => r.ratio >= (COVER_EXCEPT[r.at + '->' + r.sign] || COVER_MAX))   /* ★[#106] 例外の組だけ別の上限 */
         .map(r => r.at + ' に立つと ' + r.sign + ' の札を ' + (r.ratio * 100).toFixed(1)

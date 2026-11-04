@@ -299,7 +299,10 @@ const QUIET = `
        `updateInfo(MSG_DEFEAT_YOU)` (単文 1 行・既存の敗北文言の定数を使う = 旧文言のリテラルは増えていない (D1))。 */
     /* ★[#106 2026-11-02] 16 → 17。増えた 1 出現 = 霧の魔女の「霧渡り」(hagMistPassage) の爪で主人公 (仲間枠) が倒れたときの
        `updateInfo(MSG_DEFEAT_YOU)` (単文 1 行・傷を腐らせる手と同じ形・旧文言のリテラルは増えていない (D1))。 */
-    check('(D4) 参照が 17 出現 (三項式 5 行 x2 + 単文 7 行 = ★[#103] 仕掛け罠の 1 行 + ★[#104] 傷を腐らせる手の 1 行 + ★[#106] 霧渡りの 1 行)', uses === 17, 'uses=' + uses);
+    /* ★[#107 2026-11-05] 17 → 21。増えた 4 出現 = 冬狼の冷気の息 (coldBreath) で仲間枠の主人公が倒れたときの `updateInfo(MSG_DEFEAT_YOU)` 1 行・
+       頭 (主人公) が倒れたときの `updateInfo(isPartyWiped() ? MSG_DEFEAT_PARTY : MSG_DEFEAT_YOU)` の三項式 1 行 (2 出現)・
+       霜の巨人の岩投げ (giantRockThrow) で仲間枠の主人公が倒れたときの `updateInfo(MSG_DEFEAT_YOU)` 1 行 (旧文言のリテラルは増えていない (D1))。 */
+    check('(D4) 参照が 21 出現 (三項式 6 行 x2 + 単文 9 行 = ★[#103] 仕掛け罠の 1 行 + ★[#104] 傷を腐らせる手の 1 行 + ★[#106] 霧渡りの 1 行 + ★[#107] 冷気の息の三項式 1 行・単文 1 行 + 岩投げの単文 1 行)', uses === 21, 'uses=' + uses);
     check('(D4b) MSG_DEFEAT_HERO の残骸が 0 件 (MSG_DEFEAT_YOU へ統合済み)',
       heroLeft === 0, 'hits=' + heroLeft);
 
