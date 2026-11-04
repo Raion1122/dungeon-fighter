@@ -583,3 +583,109 @@ n1big 氷の砦の大広間 (24x16)
 - verify_lost_cargo **22/22**・verify_silent_tomb **24/24**・verify_witch_hut **29/29**・verify_dragon_fold **35/35**・verify_swamp_novice **34/34**(どれも exit 0)。
 - verify_tower_mother_b は単独で **22/22**(1 回目の赤は #106 項目2 と同じ揺れ = 本件の帰属ではない)。
 - ⚠ 前の行き先の受入の `--negative` は回していない(項目4 の全数走査で回る。撤退の段を 1 段足しただけ = 変異の担当は変わらない見込み)。
+
+### 12-3. 項目3 — 受入 `tools/verify_frost_hold.js` + ⑤ 強さ(2026-11-04・基準 HEAD `5cfdf10`)
+
+⭐ 本番ファイル(`index.html` / `tavern.html` / `world.html` / `js/*`)は**1 バイトも触っていない**(changelog 不要)。足したのは `tools/verify_frost_hold.js`(新規)と本節だけ。作業の置き場 = `~/.claude/dev-loop/r107/item3/`(素のログ `final_plain_{1,2,3}.log`・負 `negative_final.log`・手回し `mut/*.log`・⑤ の道具 `probe_frost_clear.js` とデータ `frost_lv8.tsv` / `temple_lv8.tsv` / `detail_*`・要約 `summ5.py`)。
+
+#### (1) 判定の一覧(27 節・port **10690**・変異 **10691〜10705**・次の新規ドライバ base = **10706**)
+
+写し元 = `tools/verify_witch_hut.js`(配信は内蔵 http・5 ファイルを起動時に凍結・変異はメモリで差し替え・favicon 204・`?__base=1` で着手前 `0298eca` のバイト)。⭐ 今回は `?__base=1` で **`js/world-map.js` も**配る((1d) の経路の比較)。点・道・札の数は**配信バイトの `js/world-map.js` を node の vm で読んだ値**と突き合わせる(⛔ 15 / 15 / 13 を写経しない)。撤退後の数は `0298eca` の `js/world-map.js` を同じ vm で読んだ値(14 / 14 / 10)。
+
+| 節 | 中身 | 素の実測(`final_plain_1.log`) |
+|---|---|---|
+| (0a) | `__frostHoldTV`(4 型・岩・息)/ `buildFrostHoldRun` / `coldBreath` / `giantRockThrow` / `giantRockReachable` / `coldBreathCenter` / probe 3 本・2 ノード・台帳と実体(n0 オーク 4・n1 巨人 1 + 冬狼 2) | ✓ |
+| (0b) | 点・道・拠点 = vm の 15 / 15 / 13 = tavern の WORLD_MAP = world.html の WORLD_MAP / DOM(点 15・点線 15・全部クリアの札 13)・`0298eca` より 1 つずつ多い | ✓ |
+| (0c) | 全ページで pageerror 0(起動 38 回)・段の例外 0 | ✓ |
+| (1a) | `frost_peak` が拠点「霜の峠」(配信バイトの id → place)・道は `temple__frost_peak` の 1 本だけ(袋小路)・SITES / UNLOCK = scenarios(tavern と world.html) | ✓ |
+| (1b) | world.html の DOM: 拠点の点・点線 = EDGES.length・`data-edge="temple__frost_peak"` 1 本・刻み点 = `0298eca` と同じ 10(frost_peak の刻み点 0) | ✓ |
+| (1c) | cleared=[] / 本筋 4 本の解放済み = `?giant=0` と同じ・本筋 4 本の world.html は点だけ(札なし・`isRevealed` 偽)/ 本筋 5 本で札が出て解放済み = `?giant=0` + frost-hold | ✓ |
+| (1d) | ⭐ `0298eca` の `js/world-map.js` と同じページに並べ、既存 14 点の全組 **182 組**の `findPath` / `findWalkPath` が同じ・`findWalkPath("phlan","frost_peak")` は `… → mine → temple → frost_peak` | ✓ diff 0 / 0 |
+| (1e) | 受注 = 霜の巨人の砦で phlan から frost_peak を押して歩く: 13 停留所(temple を踏む)で入場が開かず、frost_peak で「〈霜の峠〉へ入りますか?」1 回(約 10 秒) | ✓ |
+| (1f) | 本筋 6 本で frontier null・frost-hold は side の解放済み・推奨 Lv8 | ✓ |
+| (2a) | n0 = `make_grid_map.py --check` 縦横 OK / n1 = 横 OK + 縦は `--check` か `check_grid_alignment.py` の縦(⚠ 下の言い直し) | ✓(n1 縦 = --check NG・alignment 97.2% OK) |
+| (2b) | 本番の `aStar`: n0 入口 → 出口の手前 19 手・オーク 4 体へ 11〜13 手 / n1 入口 → 巨人・冬狼へ 16 手・敵のタイルは全部歩ける・巨人の体 `unitBodyTiles` = (34,12)(34,13)(34,14) は全部歩ける | ✓ |
+| (2c) | 罠 n0 = 1 (`avalanche`)・n1 = 1 (`iceFloor`)・踏むと dmText(頭・仲間・湧いた罠)・第 2 引数が優先 | ✓ |
+| (2d) | n0big `outdoor: true`(屋外の開放 1 部屋以上)/ n1big 屋内(開放 0・探索済み < 絵の範囲)・どちらも isCustom | ✓ |
+| (3a) | 岩: 型の値(4d10・+6・+9・critMult 3)/ ① 届かない盤面で d20 = 12 / 2 / 1 / 20+19 / 20+1 — 狙い = いちばん遠い隊員(自前の距離)・AC = その隊員・d20+9・確認の d20 は脅威で命中のときだけ・4d10+6(クリティカルは 12 個 + 18)・その隊員の HP だけが減る / ② 戦闘で岩 1 回以上・狙いは dists の最遠 | ✓ |
+| (3b) | ① 巨人が頭の隣: 投げない(skip reach・d20 0 回・HP 不変)・投げた後は `rockCooldown = 1` / ② 戦闘の巨人 4 手番 = 岩 → skip cooldown → skip reach → skip reach | ✓ |
+| (3c) | `rockDice` を持つ型 = frostGiant だけ・冬狼の手番(① 6・② 7)と写したボスの手番で岩の probe 0 | ✓ |
+| (3d) | `resolveElementDefense` 冷気 20 → 0(immune)・炎 20 → 20(巨人・冬狼) | ✓ |
+| (3e) | 冷気の息: 型の値(4d8・DC 12・3x3・cold・ボスでない)/ ① d20 = 2 / 19 — 3x3(中心は冬狼から 2 マス以内)の中の隊員全員(自前で数える = 3 人)に 1 回ずつ・成功で `max(1, floor(raw/2))`・HP がちょうど dmg 減り外の 1 人は減らない・使用済みになる / ② 戦闘の息 4 回も同じ式 | ✓ |
+| (3f) | Recharge 5-6: ① 本番の `enemyAttackTurn` を 6 手番(1d6 だけ 2,4,5,6,3 に差し替え)= `breath` / `recharge:2:no,bite:spent` / `recharge:4:no,bite:spent` / `recharge:5:ready,breath` / `recharge:6:ready,breath` / `recharge:3:no,bite:spent` / ② 戦闘の冬狼 2 頭・7 手番が同じ状態機械に乗る | ✓ |
+| (3g) | 冬狼が隊から 10 マス: 吐かない(bite empty・中心は寄せた 2 マス `clamped`・d20 0 回・使用済みにならない・HP 不変) | ✓ |
+| (3h) | ⭐ `hydraFireBreath`(7471 字)/ `applyFireBreathToAlly`(1008 字)のソースが `0298eca` と同じ・breathDice を持つボス = chimera / hydra / pharaxus(breathElement なし)・冷気 = winterWolf だけ・① 巨人の def を写して breathDice / breathElement "cold" を持たせても冷気の分岐を通らない(probe 0・`__wolfTurn` なし・火のブレス 0)・② 戦闘の巨人の手番で冷気 0 | ✓ |
+| (3i) | ① の息 2 回の間に `tryCounterEnemySpell` / `counterspellWanted` / `findCounterspeller` が 0 回(`isCounterspellOn()` = true の盤面)・着弾・反射なし | ✓ |
+| (4a) | 開幕の語り 4 行が `#dmBody` に出る・大広間の語り = n1 入場で 0 → **約 20.7 秒後に 1 回**(到着の語りが消えるのを待つ作り)・赤い竜の一言・2.5 秒待っても / 戦闘の後も 1 回・既存 11 シナリオの罠の語りは `0298eca` と同じ | ✓ |
+| (4b) | `?giant=0`: tavern の配列・SITES・UNLOCK から消え 点 14・道 14・刻み点 10(= `0298eca`)・刻み点の id に frost_peak なし / world.html の DOM から点・線・札が消え刻み点マーカーにも無い・解放済み ON − 1 | ✓ |
+| (4c) | 撤退 6 段の sha1 = 既定 `644bf9dac129dffb` → `63f3bce7696bf14a` → `3dd5550782057025` → `44b1de14f8b2c9d0` → `3918d569e7f3f7db` → `647e71f6b2956389` → `876c5f6336f96811` | ✓ |
+| (6a) | 既存 11 シナリオで同じ種の `spawnTraps` の罠・乱数の呼び出し回数・次の乱数が `0298eca` と同じ | ✓ |
+| (6b) | 触らない約束の 10 関数(`pickBossAction` / `tryReflectEnemySpell` / `tryCounterEnemySpell` / `counterspellWanted` / `resolveElementDefense` / `hagMistPassage` / `checkDungeonClear` / `defeatEnemy` / `runEncounter` / `checkTrapTrigger`)のソースが `0298eca` と同じ | ✓ |
+
+**依頼書 §8 からの言い直し**(ドライバの冒頭にも書いた):
+- pageerror 0 は (0c) に分けた(§8 の (0a) に含まれていた)。(6b) を足した。
+- ⚠ **(2a)**: 大広間の縦の `--check` は項目1 の構造的な誤報(§12-1 (3)・ユーザー判断 (a)/(b)/(c) 待ち)。⇒ n1 の縦は「`--check` が OK か、独立の物差し `check_grid_alignment.py` の縦が OK」で縛った(判断が (b)/(c) で決着して `--check` が OK になっても緑のまま)。⛔ 閾値は緩めていない。⚠ `check_grid_alignment.py` は cp932 の端末だと最後の `⭐` の行で `UnicodeEncodeError` = exit 1 になる(ドライバは `PYTHONIOENCODING=utf-8` で呼ぶ・道具は直していない)。
+- (2d) の「霧」= n0 は屋外の開放あり・n1 は暗幕が効く(項目2 の `outdoor` の判断のとおり)。
+- (3h) の「ボス 3 体は冷気の分岐を通らない」は、今の 3 体が breathElement を持たない(静的)うえに、**巨人の def を一時的に写して冷気の息を持たせても**入口の `!def.isBoss` で弾かれることで縛った(変異 `breathboss` はこれでしか捕まらない = 今のデータでは誰も通らない分岐)。
+- 岩・息の観測は 3 経路: ① `?diag=1` のページで n1 の敵を inactive にして語りを待ち、`dialogPaused` でループを止めて直接呼ぶ(d20 / 1d6 だけを呼び出しの間だけ差し替え・隊列は (22,13) ほかへ置き直す)/ ② 同じページで本番の `runEncounter`(頭と仲間の手番は何もしない・HP 999・巨人の 3 マス左から開戦)/ ③ 静的(型の値・ソース)。
+
+#### (2) 変異ごとの担当(`--mutate` で 1 本ずつ実走して決めた = `mut/*.log`)
+
+| 変異 | 中身 | 必ず赤(実走) | 依頼書の予想 |
+|---|---|---|---|
+| `keepsteps` | 座標を予備案 (1312,224) へ + 撤退で STEPS を消さない(§2-2) | (1b)(1d)(4b)(4c) | (4b) |
+| `keepedge` | 撤退で EDGES を消さない | (4b)(4c) | (4b) |
+| `noedge` | 道を足さない(点だけ) | (0b)(1a)(1b)(1d)(1e)(4c) | (1a)(1b) |
+| `unlockfree` | `locked: false`(後に書いたキーが勝つ) | (1a)(1c) | (1c) |
+| `rockall` | 届く距離でも投げる | (3b) | (3b) |
+| `rocknear` | いちばん近い隊員を狙う | (3a) | (3a) |
+| `nocooldown` | 投げても `rockCooldown` を立てない | (3b) | (3b) |
+| `nobreath` | 冬狼の `breathDice` を外す | (3e)(3f)(3h) | (3e) |
+| `alwaysbreath` | 吐いても使用済みにしない | (3e)(3f) | (3f) |
+| `breathfull` | セーヴ成功でも半減しない(仲間と頭の 2 行) | (3e) | (3e) |
+| `breathboss` | 入口の `!def.isBoss` を外す | (3h) | (3h) |
+| `firebreathedit` | `hydraFireBreath` の文言を 1 字(「火炎」→「火焔」) | (3h) | (3h) |
+| `nocoldimmune` | 巨人の冷気の完全耐性を外す | (3d) | (3d) |
+| `noretire` | `?giant=0` を読まない(tavern / world.html) | (1c)(4b) | (4b) |
+| `shortcut` | frost_peak に 2 本目の道(→ dragon。vm の実測で既存の最短経路 2 組が変わる先) | (0b)(1a)(1b)(1d)(4c) | (1d) |
+
+- 確率で赤(NEG_MAYBE)= 15 本とも **なし**(①の直接呼び・静的照合で決まる節が担当・② の戦闘の観測は「1 回以上」と規則の照合だけ)。
+- 予想との差の理由: `keepsteps` は座標を動かすと刻み点が 1 個生える = 刻み点の数 (1b)・歩きの最後の 2 手 (1d)・既定の sha1 (4c) も変わる。`noedge` / `shortcut` は道の数・点線・経路・sha1 がまとめて動く。`unlockfree` は配信バイトの locked と UNLOCK の食い違い (1a) が先に捕まえる。⚠ **`nobreath`**: `coldBreath` は `def.breathDice || "4d8"` で吐く作り = 直接呼びは breathDice が無くても吐く ⇒ 1 回目の実走では (3e) が緑だった(`mut/nobreath.log` = (3f)(3h) だけ)。(3e) に**冬狼の型の値の静的な照合**(4d8・DC 12・3x3・cold)を足して捕まえた(`mut/nobreath2.log`)。`alwaysbreath` は直接呼びの「使用済みになる」(3e) も赤。`noretire` は「ON = OFF + 1」の (1c) も赤。
+- 罠E の自己検査: 起動時に 17 個のアンカーが他の `tools/*.js` に出ないことを確かめる(素で毎回通る)。注入行は全部 `__MUTHIT__` を持つ(撤退の器・火のブレスは素の流れで実行されない場所なので、load で走る行に印だけの 2 本目を足した)。`breathfull` の対象行は 2 回出る = 変異の定義に `n: 2` を持たせ、原本でちょうど 2 件を検算する。
+
+#### (3) 終わりの印
+
+- 素 3 回連続(最終版のドライバ・`--verbose`): `final_plain_1.log` **27/27 PASSED   FAILED 0   PENDING 0**(144 秒・exit 0)/ `final_plain_2.log` **27/27**(148 秒・exit 0)/ `final_plain_3.log` **27/27**(145 秒・exit 0)。その前の試走 `plain_try1.log` も 27/27(148 秒)。
+- `--negative`(`negative_final.log`・単独・直列): `[素・基準] 27/27 PASSED   FAILED 0   PENDING 0` → `負のコントロール 15 / 15 が検出成功` → `[vet] --negative OK: 15 本すべて担当ラベルが赤・担当外の赤 0・注入行はすべて実行`(**2325 秒 = 38.8 分**・exit 0)。15 本とも担当は手回しの集合と同じ(担当外の赤 0)。
+
+#### (4) ⑤ 強さ(⛔ assert しない・値は変えていない・判断はユーザー)
+
+道具 = `item3/probe_frost_clear.js`(`r106/item3/probe_hag_clear.js` の写し。酒場で本番の出発 → index で決着まで 1 秒ごと・autoplay 15。数えるのは `giantRockThrow` / `coldBreath` を包んだ前後の生死と probe の増分)。Lv8(xp 28000)・4 人(主人公 = 戦士 + 酒場の仲間 3 人は抽選)。cleared = その依頼に初めて挑む状態(霜の巨人の砦 = 本筋 5 本・神殿 = 本筋 4 本)。⭐ **同じ道具・同じ N=10**(2 本を別ポートで並走)。
+
+| | 霜の巨人の砦 Lv8・N=10 | 比較: 神殿 Lv8・N=10 |
+|---|---|---|
+| クリア / 敗北 | **0 / 10** | **9 / 1** |
+| 全滅(全員が倒れた) | 0 / 10(敗北 10 回とも**主人公が倒れて終わり**・仲間は残る) | 0 / 10(敗北 1 回は主人公が倒れて終わり) |
+| 所要(平均・最小〜最大) | **102 秒**(92〜123)・大広間に入るのは 59〜90 秒(平均 68)= 入ってから約 34 秒で決着 | **144 秒**(102〜173)・クリア回 141 秒 |
+| 終わりの主人公の HP | 0 / 100 × 10 | クリア回 69・11・17・100・14・31・41・3・64 / 100・敗北回 0 |
+| 終わりの仲間の HP | 66/90,29/46,46/46 ・ 58/58,73/73,18/38 ・ 67/96,46/46,15/34 ・ 82/82,8/52,**0/34✝** ・ 65/65,46/46,34/46 ・ **0/86✝**,8/58,9/38 ・ 100/100,82/82,21/42 ・ 74/74,73/73,27/38 ・ 57/96,82/82,42/42 ・ 74/74,57/57,21/46 | 10 回とも全員生存 |
+| 倒れた人数 | 計 **12**(主人公 10・仲間 2 = 魔法使い 1(岩)・ドワーフ 1(岩でも息でもない)) | 計 **1**(敗北回の主人公) |
+| ボスの残り HP | 霜の巨人 **96〜138 / 138**(平均 124.8・無傷 4 回) | リッチは 9 回討伐・敗北回は残り 15 |
+| ボスの手番 | 巨人 3〜8(平均 4.3)・冬狼 5〜8(平均 6.6) | 3〜10 |
+| **岩投げ** | **11 回**(1 戦闘 1 回・1 回だけ 2 回)・狙いは 11 回とも仲間(後衛)・**命中 8 / 11 = 73%**・ダメージ 19〜39(平均 28.5)・**岩で倒れた 1**(魔法使い 34 HP に 39) | — |
+| **冷気の息** | **22 回**(1 戦闘 1〜5 回・平均 2.2)・**巻き込んだ延べ 28 人**(1 回 1〜3 人・平均 1.27)・セーヴ成功 14 / 28・ダメージ 5〜21・**息で倒れた 2**(どちらも主人公) | — |
+| 主人公の倒れ方 | 息 2 / 岩 0 / **それ以外(巨人の大斧 3d12+6 × 2・冬狼の噛みつき)8** | — |
+| 罠 | 発見 n0 8 / 10・n1 9 / 10・踏んだ 3 回(n0 の雪崩・1〜3 点) | 踏んだ 5 回(2〜5 点) |
+
+⇒ **神殿 Lv8 は 9 / 10 で勝てる隊が、霜の巨人の砦では 10 回とも負けた**(項目2 の素の 1 回の全滅と同じ形)。負け方は 1 つで、大広間に入ってから約 34 秒(巨人の手番 3〜8)で**前衛の主人公(HP 100)が倒れ**、巨人の HP はほぼ減っていない(平均 124.8 / 138)。岩投げは後衛へ飛ぶが倒したのは 1 回だけ・冷気の息は主人公を 2 回倒した。数字が指すのは岩と息より「巨人の近接(2 回攻撃・3d12+6・critMult 3)と HP 138・AC 15」の方。どう直すか(推奨 Lv・巨人の HP / 攻撃回数・冬狼の数・ボス補正なしの方針)は**ユーザー判断**(⛔ 値は変えていない)。
+
+#### (5) 所要と項目4 への申し送り
+
+- 素 1 本 = **約 144〜148 秒**(起動 38 ページ・(1e) の歩き約 10 秒・大広間の語り待ち約 21 秒・戦闘約 30 秒・(6a) 23 ページ)。
+- `--negative`(素の基準 + 変異 15 本・直列・単独)= **2325 秒(38.8 分)** ⇒ ⭐ **項目4 の走行器の 1 腕の上限 = その × 1.3 = **約 3023 秒(50.4 分)****。
+- 揺れ・罠(ドライバ側・本番の欠陥ではない):
+  - 大広間の語りは到着の語り (`#dmMessage`) が消えるのを待つので、入場から約 20.7 秒かかる(待ちの上限 45 秒)。それまで敵を inactive にして戦闘を始めさせない。
+  - n0 の敵は最初の観測の直後に inactive にする(n0 で戦闘が始まると「落ち着き」を待てない)。
+  - `coldBreath` の直接呼びは `breathDice` が無くても既定値の 4d8 で吐く(変異 `nobreath` は型の値の静的照合で捕まえる)。
+  - 変異 `noedge` は frost_peak へ道が無い = 歩きの腕は `findWalkPath` が null になった時点で打ち切る(300 秒待たない)。
+- 既存の golden: 本項では 1 本も触っていない(予告どおり赤の言い直しと verify_world_map (7f) の `COVER_EXCEPT` は項目4)。
