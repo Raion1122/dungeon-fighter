@@ -50,7 +50,7 @@
  *
  * ■ 測っているもの (依頼書 §8 の番号)
  *   §0 (0a) [装置] __frostHoldTV (4 型) / buildFrostHoldRun / coldBreath / giantRockThrow / probe 3 本が見え、2 ノード (n0 start / n1 boss)
- *           の台帳と実体の敵が 0 体でない (n0 = オーク・n1 = 巨人 1 + 冬狼 2)
+ *           の台帳と実体の敵が 0 体でない (n0 = オーク・n1 = 巨人 1 + 冬狼 1 = X3。SRD の 2 頭から減らした・依頼書 §12-3 ⑤)
  *      (0b) [装置] 点・道・札の数 = 配信バイトの NODES / EDGES / 拠点の数 (vm) = tavern の WORLD_MAP = world.html の DOM
  *      (0c) [装置] 全ページで pageerror 0 件
  *   §1 (1a) NODES.frost_peak が site・EDGES に temple–frost_peak が 1 本で frost_peak の道はそれだけ・SITES / UNLOCK が tavern の scenarios と一致
@@ -127,6 +127,11 @@ const HOLD_TYPES = ORCS.concat([WOLF, GIANT]);   // 霜の巨人の砦の台帳�
 const FIRE_BOSSES = ['chimera', 'hydra', 'pharaxus'];   // 依頼書 §2-5: breathDice を持つ既存の 3 体 (全部ボス・炎)
 const N0_TRAP = 'avalanche', N1_TRAP = 'iceFloor';
 const ROCK = { n: 4, sides: 10, bonus: 6 }, BREATH = { n: 4, sides: 8, dc: 12 };   // SRD (依頼書 §2-8)
+/* ⚠ 巨人の近接と冬狼の頭数は SRD からユーザー判断で弱めた (2026-11-05・依頼書 §12-3「⑤ 強さの見直し」の X3)。
+ *   SRD = 大斧 2 回・HP 138・3d12+6・×3・冬狼 2 頭 → X3 = 1 回・104・2d12+6・×2・冬狼 1 頭。
+ *   critMult は岩のクリティカルの倍数にも使われる (giantRockThrow の times = def.critMult)。AC 15・+9・岩・息は SRD のまま。 */
+const GIANT_X3 = { hp: 104, dmgDice: '2d12', dmgBonus: 6, critMult: 2, attacksPerTurn: 1, ac: 15 };
+const HALL_WOLVES = 1;
 const SHORTCUT_TO = 'dragon';        // 変異 shortcut の 2 本目の道の先 (vm の実測で既存の最短経路を 2 組変える)
 const BASE_REV = '0298eca';          // #107 の着手前 (素材の受け取り。index / tavern / world / js は 241c718 と差 0)
 /* (4c) 撤退の各段の地図の sha1 (先頭 16)。
@@ -837,7 +842,7 @@ async function runSuite(browser, port, mutKey, label) {
       const gi = enemies.findIndex((e) => e.type === G);
       const g = enemies[gi];
       if (g && !encounterActive) {
-        /* 巨人の 3 マス左へ (冬狼 2 頭も 2 マス以内 = 1 つの戦闘)・巨人には届かない (= 最初の手番は岩) */
+        /* 巨人の 3 マス左へ (冬狼 (X3 で 1 頭) も 2 マス以内 = 1 つの戦闘)・巨人には届かない (= 最初の手番は岩) */
         const gtx = Math.floor((g.x + g.def.displaySize / 2) / TILE_SIZE), gty = Math.floor((g.y + g.def.displaySize / 2) / TILE_SIZE);
         playerX = (gtx - 3) * TILE_SIZE + TILE_SIZE / 2 - 48; playerY = gty * TILE_SIZE + TILE_SIZE / 2 - 58;
         await new Promise((r) => setTimeout(r, 400));
@@ -1056,7 +1061,8 @@ async function runSuite(browser, port, mutKey, label) {
         reach: tv ? typeof tv.giantRockReachable : null, center: tv ? typeof tv.coldBreathCenter : null,
         rkProbe: Array.isArray(window.__giantRockProbe), cbProbe: Array.isArray(window.__coldBreathProbe), hallProbe: Array.isArray(window.__frostHallProbe) };
       const gd = ENEMY_TYPES[G] || {}, wd = ENEMY_TYPES.winterWolf || {};
-      o.defs = { giant: { rockDice: gd.rockDice || null, rockBonus: gd.rockBonus, atkBonus: gd.atkBonus, critMult: gd.critMult, range: gd.range || null, isBoss: !!gd.isBoss },
+      o.defs = { giant: { rockDice: gd.rockDice || null, rockBonus: gd.rockBonus, atkBonus: gd.atkBonus, critMult: gd.critMult, range: gd.range || null, isBoss: !!gd.isBoss,
+                          hp: gd.hp, dmgDice: gd.dmgDice || null, dmgBonus: gd.dmgBonus, attacksPerTurn: gd.attacksPerTurn, ac: gd.ac },
                  wolf: { breathDice: wd.breathDice || null, breathDC: wd.breathDC, breathBlast: wd.breathBlast, breathElement: wd.breathElement || null, isBoss: !!wd.isBoss } };
       try {
         const run = window.buildFrostHoldRun();
@@ -1153,15 +1159,15 @@ async function runSuite(browser, port, mutKey, label) {
     const l0 = led.find((n) => n.id === 'n0') || {}, l1 = led.find((n) => n.id === 'n1') || {};
     const n1E = (N1.enemies || []);
     const SE = N0.seams || {};
-    R.check('(0a)', '[装置] __frostHoldTV (4 型・岩・息) / buildFrostHoldRun / coldBreath / giantRockThrow / giantRockReachable / coldBreathCenter / probe 3 本が見え、2 ノード (n0 start / n1 boss)・台帳の鍵 ⊆ ' + HOLD_TYPES.join('・') + '・n0 = オーク (1 体以上)・n1 = ' + GIANT + ' 1 + ' + WOLF + ' 2 (台帳と実体)',
+    R.check('(0a)', '[装置] __frostHoldTV (4 型・岩・息) / buildFrostHoldRun / coldBreath / giantRockThrow / giantRockReachable / coldBreathCenter / probe 3 本が見え、2 ノード (n0 start / n1 boss)・台帳の鍵 ⊆ ' + HOLD_TYPES.join('・') + '・n0 = オーク (1 体以上)・n1 = ' + GIANT + ' 1 + ' + WOLF + ' ' + HALL_WOLVES + ' (台帳と実体・X3)',
       SE.tv && J(SE.types) === J(HOLD_TYPES.slice().sort()) && SE.giantRock && SE.wolfBreath && SE.build === 'function' && SE.cb === 'function' && SE.rk === 'function'
         && SE.reach === 'function' && SE.center === 'function' && SE.rkProbe && SE.cbProbe && SE.hallProbe
         && N0.scen === FH && J(N0.nodes) === J(['n0:start', 'n1:boss']) && N0.cur === 'n0' && N1.cur === 'n1'
         && led.length === 2 && (l0.slots || []).length >= 1 && (l0.slots || []).every((k) => ORCS.indexOf(k) >= 0) && J(l0.boss) === J([])
-        && J(l1.boss) === J([GIANT]) && (l1.slots || []).filter((k) => k === WOLF).length === 2
+        && J(l1.boss) === J([GIANT]) && (l1.slots || []).filter((k) => k === WOLF).length === HALL_WOLVES
         && (N0.ledgerKeys || []).every((x) => x.known && x.inHold)
         && (N0.enemies || []).length >= 1 && (N0.enemies || []).every((e) => ORCS.indexOf(e.type) >= 0)
-        && n1E.filter((e) => e.type === GIANT).length === 1 && n1E.filter((e) => e.type === WOLF).length === 2,
+        && n1E.filter((e) => e.type === GIANT).length === 1 && n1E.filter((e) => e.type === WOLF).length === HALL_WOLVES,
       { seams: SE, scen: N0.scen, nodes: N0.nodes, cur: [N0.cur, N1.cur], ledger: N0.ledger, n0: (N0.enemies || []).map((e) => e.type), n1: n1E.map((e) => e.type) });
     /* ── §2 ── */
     const p0 = (N0.paintings || [])[0] || {}, p1 = (N1.paintings || [])[0] || {};
@@ -1213,7 +1219,7 @@ async function runSuite(browser, port, mutKey, label) {
       const others = c.drops.filter((d) => !(d.kind === r.kind && d.idx === r.idx));
       if (others.some((d) => d.drop !== 0)) return false;
       if (!r.hit) return r.dmg === 0 && drop.drop === 0;
-      const times = r.crit ? 3 : 1;
+      const times = r.crit ? GIANT_X3.critMult : 1;
       if (r.rolls.length !== ROCK.n * times || r.rolls.some((x) => x < 1 || x > ROCK.sides)) return false;
       if (r.dmg !== r.rolls.reduce((a, b) => a + b, 0) + ROCK.bonus * times) return false;
       if (!r.crit && (r.dmg < ROCK.n + ROCK.bonus || r.dmg > ROCK.n * ROCK.sides + ROCK.bonus)) return false;
@@ -1223,9 +1229,11 @@ async function runSuite(browser, port, mutKey, label) {
     const gTurns = BS.giant || [];
     const bRocks = [].concat(...gTurns.map((t) => (t.rk || []).filter((x) => x.site === 'rock')));
     const bRockOk = (r) => r.dists.every((d) => d.dist <= r.dist + 1e-6) && (!r.hit || r.crit || (r.dmg >= ROCK.n + ROCK.bonus && r.dmg <= ROCK.n * ROCK.sides + ROCK.bonus))
-      && (!r.hit || r.dmg === r.rolls.reduce((a, b) => a + b, 0) + ROCK.bonus * (r.crit ? 3 : 1));
-    R.check('(3a)', '岩: 型の値 = rockDice 4d10・rockBonus 6・atkBonus 9・critMult 3 / ① 届かない盤面で 5 通りの d20 (命中 / 外れ / 1 = ファンブル / 20 + 確認 = クリティカル (critMult 3) / 20 + 確認失敗) — 狙い = いちばん遠い隊員 (自前の距離)・AC = その隊員の AC・d20+9 の式・確認の d20 は脅威で命中のときだけ・4d10+6 (10〜46)・その隊員の HP だけがその分減る / ② 戦闘で岩 1 回以上・狙いは probe の dists の最遠',
-      DF.giant.rockDice === ROCK.n + 'd' + ROCK.sides && DF.giant.rockBonus === ROCK.bonus && DF.giant.atkBonus === 9 && DF.giant.critMult === 3
+      && (!r.hit || r.dmg === r.rolls.reduce((a, b) => a + b, 0) + ROCK.bonus * (r.crit ? GIANT_X3.critMult : 1));
+    R.check('(3a)', '岩: 型の値 = rockDice 4d10・rockBonus 6・atkBonus 9・critMult 2 (X3) + 大斧の X3 = hp 104・2d12+6・attacksPerTurn 1・AC 15 / ① 届かない盤面で 5 通りの d20 (命中 / 外れ / 1 = ファンブル / 20 + 確認 = クリティカル (critMult 2) / 20 + 確認失敗) — 狙い = いちばん遠い隊員 (自前の距離)・AC = その隊員の AC・d20+9 の式・確認の d20 は脅威で命中のときだけ・4d10+6 (10〜46)・その隊員の HP だけがその分減る / ② 戦闘で岩 1 回以上・狙いは probe の dists の最遠',
+      DF.giant.rockDice === ROCK.n + 'd' + ROCK.sides && DF.giant.rockBonus === ROCK.bonus && DF.giant.atkBonus === 9 && DF.giant.critMult === GIANT_X3.critMult
+        && DF.giant.hp === GIANT_X3.hp && DF.giant.dmgDice === GIANT_X3.dmgDice && DF.giant.dmgBonus === GIANT_X3.dmgBonus
+        && DF.giant.attacksPerTurn === GIANT_X3.attacksPerTurn && DF.giant.ac === GIANT_X3.ac
         && rocks.length === 5 && rocks.every(rockOk) && rocks.some((c) => (c.add[0] || {}).crit === true) && rocks.some((c) => (c.add[0] || {}).hit === false)
         && rocks.every((c) => c.far.kind !== c.near.kind || c.far.idx !== c.near.idx)
         && bRocks.length >= 1 && bRocks.every(bRockOk),

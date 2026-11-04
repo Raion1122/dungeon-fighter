@@ -10857,7 +10857,10 @@
       },
       /* ★[#107] 霜の巨人 (フロスト・ジャイアント)。5e SRD の Frost Giant (Huge Giant・CR8・AC15・HP138 (12d12+60)・
        *   大斧 +9 3d12+6 x2・届き 10ft・岩 +9 4d10+6 60/240ft・冷気に完全耐性) をもとにしたボス。
-       * ⛔ 最初は SRD どおり (ボス補正をしない = HP 138 のまま)。値は出発点。強さの実測 (依頼書 #107 §8 ⑤) と合わせて直してよい。
+       * ⚠⚠ SRD からユーザー判断で弱めた (2026-11-05・依頼書 #107 §12-3「⑤ 強さの見直し」の X3)。
+       *   SRD どおり (2 回攻撃・HP 138・3d12+6・×3) だと Lv8・4 人・N=10 で 0/10 (神殿 Lv8 は 9/10)。
+       *   X3 = 大斧 1 回 (attacksPerTurn 1)・HP 104・2d12+6・critMult 2 + 大広間の冬狼 1 頭 で 6/10。
+       *   変えていないもの = AC 15・atkBonus +9・dmgBonus 6・岩 4d10+6・冷気の完全耐性。
        * ⭐ 岩投げ (giantRockThrow): 届く距離に生きた隊員が 1 人も居ない手番に、いちばん遠い隊員へ岩を投げる (ボスの行動選択の前)。
        *   rockDice を持つのは frostGiant だけ (⛔ 他の敵に付けない = 既存の敵の手番と乱数列は 1 ビットも動かない)。
        * ⚠ シートは codex1 の v3 (tools/codex1_sprites.json の frostGiant・セル 192・char_ratio 0.76)。
@@ -10865,7 +10868,8 @@
        *   体の実寸比は row2 の alpha bbox (§12-1 (4))。
        * ⚠ meleeRange 210 = 大型ボスの帯 (stoneGolem / hydra / chimera と同じ)。斧の先は中心から画面上 ≈ 89px + 届き 10ft。
        *   attackDuration 40 / attackHitFrame 20 = 攻撃の伸び col 2-3 (stoneGolem と同じ帯)。
-       * ⚠ critMult 3 = 大斧 (D&D 3.5 の greataxe ×3)。⛔ fearDC / glareDC / snareDC / inflictDice / breathDice を持たせない
+       * ⚠ critMult 2 = X3 で SRD の ×3 (D&D 3.5 の greataxe) から下げた。岩のクリティカルも同じ critMult を使う (×2)。
+       *   ⛔ fearDC / glareDC / snareDC / inflictDice / breathDice を持たせない
        *   (他のボスの入口が誤って動く)。冷気の完全耐性は ENEMY_TRAITS。 */
       frostGiant: {
         name: "霜の巨人(フロスト・ジャイアント)",
@@ -10876,15 +10880,15 @@
         displaySize: 184,    // ★[#107] 画面上の身長 ≈ 140px (依頼書 #107 §12-1 (4))。⚠ 当たり判定に直結
         // ★体の実寸比 (依頼書 #107 §12-1 (4)・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
         bodyRatioX: 0.505, bodyRatioY: 0.766, bodyOffX: 0.240, bodyOffY: 0.182,
-        hp: 138, speed: 0.6, // 歩行 40ft (大型ボスの帯)
+        hp: 104, speed: 0.6, // 歩行 40ft (大型ボスの帯)。HP は X3 で SRD の 138 から下げた (依頼書 #107 §12-3 ⑤)
         hasAttackAnim: true,
         meleeRange: 210, hitRange: 300,
         attackDuration: 40, attackHitFrame: 20, attackCooldown: 70,
         str: 6, dex: -1, atkBonus: 9, ac: 15,
-        dmgDice: "3d12", dmgBonus: 6, critRange: 20, critMult: 3,   // 大斧 (SRD の Greataxe)
+        dmgDice: "2d12", dmgBonus: 6, critRange: 20, critMult: 2,   // 大斧 (SRD の Greataxe 3d12+6 ×3 から X3 で 2d12+6 ×2 へ)
         range: "melee",
         isBoss: true,
-        attacksPerTurn: 2,   // SRD の Multiattack (大斧 2 回)
+        attacksPerTurn: 1,   // X3: SRD の Multiattack (大斧 2 回) から 1 回へ (依頼書 #107 §12-3 ⑤)
         maxSummons: 0,       // 召喚なし (summon 抽選を無効化)
         rockDice: "4d10", rockBonus: 6,   /* ★[#107] 岩投げ (giantRockThrow)。⛔ 他の敵に付けない */
         deathLine: "…山の向こうの…赤い竜は…次は…お前たちの町を……",
@@ -12302,8 +12306,8 @@
           /* ?graph=0 用。buildFrostHoldRun の slots と同じ顔ぶれを並べる */
           // 雪の峠道: 巨人に雇われたオーク 4
           ["orcGrunt", 30, 12], ["orcGrunt", 31, 14], ["orcArcher", 32, 13], ["orcArcher", 29, 14],
-          // 大広間: 冬狼 2 + 霜の巨人
-          ["winterWolf", 55, 11], ["winterWolf", 55, 15],
+          // 大広間: 冬狼 1 + 霜の巨人 (X3 で SRD の 2 頭から 1 頭へ・依頼書 #107 §12-3 ⑤)
+          ["winterWolf", 55, 11],
           ["frostGiant", 57, 13],
         ],
       },
@@ -43647,13 +43651,14 @@
       });
       /* n1 氷の砦の大広間 (ボス・屋内)。入場 = 西の門 (16,13) + 2 = (18,13) = 絵ローカル (2,7)。
        *   霜の巨人 = 玉座の手前の石畳 (絵ローカル (18,7) = 入場から 16.00 タイル)。
-       *   冬狼 2 = 巨人の左右の前 ((16,5) (16,9) = 入場から 14.14 タイル > DETECTION_RANGE 12.5 = 入場の語りの最中に戦闘が始まらない)。
-       *   巨人との最大 2.83 タイル = 3 体は 1 つの戦闘に入る。
+       *   冬狼 1 = 巨人の左前 ((16,5) = 入場から 14.14 タイル > DETECTION_RANGE 12.5 = 入場の語りの最中に戦闘が始まらない)。
+       *   ⚠ X3 (依頼書 #107 §12-3 ⑤) で SRD の 2 頭 (右前 (16,9) も) から 1 頭へ減らした。
+       *   巨人との 2.83 タイル = 2 体は 1 つの戦闘に入る。
        *   ⚠ 玉座 (絵ローカル col 20-22 / rows 6-9) と青い火鉢は n1big のマスクで塞いである。
        *   ⭐ 巨人の体は縦 1x3 マス (displaySize 184・bodyRatio) = (18,6)〜(18,8) はどれも '.' (依頼書 #107 §12-1 (3))。 */
       const n1 = p6Node("frost-hold", "frost-hold", "n1", "氷の砦の大広間", [6, 16, 21, 39], {
         paint: "n1big", density: 0, start: { tx: 18, ty: 13 },
-        slots: [[32, 11, "winterWolf"], [32, 15, "winterWolf"]],
+        slots: [[32, 11, "winterWolf"]],
         boss: [34, 13, "frostGiant"],
       });
       return {
