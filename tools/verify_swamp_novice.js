@@ -737,6 +737,8 @@ async function runSuite(browser, port, label) {
     'silent-tomb': '#105 (2026-10-30) 沈黙の墓所を新設 (n0big 墓所の前室 / n1big 魔法使いの玄室)',
     /* ★[#106 2026-11-02] 同じく新しいテーマ (着手前 cdaaf91 に無いキー)。 */
     'witch-hut': '#106 (2026-11-02) 霧の中の魔女の小屋を新設 (n0big 霧の森の小道 / n1big 魔女の小屋)',
+    /* ★[#107 2026-11-04] 同じく新しいテーマ (着手前 cdaaf91 に無いキー)。 */
+    'frost-hold': '#107 (2026-11-04) 霜の巨人の砦を新設 (n0big 雪の峠道 / n1big 氷の砦の大広間)',
   };
   const otherThemes = Object.keys(cat).filter(t => t !== 'lizard-swamp' && !THEME_EXCEPTIONS[t]);
   const themeDiff = baseCat ? otherThemes.filter(t => JSON.stringify(cat[t]) !== JSON.stringify(baseCat[t])) : null;

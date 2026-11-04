@@ -140,6 +140,7 @@ const SARC = { c1: 32, c2: 36, r1: 11, r2: 15 };
  *     (= 6213fcb (#105 完了) の既定の地図 3dd5550782057025・verify_quest_walk (5a) の WANT_H0)。以後の 4 値は 1 文字も変えない。
  *   (以下、#105 時点の段の数え方) 1 段目 = git show 2e2e291:js/world-map.js を node の vm で読んだ既定の地図 (#104 完了・墓所の前)。
  *   2〜4 段目 = verify_quest_walk (5a) / verify_lost_cargo (4c) が既に焼いた固定値 (#103 / #82 / #23 の実測)。 */
+const SHA_AFTER_GIANT = '63f3bce7696bf14a';   /* ★[#107] retireGiant() 後 = #106 の既定の地図 (1 文字も変えず当て直し) */
 const SHA_AFTER_HAG = '3dd5550782057025';   /* ★[#106] */
 const SHA_AFTER_TOMB = '44b1de14f8b2c9d0';
 const SHA_AFTER_CARGO = '3918d569e7f3f7db';
@@ -774,8 +775,9 @@ async function runSuite(browser, port, mutKey, label) {
       const W = window.WORLD_MAP;
       const fp = () => ({ sites: JSON.parse(JSON.stringify(W.SITES)), edges: W.EDGES.map((e) => e[0] + '__' + e[1]),
         nodesFP: Object.keys(W.NODES).map((id) => { const n = W.NODES[id]; return id + ':' + n.kind + ':' + n.x + ',' + n.y + ':' + (n.enter !== undefined ? 'enter' : '—'); }) });
-      if (['retireHag', 'retireTomb', 'retireCargo', 'retireWarren', 'retireTower'].some((f) => typeof W[f] !== 'function')) return null;
+      if (['retireGiant', 'retireHag', 'retireTomb', 'retireCargo', 'retireWarren', 'retireTower'].some((f) => typeof W[f] !== 'function')) return null;
       const o = { on: fp() };
+      W.retireGiant(); o.giant = fp();   /* ★[#107] さらに先頭に retireGiant() を足して 6 段 */
       W.retireHag(); o.hag = fp();
       W.retireTomb(); o.tomb = fp();
       W.retireCargo(); o.cargo = fp();
@@ -882,10 +884,10 @@ async function runSuite(browser, port, mutKey, label) {
     R.check('(4b)', '?tomb=0 で tavern の配列から消え・' + ST_SITE + ' が中継点 (tavern と world.html)・cleared=[' + MF.join(', ') + '] の解放済みから墓所が消える (件数 −1)・(1a)(1d) の条件が ON/OFF で反転',
       offOk && onPair.every((x) => x === true) && offPair.every((x) => x === false),
       { offOk, on: onPair, off: offPair, offFacts: off2.facts, worldOff: { cls: w2off.cls, node: w2off.node, sign: w2off.sign } });
-    const rs = retired ? { on: sha16(retired.on), hag: sha16(retired.hag), tomb: sha16(retired.tomb), cargo: sha16(retired.cargo), warren: sha16(retired.warren), tower: sha16(retired.tower) } : null;
-    const shaWant = [SHA_AFTER_HAG, SHA_AFTER_TOMB, SHA_AFTER_CARGO, SHA_AFTER_WARREN, SHA_AFTER_TOWER];
-    R.check('(4c)', 'retireHag() → retireTomb() → retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 = ' + shaWant.join(' / ') + ' (★[#106] 1 段目 = 6213fcb の既定・2 段目 = 2e2e291 の既定)・既定の地図はそのどれとも違う',
-      !!rs && rs.hag === SHA_AFTER_HAG && rs.tomb === SHA_AFTER_TOMB && rs.cargo === SHA_AFTER_CARGO && rs.warren === SHA_AFTER_WARREN && rs.tower === SHA_AFTER_TOWER && shaWant.indexOf(rs.on) < 0,
+    const rs = retired ? { on: sha16(retired.on), giant: sha16(retired.giant), hag: sha16(retired.hag), tomb: sha16(retired.tomb), cargo: sha16(retired.cargo), warren: sha16(retired.warren), tower: sha16(retired.tower) } : null;
+    const shaWant = [SHA_AFTER_GIANT, SHA_AFTER_HAG, SHA_AFTER_TOMB, SHA_AFTER_CARGO, SHA_AFTER_WARREN, SHA_AFTER_TOWER];
+    R.check('(4c)', 'retireGiant() → retireHag() → retireTomb() → retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 = ' + shaWant.join(' / ') + ' (★[#107] 1 段目 = 241c718 の既定・★[#106] 2 段目 = 6213fcb の既定・3 段目 = 2e2e291 の既定)・既定の地図はそのどれとも違う',
+      !!rs && rs.giant === SHA_AFTER_GIANT && rs.hag === SHA_AFTER_HAG && rs.tomb === SHA_AFTER_TOMB && rs.cargo === SHA_AFTER_CARGO && rs.warren === SHA_AFTER_WARREN && rs.tower === SHA_AFTER_TOWER && shaWant.indexOf(rs.on) < 0,
       { sha: rs, sitesOn: retired && Object.keys(retired.on.sites).length, sitesTower: retired && Object.keys(retired.tower.sites).length });
 
     /* ══════════ index: 開幕の語り (?autoplay=1 のページで #dmBody に実際に出た文) ══════════ */

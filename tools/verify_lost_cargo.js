@@ -124,6 +124,7 @@ const BASE_REV = 'f80543c';          // #104 項目1 後半 (index.html は項�
 /* 祭壇 (MASK §12-1 (3-6) の 絵ローカル col 21-22 / row 6-8) を global (+16, +6) へ */
 const ALTAR = { c1: 37, c2: 38, r1: 12, r2: 14 };
 /* (4c) 撤退の各段の地図の sha1 (先頭 16)。⚠ 値は verify_quest_walk (5a) が既に焼いた固定値 (#103 / #82 / #23 の実測)。 */
+const SHA_AFTER_GIANT = '63f3bce7696bf14a';            // ★[#107] retireGiant() 後 = #106 の既定の地図 (verify_world_steps の WANT_ON・1 文字も変えず当て直し)
 const SHA_AFTER_HAG = '3dd5550782057025';              // ★[#106] retireHag() 後 = #105 の既定の地図 (verify_quest_walk の WANT_H0)
 const SHA_AFTER_TOMB = '44b1de14f8b2c9d0';             // ★[#105] retireTomb() 後 = #104 (本件) の既定の地図 (verify_quest_walk の WANT_T0)
 const SHA_AFTER_CARGO = '3918d569e7f3f7db';            // retireCargo() 後 = #103 の地図 (verify_quest_walk の WANT_C0)
@@ -649,8 +650,9 @@ async function runSuite(browser, port, mutKey, label) {
       const W = window.WORLD_MAP;
       const fp = () => ({ sites: JSON.parse(JSON.stringify(W.SITES)), edges: W.EDGES.map((e) => e[0] + '__' + e[1]),
         nodesFP: Object.keys(W.NODES).map((id) => { const n = W.NODES[id]; return id + ':' + n.kind + ':' + n.x + ',' + n.y + ':' + (n.enter !== undefined ? 'enter' : '—'); }) });
-      if (typeof W.retireHag !== 'function' || typeof W.retireTomb !== 'function' || typeof W.retireCargo !== 'function' || typeof W.retireWarren !== 'function' || typeof W.retireTower !== 'function') return null;
+      if (typeof W.retireGiant !== 'function' || typeof W.retireHag !== 'function' || typeof W.retireTomb !== 'function' || typeof W.retireCargo !== 'function' || typeof W.retireWarren !== 'function' || typeof W.retireTower !== 'function') return null;
       const o = { on: fp() };
+      W.retireGiant(); o.giant = fp();   /* ★[#107] さらに先頭に retireGiant() を足して 6 段 */
       W.retireHag(); o.hag = fp();
       W.retireTomb(); o.tomb = fp();
       W.retireCargo(); o.cargo = fp();
@@ -764,9 +766,9 @@ async function runSuite(browser, port, mutKey, label) {
     R.check('(4b)', '?cargo=0 で tavern の配列から消え・' + LC_SITE + ' が中継点 (tavern と world.html)・cleared=[' + MINE + '] の解放済み 3 件・(1a)(1d) の条件が ON/OFF で反転',
       offOk && onPair.every((x) => x === true) && offPair.every((x) => x === false),
       { offOk, on: onPair, off: offPair, offFacts: off1.facts, worldOff: { cls: w1off.cls, node: w1off.node, sign: w1off.sign } });
-    const rs = retired ? { on: sha16(retired.on), hag: sha16(retired.hag), tomb: sha16(retired.tomb), cargo: sha16(retired.cargo), warren: sha16(retired.warren), tower: sha16(retired.tower) } : null;
-    R.check('(4c)', 'retireHag() → retireTomb() → retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 = ' + SHA_AFTER_HAG + ' / ' + SHA_AFTER_TOMB + ' / ' + SHA_AFTER_CARGO + ' / ' + SHA_AFTER_WARREN + ' / ' + SHA_AFTER_TOWER + ' (★[#106] 1 段目 = 魔女の小屋の前・★[#105] 2 段目 = 墓所の前・塔の母より前)・既定の地図はそのどれとも違う',
-      !!rs && rs.hag === SHA_AFTER_HAG && rs.tomb === SHA_AFTER_TOMB && rs.cargo === SHA_AFTER_CARGO && rs.warren === SHA_AFTER_WARREN && rs.tower === SHA_AFTER_TOWER && [SHA_AFTER_HAG, SHA_AFTER_TOMB, SHA_AFTER_CARGO, SHA_AFTER_WARREN, SHA_AFTER_TOWER].indexOf(rs.on) < 0,
+    const rs = retired ? { on: sha16(retired.on), giant: sha16(retired.giant), hag: sha16(retired.hag), tomb: sha16(retired.tomb), cargo: sha16(retired.cargo), warren: sha16(retired.warren), tower: sha16(retired.tower) } : null;
+    R.check('(4c)', 'retireGiant() → retireHag() → retireTomb() → retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 = ' + SHA_AFTER_GIANT + ' / ' + SHA_AFTER_HAG + ' / ' + SHA_AFTER_TOMB + ' / ' + SHA_AFTER_CARGO + ' / ' + SHA_AFTER_WARREN + ' / ' + SHA_AFTER_TOWER + ' (★[#107] 1 段目 = 霜の巨人の砦の前・★[#106] 2 段目 = 魔女の小屋の前・★[#105] 3 段目 = 墓所の前・塔の母より前)・既定の地図はそのどれとも違う',
+      !!rs && rs.giant === SHA_AFTER_GIANT && rs.hag === SHA_AFTER_HAG && rs.tomb === SHA_AFTER_TOMB && rs.cargo === SHA_AFTER_CARGO && rs.warren === SHA_AFTER_WARREN && rs.tower === SHA_AFTER_TOWER && [SHA_AFTER_GIANT, SHA_AFTER_HAG, SHA_AFTER_TOMB, SHA_AFTER_CARGO, SHA_AFTER_WARREN, SHA_AFTER_TOWER].indexOf(rs.on) < 0,
       { sha: rs, sitesOn: retired && Object.keys(retired.on.sites).length, sitesTower: retired && Object.keys(retired.tower.sites).length });
 
     /* ══════════ index: 開幕の語り (?autoplay=1 のページで #dmBody に実際に出た文) ══════════ */
