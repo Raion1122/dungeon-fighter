@@ -155,8 +155,8 @@ grep -nE "resultReward|resultBtn" tools/*.js
 
 | ファイル | 変更 |
 |---|---|
-| `index.html` | 伝承の品を `accessories[]` へ / `questRelicFor` / `buildMagicItemPool` と `grantMagicItemPick` への切り出し / `HIDDEN_FOE_TYPES` と `runHiddenFoeSlain` / `showResult` に宝箱 3 つ(`#resultChests`)/ 撤退 `?clearchest=0` |
-| `tavern.html` | `ACCESSORIES_TV` に伝承の品の行(id / name / gated / rarity / relic を index と完全一致)/ 色のクラス 2 つ / 所持アクセサリーの名前の色 |
+| `index.html` | 伝承の品 11 品を `accessories[]` へ + 既存の `gauntlets-ogre-power` に `relic: "frost-hold"` / `questRelicFor` / `buildMagicItemPool` と `grantMagicItemPick` への切り出し / `HIDDEN_FOE_TYPES` と `runHiddenFoeSlain` / `showResult` に宝箱 3 つ(`#resultChests`)/ 撤退 `?clearchest=0` |
+| `tavern.html` | `ACCESSORIES_TV` に伝承の品 11 行 + 既存のガントレットの行に `relic`(id / name / gated / rarity / relic を index と完全一致)/ 色のクラス 2 つ / 所持アクセサリーの名前の色 |
 | `js/changelog.js` | `py tools/add_changelog.py` で 1 行 |
 | `tools/verify_clear_chests.js` | 新規の受入 |
 
@@ -195,11 +195,19 @@ grep -nE "resultReward|resultBtn" tools/*.js
 | lost-cargo | ペリアプトオブヘルス | Periapt of Health | `hpBonus: 4, saveBonus: 1` |
 | silent-tomb | ブローチオブシールディング | Brooch of Shielding | `acBonus: 1, saveBonus: 1` |
 | witch-hut | ペリアプトオブプルーフアゲンストポイズン | Periapt of Proof against Poison | `saveBonus: 2` |
-| frost-hold | ベルトオブフロストジャイアントストレングス | Belt of Giant Strength (Frost) | `dmgBonus: 4` |
+| frost-hold | **ガントレットオブオーガパワー(既存の品を流用)** | Gauntlets of Ogre Power | 既存の `dmgBonus: 2` のまま |
 
 ⚠ frost-hold の行は #107 の着地後でなければ `scenarioId` が origin に無い。#107 着地後に着手する前提なので 12 行とも入れてよい。
 
-各品は `accessories[]` へ `{ id: "relic-<scenarioId>", name, flavor, <効果キー>, gated: true, relic: "<scenarioId>", rarity: "special" }`、
+⭐ **frost-hold だけは新しい品を作らず、既存の `gauntlets-ogre-power` を伝承の品にする**(2026-11-04 ユーザー指定「今回の巨人の箇所は、『ガントレットオブオーガパワー』にしてほしいかな」。ダイアログで「既存の品を砦の専用へ」を選択)。
+
+- index.html:14860 と tavern.html:7131 の既存の行に `relic: "frost-hold"` を**足すだけ**。id / name / 効果 / rarity は変えない。
+- ⇒ 罠 D の除外で**全クエスト共通の抽選から外れる**(ユーザー了承済み)。もう持っている人の所持・装備はそのまま。
+- フレーバーの文は「巨鬼(オーガ)」のままでよいか、霜の巨人の砦に結び付けて書き直すかは項目 1 で決めてよい(⚠ 書き直すなら tavern 側に文は無いので index だけ)。
+- 新しく作る伝承の品は **11 品**、既存の流用が 1 品 = `relic` を持つ品は合わせて **12 品**。
+- 実測(2026-11-04): この品を名指しする検証ドライバは **0 本**(`grep -lE "gauntlets-ogre-power|ガントレットオブオーガパワー" tools/*.js`)。tavern.html:5534 の開発用の付与リスト(`?givemagic` / `DF_DEV_MAGIC_SHOP`)に id が直書きされているが、付与するだけなので触らなくてよい。⚠ 新しい伝承の品 11 品もこのリストに足しておくと、メモリの運用(新規アイテムは URL チート無しで試せるように)と揃う。
+
+新しい 11 品は `accessories[]` へ `{ id: "relic-<scenarioId>", name, flavor, <効果キー>, gated: true, relic: "<scenarioId>", rarity: "special" }`、
 `tavern.html` の `ACCESSORIES_TV` へ `{ id, name, rarity: "special", gated: true, relic: "<scenarioId>", effect: "<日本語の効果>" }`。
 ⚠ **id / name / gated / rarity / relic を完全一致**させる(不一致だと「拾ったのに酒場で選べない」)。
 ⚠ `classReq` は付けない(誰でも着けられる)。
@@ -316,7 +324,7 @@ function rollClearChests() {
 
 ### §0 装置
 
-- **(0a)** `accessories[]` に `relic` を持つ品が 12 件。0 件なら全 assert が空振りなので exit 3
+- **(0a)** `accessories[]` に `relic` を持つ品が 12 件(新規 11 + 既存の `gauntlets-ogre-power` 1)。0 件なら全 assert が空振りなので exit 3
 - **(0b)** `buildMagicItemPool()` が戦士リーダー既定のセーブで 1 件以上(共通プールが空だと magic の箱が作れない)
 
 ### §1 抽選と付与の分離(罠 A)
