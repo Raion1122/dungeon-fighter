@@ -3047,6 +3047,44 @@
     }
     #resultBtn:hover { filter: brightness(1.15); }
     #resultBtn:active { filter: brightness(0.9); }
+    /* ★[#108] クリア時の宝箱 3 つ (#resultReward の外。?clearchest=0 では要素ごと作らない)。canvas は使わない。 */
+    #resultChests { margin: -12px 0 18px; font-style: normal; }
+    #resultChests .rcHint { font-size: 13px; color: #5a4323; margin-bottom: 4px; letter-spacing: 1px; }
+    #resultChests .rcRow { display: flex; justify-content: center; gap: 8px; }
+    #resultChests .rcBox {
+      position: relative; width: 96px; min-height: 92px; padding: 2px; margin: 0;
+      background: none; border: 0; border-radius: 6px; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; font-family: inherit; color: inherit;
+    }
+    #resultChests .rcBox:disabled { cursor: default; }
+    #resultChests .rcImg {
+      display: block; width: 64px; height: 64px;
+      background: url("assets/chest.png") center / contain no-repeat;
+      animation: rcWobble 1.8s ease-in-out infinite; transform-origin: 50% 90%;
+    }
+    #resultChests .rcBox:nth-child(2) .rcImg { animation-delay: .3s; }
+    #resultChests .rcBox:nth-child(3) .rcImg { animation-delay: .6s; }
+    #resultChests .rcBox.opening .rcImg { animation: rcShake 0.12s linear infinite; }
+    #resultChests .rcBox.open .rcImg { background-image: url("assets/chest_open.png"); animation: none; }
+    #resultChests .rcBox.picked { background: rgba(255,240,190,0.55); box-shadow: 0 0 0 2px #8b6914; }
+    #resultChests .rcBox.dim { opacity: 0.6; }
+    #resultChests .rcName {
+      display: block; max-width: 92px; min-height: 16px; margin-top: 3px; font-size: 12px; line-height: 16px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #resultChests .rcTag {
+      display: inline-block; margin-right: 2px; padding: 0 3px; font-size: 10px; line-height: 14px;
+      color: #fff; background: #7a3ba0; border-radius: 3px;
+    }
+    #resultChests .rcPillar {
+      position: absolute; left: 50%; bottom: 28px; width: 40px; height: 170px; margin-left: -20px;
+      background: linear-gradient(to top, rgba(179,102,217,0.8), rgba(179,102,217,0));
+      transform-origin: 50% 100%; pointer-events: none; opacity: 0;
+      animation: rcPillar 1.5s ease-out 1 forwards;
+    }
+    @keyframes rcWobble { 0%, 80%, 100% { transform: rotate(0deg); } 86% { transform: rotate(-4deg); } 93% { transform: rotate(4deg); } }
+    @keyframes rcShake  { 0% { transform: translateX(-2px) rotate(-3deg); } 50% { transform: translateX(2px) rotate(3deg); } 100% { transform: translateX(-2px) rotate(-3deg); } }
+    @keyframes rcPillar { 0% { opacity: 0; transform: scaleY(0.2); } 30% { opacity: 1; } 100% { opacity: 0; transform: scaleY(1); } }
 
     /* ── エンディング (dragon-lair クリア時: エピローグ→スタッフロール) ── */
     #endingScene {
@@ -3726,6 +3764,9 @@
      *   残すのは 森の鍵束の宝箱 と 竜の巣ボスの財宝 (囮 3 + ミミック)。探索判定は対象 0 の部屋で今どおり振らない。
      *   撤退 ?roadchest=0 = 宝箱が湧く / 寄り道あり / クリア金貨の加算なし (従来)。 */
     const ROAD_CHEST_ON = new URLSearchParams(window.location.search).get("roadchest") !== "0";
+    /* ★[#108] クリア時の宝箱 3 つ (依頼書 2026-11-04_clear-chests.md §5)。ここで 1 回だけ読む。
+     *   撤退 ?clearchest=0 = 宝箱を出さない / クリア時 1% のマジックアイテム (clearMagicItem) を今どおり付与 / 伝承の品は出ない。 */
+    const CLEAR_CHEST_ON = new URLSearchParams(window.location.search).get("clearchest") !== "0";
     /* ★[#90] 罠の数は宣言どおり (隊商護衛の宣言 0 を 3 へ化けさせない。街道の襲撃の実物は 1 部屋で元から 0)。依頼書 2026-10-12_declared-traps.md。
      *   化けていたのは 2 段 = 生成クエストの組み立て (_genScenario.trapCount || 3) と spawnTraps (trapCount || 3)。
      *   撤退 ?trapdecl=0 = 従来どおり 0 を 3 として扱う。 */
@@ -14862,7 +14903,7 @@
       //    装備中、近接ダメージへ固定 + (getAccessoryDmgBonus が currentPlayerDmgBonus / effectiveAllyDmgBonus 経由で読む)。
       //    職業非依存・gated=ドロップ限定。⚠ to-hit は付けない (仲間の atkBonus は spawn 焼込みで非対称になるため=ダメージのみ)。
       { id: "gauntlets-ogre-power", name: "ガントレットオブオーガパワー", flavor: "巨鬼(オーガ)の膂力を封じた鉄の籠手。嵌める者の一撃は、人の腕とは思えぬ重さを帯びる",
-        dmgBonus: 2, gated: true, rarity: "special" },
+        dmgBonus: 2, gated: true, relic: "frost-hold", rarity: "special" },   // ★[#108] 霜の巨人の砦の伝承の品 (共通の抽選から外れる)
       { id: "belt-giant-strength", name: "ベルトオブジャイアントストレングス", flavor: "丘の巨人の腱を編み込んだ帯。腰に締めた者へ、山をも砕く膂力の一端を分け与えるという",
         dmgBonus: 3, gated: true, rarity: "special" },
       // ── 第6弾 実在の D&D マジックアイテム「守りの装身具」(SRD 5.1: Ring of Protection / Cloak of Protection)。
@@ -14881,10 +14922,41 @@
         skillBonus: { perception: 2 }, gated: true, rarity: "special" },
       { id: "cloak-elvenkind", name: "クロークオブエルヴンカインド", flavor: "エルフの織り手が編んだ灰緑の外套。まとう者の足音と気配を森の影に溶かし、敵の隙を突く",
         skillBonus: { stealth: 2 }, gated: true, rarity: "special" },
+      // ── ★[#108] 伝承の品 (SRD 5.1 の実在マジックアイテム・カタカナの音写)。その行き先のクリア時の宝箱でしか出ない。
+      //    gated (店・ラダーから外れる) + relic: "<scenarioId>" (buildMagicItemPool が共通の抽選から外す = 罠 D)。
+      //    効果は既存の配線のキーだけ (新しい配線 0 本)。frost-hold は既存のガントレットオブオーガパワーを流用 (上の行)。
+      //    ⚠ id / name / gated / rarity / relic は tavern.html の ACCESSORIES_TV と完全一致させる (#108 項目 3)。
+      { id: "relic-goblin-mine", name: "アイウーンストーン(防護)", flavor: "ゴブリンの巣窟の奥、坑夫たちの祈りの岩に埋もれていた薄紅の石。頭のまわりを巡り、振り下ろされる棍棒をわずかに逸らす",
+        acBonus: 1, gated: true, relic: "goblin-mine", rarity: "special" },
+      { id: "relic-bandits-forest", name: "グローブオブミサイルスネアリング", flavor: "森の盗賊団の頭目が、仲間の矢から身を守るために隠し持っていた革手袋。飛んでくる矢を素手で掴み取る",
+        avoidArrow: 0.5, gated: true, relic: "bandits-forest", rarity: "special" },
+      { id: "relic-lizard-swamp", name: "ペリアプトオブウーンドクロージャー", flavor: "リザードマンの族長が沼の古い祠から奪った護符。身に着けた者の傷口は、沼の水が引くように塞がっていく",
+        hpBonus: 6, gated: true, relic: "lizard-swamp", rarity: "special" },
+      { id: "relic-orc-fort", name: "ブレイサーズオブディフェンス", flavor: "オーク将軍ガロックが砦の古い武器庫から掘り出した腕甲。鎧を着けずとも、刃は腕に弾かれる",
+        acBonus: 2, gated: true, relic: "orc-fort", rarity: "special" },
+      { id: "relic-undead-temple", name: "マントルオブスペルレジスタンス", flavor: "地下神殿の高位神官がリッチの呪いに抗うためにまとった肩掛け。呪文にも、死者の冷たい手にも屈しない",
+        saveBonus: 1, undeadDR: 2, gated: true, relic: "undead-temple", rarity: "special" },
+      { id: "relic-dragon-lair", name: "ベルトオブファイアジャイアントストレングス", flavor: "ファラクサスの財宝の山の底に沈んでいた炎の巨人の帯。かつて竜に挑んだ巨人の膂力が、まだ腱に残っている",
+        dmgBonus: 5, gated: true, relic: "dragon-lair", rarity: "special" },
+      { id: "relic-tower-mother", name: "ローブオブアイズ", flavor: "見張りの塔の母が塔の上から夜通し街道を見張るのに使っていた衣。無数の眼の刺繍が、闇に潜むものを見逃さない",
+        skillBonus: { perception: 3 }, gated: true, relic: "tower-mother", rarity: "special" },
+      { id: "relic-kobold-warren", name: "ブーツオブエルヴンカインド", flavor: "コボルドたちが赤き翼の祭壇に捧げていた柔らかな長靴。履いた者の足音は、巣穴の土に吸い込まれて消える",
+        skillBonus: { stealth: 2 }, gated: true, relic: "kobold-warren", rarity: "special" },
+      { id: "relic-lost-cargo", name: "ペリアプトオブヘルス", flavor: "消えた積み荷の木箱に一つだけ紛れていた護符。疫病の祠の瘴気の中でも、持ち主の息だけは濁らなかった",
+        hpBonus: 4, saveBonus: 1, gated: true, relic: "lost-cargo", rarity: "special" },
+      { id: "relic-silent-tomb", name: "ブローチオブシールディング", flavor: "沈黙の墓所に眠る古の魔法使いが、外套の留め具にしていたブローチ。放たれた魔力の矢も、刃も受け流す",
+        acBonus: 1, saveBonus: 1, gated: true, relic: "silent-tomb", rarity: "special" },
+      { id: "relic-witch-hut", name: "ペリアプトオブプルーフアゲンストポイズン", flavor: "霧の森の魔女が自分の毒で倒れぬよう首に下げていた小瓶の護符。どんな毒も、身に着けた者の血には届かない",
+        saveBonus: 2, gated: true, relic: "witch-hut", rarity: "special" },
     ];
     function accessoryIdxFromId(id) {
       const i = accessories.findIndex(a => a.id === id);
       return i < 0 ? 0 : i;
+    }
+    /* ★[#108] 伝承の品 = その行き先のクリア時の宝箱でしか出ない品。accessories[].relic が唯一の正。 */
+    function questRelicFor(sid) {
+      const i = accessories.findIndex(a => a && a.relic === sid);
+      return i >= 0 ? i : -1;
     }
     // 装備中の 2 枠 (各 accessories のインデックス、初期は [0,0] = なし)
     let currentAccessoryIndices = [
@@ -26378,7 +26450,17 @@
     }
 
     // マジックアイテムを1つ抽選して付与。付与できたら { name, kind } を返し、無ければ null。
+    //   ★[#108] 罠 A: 抽選 (buildMagicItemPool = 副作用なし) と付与 (grantMagicItemPick) を分けた。
+    //   外から見た振る舞いと Math.random の消費 (pick の 1 回) は分ける前と同じ。
     function rollMagicItemDrop() {
+      const pool = buildMagicItemPool();
+      if (pool.length === 0) return null;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      return grantMagicItemPick(pick);
+    }
+    // ★[#108] マジックアイテムの共通の抽選の候補を組み立てるだけ (付与も保存もしない)。
+    //   伝承の品 (acc.relic) はここで外す = その行き先のクリア時の宝箱でしか出ない (罠 D)。
+    function buildMagicItemPool() {
       const pool = [];
       // gated 武器のうち現在装備より上位 (=アップグレード) のもの。
       //   ⚠ v1 は `leaderClassKey === "warrior"` で囲われており、非戦士リーダーは戦士配列 weapons しか
@@ -26402,12 +26484,17 @@
       //   pool に足すほど各アイテムは自然に激レア化 =「何が出るか楽しみ」体験。
       for (let i = 0; i < accessories.length; i++) {
         const acc = accessories[i];
-        if (!acc || !acc.gated) continue;
+        if (!acc || !acc.gated || acc.relic) continue;   // ★[#108] 伝承の品は共通プールに入れない (罠 D)
         const recipient = findAccessoryRecipient(acc.id);
         if (recipient) pool.push({ kind: "accessory", idx: i, recipient });
       }
-      if (pool.length === 0) return null;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
+      return pool;
+    }
+    // ★[#108] buildMagicItemPool() の 1 件を付与して保存する (今までの rollMagicItemDrop の後半そのまま)。
+    function grantMagicItemPick(pick) {
+      if (!pick) return null;
+      const leaderWeapons = getLeaderWeapons();
+      const leaderArmors  = getLeaderArmors();
       if (pick.kind === "weapon") {
         const gotName = leaderWeapons[pick.idx].name;
         markGatedOwned(gotName);                  // gated 所持は名前キー (共有ティアの漏れを塞ぐ)
@@ -44016,6 +44103,190 @@
       try { sessionStorage.setItem("dragonfighters.roadReturn", ROAD_RETURN_HOME); } catch (e) {}
     }
 
+    /* ══ ★[#108] クリア時の宝箱 3 つ (依頼書 2026-11-04_clear-chests.md §5) ══════════════════════
+     * ⚠⚠ 罠 A: 中身は画面を出す前に 3 つとも決めるが、**付与は開けた 1 箱だけ**。
+     *   決めるのは rollClearChests (buildMagicItemPool は副作用なし)、付与は grantClearChestBox。
+     * ⚠⚠ 罠 B: 宝箱の金貨は reward.gold に混ぜず lastResult.chest へ。描くのは #resultReward の外の
+     *   #resultChests (resultReward.innerHTML は 1 バイトも変えない)。抽選は lastResult を書いた後。
+     * ⚠ 罠 C: 伝承の品は空き枠の誰かへ着けて渡す (findAccessoryRecipient)。渡せなければ金貨 50G。
+     * 撤退 ?clearchest=0 (CLEAR_CHEST_ON) = この節は 1 命令も走らない。
+     * 確率・金貨の額は仮 (プレイテストで動かす = 受入では測らない)。 */
+    const CLEAR_CHEST_COUNT          = 3;
+    const CLEAR_CHEST_RELIC_P        = 0.04;   // 伝承の品 (1 箱ごとの当選率・隠し要素を倒していない回)
+    const CLEAR_CHEST_RELIC_P_HIDDEN = 0.20;   // 同 (隠し要素を倒した回)。⭐ 切り替えは clearChestRelicP() の 1 か所
+    const CLEAR_CHEST_MAGIC_P        = 0.10;   // マジックアイテムの枠 (単眼の暴君は currentScenario.magicItemChance で上書き)
+    const CLEAR_CHEST_GOLD_MIN       = 20;
+    const CLEAR_CHEST_GOLD_SPAN      = 31;     // 20〜50G
+    const CLEAR_CHEST_SCROLL_WEIGHTS = { common: 55, uncommon: 35, rare: 10 };
+    const CLEAR_CHEST_FALLBACK_GOLD  = 50;     // 渡せない品 (受け取り手が無い / もう共通の抽選に無い) は金貨へ
+    const CLEAR_CHEST_REVEAL_MS      = 600;    // 選んだ箱を開ける時間 → 残り 2 つを同時に開ける
+    let clearChestBoxes  = null;    // rollClearChests() の結果 (勝利の画面を出している間だけ非 null)
+    let clearChestOpened = false;   // 二重付与を防ぐ旗 (開けた後のタップ・resultBtn では何もしない)
+    /* ⭐⭐ 項目 3 の切り替え点 (ここ 1 か所): 隠し要素を倒した回は CLEAR_CHEST_RELIC_P_HIDDEN を返す。
+     *   項目 3 で runHiddenFoeSlain を配線したら → return runHiddenFoeSlain ? CLEAR_CHEST_RELIC_P_HIDDEN : CLEAR_CHEST_RELIC_P; */
+    function clearChestRelicP() {
+      return CLEAR_CHEST_RELIC_P;
+    }
+    // 箱の中身を決めるだけ (付与しない)。伝承の品は 3 箱で最大 1 つ。
+    function rollClearChests() {
+      const relicIdx = questRelicFor(scenarioId);
+      const relicP   = clearChestRelicP();
+      const magicP   = (currentScenario && currentScenario.magicItemChance > 0)
+                         ? currentScenario.magicItemChance : CLEAR_CHEST_MAGIC_P;
+      const pool     = buildMagicItemPool();
+      const boxes = [];
+      let relicPlaced = false;
+      for (let k = 0; k < CLEAR_CHEST_COUNT; k++) {
+        if (!relicPlaced && relicIdx >= 0 && Math.random() < relicP) {
+          boxes.push({ kind: "relic", idx: relicIdx }); relicPlaced = true; continue;
+        }
+        if (pool.length && Math.random() < magicP) {
+          boxes.push({ kind: "magic", pick: pool[Math.floor(Math.random() * pool.length)] }); continue;
+        }
+        boxes.push(Math.random() < 0.5
+          ? { kind: "scroll", id: pickScrollId(CLEAR_CHEST_SCROLL_WEIGHTS) }
+          : { kind: "gold",   amount: CLEAR_CHEST_GOLD_MIN + Math.floor(Math.random() * CLEAR_CHEST_GOLD_SPAN) });
+      }
+      return boxes;
+    }
+    function clearChestBoxName(box) {
+      if (!box) return "";
+      if (box.kind === "gold")   return `金貨 ${box.amount}`;
+      if (box.kind === "scroll") { const c = SCROLL_CATALOG[box.id]; return c ? c.name : String(box.id); }
+      if (box.kind === "relic")  return (accessories[box.idx] || {}).name || "";
+      if (box.kind === "magic") {
+        const p = box.pick || {};
+        const src = p.kind === "weapon" ? getLeaderWeapons() : p.kind === "armor" ? getLeaderArmors() : accessories;
+        return (src[p.idx] || {}).name || "";
+      }
+      return "";
+    }
+    // 色: 金貨・巻物 = common / マジックアイテム = rare (青) / 伝承の品 = epic (紫)
+    function clearChestBoxRarity(box) {
+      return !box ? "common" : box.kind === "relic" ? "epic" : box.kind === "magic" ? "rare" : "common";
+    }
+    function addClearChestGold(n) {
+      n = n | 0;
+      if (n <= 0) return;
+      try {
+        const cur = Number(localStorage.getItem("dragonfighters.gold")) || 0;   // showResult が書いたクリア後の累計
+        localStorage.setItem("dragonfighters.gold", String(cur + n));
+      } catch (e) { /* silent */ }
+      if (persistent && typeof persistent.gold === "number") persistent.gold += n;
+    }
+    // 開けた 1 箱だけを付与・保存する。戻り値 { kind, granted, fallback } (granted = 名前 or 金貨の額)。
+    function grantClearChestBox(box) {
+      const asGold = (n, fallback) => { addClearChestGold(n); return { kind: "gold", granted: n, fallback: !!fallback }; };
+      if (!box) return asGold(CLEAR_CHEST_FALLBACK_GOLD, true);
+      if (box.kind === "gold") return asGold(box.amount, false);
+      if (box.kind === "scroll") {
+        const c = addScroll(box.id, { silent: true });
+        return c ? { kind: "scroll", granted: c.name, fallback: false } : asGold(CLEAR_CHEST_FALLBACK_GOLD, true);
+      }
+      if (box.kind === "magic") {
+        // 付与の直前に共通の抽選にまだ入っているかを見る (受け取り手も取り直す)。無ければ金貨。
+        const p = box.pick || {};
+        const fresh = buildMagicItemPool().find(q => q.kind === p.kind && q.idx === p.idx);
+        const r = fresh ? grantMagicItemPick(fresh) : null;
+        return r ? { kind: "magic", granted: r.name, fallback: false } : asGold(CLEAR_CHEST_FALLBACK_GOLD, true);
+      }
+      if (box.kind === "relic") {
+        const acc = accessories[box.idx];
+        const rcp = acc ? findAccessoryRecipient(acc.id) : null;
+        if (!rcp) return asGold(CLEAR_CHEST_FALLBACK_GOLD, true);   // 罠 C: 空き枠が誰にも無い / 全員もう持っている
+        if (rcp.kind === "player") currentAccessoryIndices[rcp.slot] = box.idx;
+        else                       rcp.ally.accessoryIndices[rcp.slot] = box.idx;
+        try { savePersistentAccessoryStock(); } catch (e) { /* silent */ }
+        try { recomputeAccessoryStock(); } catch (e) { /* silent */ }
+        if (typeof renderPartyStatuses === "function") { try { renderPartyStatuses(); } catch (e) {} }
+        return { kind: "relic", granted: acc.name, fallback: false };
+      }
+      return asGold(CLEAR_CHEST_FALLBACK_GOLD, true);
+    }
+    function setupClearChests() {
+      clearChestOpened = false;
+      clearChestBoxes = rollClearChests();
+      let wrap = document.getElementById("resultChests");
+      if (!wrap) {
+        wrap = document.createElement("div");
+        wrap.id = "resultChests";
+        resultBtnEl.parentNode.insertBefore(wrap, resultBtnEl);   // #resultReward の下・ボタンの上
+      }
+      wrap.innerHTML = '<div class="rcHint">宝箱を 1 つ選んで開けよう</div><div class="rcRow"></div>';
+      const row = wrap.querySelector(".rcRow");
+      clearChestBoxes.forEach((box, k) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "rcBox";
+        b.dataset.k = String(k);
+        b.setAttribute("aria-label", `宝箱 ${k + 1}`);
+        b.innerHTML = '<span class="rcImg"></span><span class="rcName"></span>';
+        b.addEventListener("click", () => openClearChest(k));
+        row.appendChild(b);
+      });
+    }
+    function clearChestShowName(btn, box, text) {
+      const nm = btn.querySelector(".rcName");
+      if (!nm) return;
+      const rar = clearChestBoxRarity(box);
+      nm.className = "rcName rarity-" + rar;
+      nm.title = text;
+      nm.innerHTML = (box && box.kind === "relic" ? '<span class="rcTag">伝承</span>' : "") + text;
+    }
+    // k 番目の箱を開ける。開けた箱だけ付与 → lastResult.chest を書き足す (reward には触らない)。
+    function openClearChest(k, opts) {
+      if (!clearChestBoxes || clearChestOpened) return null;
+      if (!(k >= 0 && k < clearChestBoxes.length)) return null;
+      clearChestOpened = true;
+      const box = clearChestBoxes[k];
+      const g = grantClearChestBox(box);
+      try {
+        const raw = sessionStorage.getItem("dragonfighters.lastResult");
+        const lr = raw ? JSON.parse(raw) : null;
+        if (lr) {
+          lr.chest = {
+            boxes: clearChestBoxes.map(b => ({ kind: b.kind, name: clearChestBoxName(b) })),
+            opened: k,
+            granted: g.granted,
+            grantedKind: g.kind,
+            fallback: g.fallback,
+          };
+          sessionStorage.setItem("dragonfighters.lastResult", JSON.stringify(lr));
+        }
+      } catch (e) { /* silent */ }
+      // 画面: 選んだ箱を揺らして開け (0.6 秒) → 残り 2 つを同時に開ける。resultBtn 経由 (auto) は待たない。
+      const wrap = document.getElementById("resultChests");
+      const btns = wrap ? Array.from(wrap.querySelectorAll(".rcBox")) : [];
+      btns.forEach(b => { b.disabled = true; });
+      const hint = wrap && wrap.querySelector(".rcHint");
+      const reveal = () => {
+        btns.forEach((b, j) => {
+          b.classList.remove("opening");
+          b.classList.add("open");
+          if (j === k) {
+            b.classList.add("picked");
+            const shown = g.fallback ? `金貨 ${g.granted}` : (box.kind === "gold" ? `金貨 +${g.granted}` : String(g.granted));
+            clearChestShowName(b, g.fallback ? { kind: "gold" } : box, shown);
+            if (box.kind === "relic" && !g.fallback) {
+              const pillar = document.createElement("span");
+              pillar.className = "rcPillar";
+              b.appendChild(pillar);
+              setTimeout(() => { try { pillar.remove(); } catch (e) {} }, 1600);   // 1 回きり
+            }
+          } else {
+            b.classList.add("dim");
+            clearChestShowName(b, clearChestBoxes[j], clearChestBoxName(clearChestBoxes[j]));
+          }
+        });
+        if (hint) hint.textContent = g.fallback ? "持ちきれない品は金貨に換えた" : "手に入れた!";
+      };
+      if (typeof sfx === "function") sfx("chestOpen");
+      if (opts && opts.auto) { reveal(); return g; }
+      if (btns[k]) btns[k].classList.add("opening");
+      setTimeout(() => { reveal(); if (typeof sfx === "function") sfx("coin"); }, CLEAR_CHEST_REVEAL_MS);
+      return g;
+    }
+
     function showResult(win) {
       if (window.__diag) window.__diag.beat("result", win);   // 自動デバッグ: 結果発火 (二重検出のためガード前)
       if (resultShown) return;
@@ -44052,7 +44323,10 @@
         //    未設定(通常シナリオ / 他の生成クエスト)は既定 MAGIC_DROP_CLEAR_CHANCE(0.01) を温存。
         const clearChance = (currentScenario && currentScenario.magicItemChance > 0)
           ? currentScenario.magicItemChance : MAGIC_DROP_CLEAR_CHANCE;
-        const clearMagicItem = (Math.random() < clearChance) ? rollMagicItemDrop() : null;
+        // ★[#108] 罠 B の 3: 宝箱が有効なときも Math.random を 1 回引いて捨てる (乱数の列を変えない)。
+        //   付与は宝箱 (rollClearChests) の側でだけ行う。撤退 ?clearchest=0 は今どおり当たれば付与。
+        const clearHit = Math.random() < clearChance;
+        const clearMagicItem = (clearHit && !CLEAR_CHEST_ON) ? rollMagicItemDrop() : null;
         const newWeapon = currentWeaponIndex > startedWithWeaponIdx ? weapons[currentWeaponIndex] : null;
         const newArmor  = currentArmorIndex  > startedWithArmorIdx  ? armors[currentArmorIndex]   : null;
 
@@ -44181,8 +44455,13 @@
            ?roster=0 のときは undefined = キーごと落ちる (受入条件 (6b))。 */
         roster: rosterResultPayload(!!win),
       }));
+      // ★[#108] クリア時の宝箱 3 つ。⚠ lastResult を書き終えた後 = それまでの乱数の列は今と同じ (罠 B)。
+      if (win && CLEAR_CHEST_ON) setupClearChests();
     }
     resultBtnEl.addEventListener("click", () => {
+      // ★[#108] 宝箱を選ばずに帰る → 3 つのうち 1 つを無作為に開けたことにして付与・保存してから遷移する。
+      //   中身は伏せてあるので、プレイヤーが選んだのと情報の上では同じ。開け済みなら何もしない (二重付与なし)。
+      if (clearChestBoxes && !clearChestOpened) openClearChest(Math.floor(Math.random() * clearChestBoxes.length), { auto: true });
       // dragon-lair クリア時はエンディング(エピローグ→スタッフロール)へ。それ以外は酒場へ。
       if (resultEndingPending) { resultEndingPending = false; playEnding(); return; }
       window.location.href = dfReturnPage();   // 帰還① リザルト (いちばん使われる経路)

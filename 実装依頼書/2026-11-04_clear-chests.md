@@ -546,3 +546,76 @@ function rollClearChests() {
 - 古物商(tavern `curioGearPoolTV` 10917-10918)の relic 除外は**項目 3 の範囲に足す**(§6 に書かれていない)。ガントレットを古物商から外すかは上の (2) の確認待ち。
 - 森の品の `avoidArrow` の重ね掛け(矢 100% 回避)は品を足す前にユーザーへ確認。
 - 予告の赤 = `verify_plaza_curio`(確実)。言い直しの方針(基準の木 `54f6409` との比較から relic の行を除くか)は項目 4。
+
+### 12-2. 項目 2 — 宝箱 3 つの画面・抽選・付与 (基準 f305f5e)
+
+- 実施日 = 2026-11-06。触ったのは `index.html` と `js/changelog.js`(`py tools/add_changelog.py` で §10 の 1 行)だけ。⛔ tavern.html・隠し要素の印(`HIDDEN_FOE_TYPES` / `runHiddenFoeSlain`)・`maybeGrantScrollDrop` には触っていない(項目 3)。
+- 長いログ = `C:\Users\PC_User\.claude\dev-loop\r108\item2\`(`smoke_chests.js` + `smoke.log` / `run_after.ps1` + `after_<driver>.log` ×10 + `after_summary.txt` / `shot_390.png`)。
+
+#### (1) 入れたもの(行番号は項目 2 の後の index.html)
+
+| 何 | 行 |
+|---|---|
+| CSS `#resultChests` 一式(`.rcBox` / `.rcImg` / `.rcName` / `.rcTag` / `.rcPillar` と `@keyframes rcWobble` / `rcShake` / `rcPillar`)| 3050-3087 |
+| 撤退 `CLEAR_CHEST_ON`(`?clearchest=0`・`ROAD_CHEST_ON` の直後で 1 回だけ読む)| 3769 |
+| `gauntlets-ogre-power` に `relic: "frost-hold"` を足しただけ(id / name / 効果 / rarity は不変)| 14906 |
+| 伝承の品 11 品 `relic-<scenarioId>`(§4-2 の表の名前・効果キー・数値そのまま。`gated: true` + `relic` + `rarity: "special"`・`classReq` 無し)| 14929-14950 |
+| `questRelicFor(sid)`(`accessories[].relic` が唯一の正。無ければ -1)| 14957 |
+| `rollMagicItemDrop()` = `buildMagicItemPool()` → 空なら null → `Math.random` 1 回で pick → `grantMagicItemPick(pick)`(外から見た振る舞いと乱数の消費は分ける前と同じ)| 26455 |
+| `buildMagicItemPool()`(副作用なし。`if (!acc \|\| !acc.gated \|\| acc.relic) continue;` = 罠 D)| 26463 |
+| `grantMagicItemPick(pick)`(今までの後半そのまま。`getLeaderWeapons()` / `getLeaderArmors()` を取り直す)| 26494 |
+| 定数 `CLEAR_CHEST_COUNT 3` / `_RELIC_P 0.04` / `_RELIC_P_HIDDEN 0.20` / `_MAGIC_P 0.10` / `_GOLD_MIN 20` / `_GOLD_SPAN 31` / `_SCROLL_WEIGHTS` / `_FALLBACK_GOLD 50` / `_REVEAL_MS 600`(全部仮)| 44114-44122 |
+| 状態 `clearChestBoxes`(null = 宝箱なし)/ `clearChestOpened`(二重付与の旗)| 44123-44124 |
+| ⭐ `clearChestRelicP()` = **項目 3 の切り替え点**(今は常に `CLEAR_CHEST_RELIC_P` を返す)| 44127 |
+| `rollClearChests()`(§5-2 のとおり。伝承の品は最大 1 つ・単眼の暴君は `magicItemChance` を magic の枠の当選率に)| 44131 |
+| `clearChestBoxName` / `clearChestBoxRarity`(金貨・巻物 = common / magic = rare / relic = epic)/ `addClearChestGold`(`dragonfighters.gold` と `persistent.gold` へ足す)| 44152-44176 |
+| `grantClearChestBox(box)`(開けた 1 箱だけ付与。magic は付与の直前に `buildMagicItemPool()` へ同じ kind+idx がまだ在るか見て、在れば新しい受け取り手で付与・無ければ 50G。relic は `findAccessoryRecipient` で空き枠へ着けて `savePersistentAccessoryStock` + `recomputeAccessoryStock`、受け取り手が無ければ 50G = 罠 C)| 44178 |
+| `setupClearChests()`(`#resultChests` を `#resultReward` の後・`resultBtn` の前に作る)/ `openClearChest(k, opts)`(旗 → 付与 → `lastResult` を読み直して `chest` を足して書き戻す → 0.6 秒後に残り 2 つを同時に開ける。`opts.auto` は待たない)| 44206 / 44237 |
+| `showResult`: `const clearHit = Math.random() < clearChance;` → `clearMagicItem = (clearHit && !CLEAR_CHEST_ON) ? rollMagicItemDrop() : null`(罠 B の 3)| 44328-44329 |
+| `showResult`: `lastResult` を書いた後に `if (win && CLEAR_CHEST_ON) setupClearChests();` | 44459 |
+| `resultBtn` の click の先頭: 未開封なら `openClearChest(Math.floor(Math.random() * 3), { auto: true })`(竜の巣の「▶ エンディングへ」も同じ道)| 44464 |
+
+- `lastResult.chest` の形 = `{ boxes: [{ kind, name } ×3], opened: 0-2, granted: <名前 or 金貨の額>, grantedKind: "gold"|"scroll"|"magic"|"relic", fallback: <金貨に換えたか> }`。**開けたときにだけ**書く(開ける前の `lastResult` のキーは今と同じ)。`reward` は読み直した JSON をそのまま書き戻すので完全一致。
+- 巻物は `addScroll(id, { silent: true })`(結果画面の裏にバナーを出さない)。効果音は既存の `chestOpen` → 開いた瞬間に `coin`(新しい音は 0)。
+
+#### (2) スモーク(使い捨て・`smoke_chests.js`・port 10730・`goblin-mine`・戦士 + 魔法使い + 僧侶)= **20/20 PASS・exit 0・pageerror 0**
+
+| 見たこと | 結果 |
+|---|---|
+| `accessories` で `relic` を持つ品 = 12 件 / `buildMagicItemPool()` = 13 件で relic 0 件 | ✅ |
+| `showResult(true)` → `#resultChests .rcBox` = 3 つ・`#resultReward + #resultChests`(直後)・開ける前の `lastResult` に `chest` 無し | ✅ |
+| magic(フレームタング)/ magic(フロストブランド)/ relic(アイウーンストーン(防護))に決め打ち → 1 箱目を開ける → フレームタングだけ `ownedGatedNames` へ・フロストブランドは無い・`relic-goblin-mine` は `accessoryIds` / `accessoryState` に無い・金貨は不変 | ✅ |
+| 2 回目の `openClearChest(1)` = null・localStorage の付与の痕跡 8 キーが 1 つも動かない | ✅ |
+| `lastResult.reward` が開ける前後で JSON 完全一致・`chest = { opened: 0, granted: "フレームタング", boxes 3 }` | ✅ |
+| 色: magic の名前 = `rcName rarity-rare` ×2・relic = `rcName rarity-epic` + 「伝承」の札 | ✅ |
+| gold 37 の箱 → `dragonfighters.gold` が +37 だけ(変わったキーは gold だけ)・`chest.granted = 37` | ✅ |
+| relic の箱 → リーダーの空き枠に `relic-goblin-mine`・`accessoryIds` / `accessoryState` に id・金貨は不変 | ✅ |
+| 開けずに `resultBtn`(`dfReturnPage` を `#stay` へ差し替えて遷移を止めた)→ ちょうど 1 箱ぶん(+21)・`opened` 0-2・もう一度押しても二重にならない・reward 不変 | ✅ |
+| `?clearchest=0` → `#resultChests` 無し・`lastResult.chest` 無し・`CLEAR_CHEST_ON === false`・`clearChestBoxes === null` | ✅ |
+| 390 幅(isMobile)の箱の位置 = [43-139] [147-243] [251-347](w96 × h92)= 横に収まる・タップ領域 44px 以上 | ✅(参考。実感は §9)|
+
+#### (3) 非退行(素の走行・直列・port 10706 から 2 刻み・`run_after.ps1` = 項目 1 の `run_baseline.ps1` の出力先だけ変えた写し)2026-11-06 07:28〜07:49
+
+| ドライバ | exit | 集計 | 基準 (5211ab0) との比較 |
+|---|---|---|---|
+| `driver_mapdef_step2` | 0 | 74/74 | 同じ |
+| `driver_sce1_events` | 1 | 211/214 | **FAILED の集合が基準と同じ** (2)/(4d)/(N2-隣)(`grep FAIL` の差分 0 行)。`resultReward` を読む (9) は緑 |
+| `verify_corner_check` | 0 | 20/20 | 同じ(`reward.gold` の完全一致 8 本が緑 = 宝箱の金貨は `reward.gold` に混ざっていない)|
+| `verify_kobold_warren` | 0 | 21/21 | 同じ |
+| `verify_lore_check` | 0 | 26/26 | 同じ |
+| `verify_road_ambush` | 0 | 41/41 | 同じ |
+| `verify_road_boon` | 0 | 20/20 | 同じ |
+| `verify_road_events` | 0 | 25/25 | 同じ |
+| `verify_witch_hut` | 0 | 29/29 | 同じ |
+| `verify_run_chronicle` | 0 | 74/0/0 | 同じ((6a) のキーの並びも緑 = 開ける前の `lastResult` にキーは増えていない)|
+
+- ⇒ **言い直した golden = 0 本**。罠 B(1% の pick の添字のずれ)を踏む本は無かった。`verify_plaza_curio` は tavern 側なので項目 2 では走らせていない(予告どおり項目 3/4 で赤)。
+
+#### (4) 項目 3・4 へ渡すこと
+
+- ⭐ **relicP の切り替え点 = `clearChestRelicP()`(44127)の 1 か所**。`runHiddenFoeSlain` を配線したら `return runHiddenFoeSlain ? CLEAR_CHEST_RELIC_P_HIDDEN : CLEAR_CHEST_RELIC_P;` に変える。(3e) は 2 定数を読んで比べられる。
+- tavern の `ACCESSORIES_TV` へ写す 11 行 + ガントレットの `relic` = index 14906 / 14929-14950(id / name / gated / rarity / relic を完全一致。名前の括弧は全角「(防護)」)。
+- 項目 4 の口: `clearChestBoxes` は `let` なので `page.evaluate` から直接差し替えて中身を決め打ちできる(スモークがこの作法)。付与は `openClearChest(k)`、自動の 1 箱は `resultBtn` の click。`dfReturnPage` は差し替えれば遷移を止められる。
+- ⚠ (2c)「`resultReward.innerHTML` が `?clearchest=0` と同じ」は、**1%(`clearChance`)に当たらない乱数の列でだけ**成り立つ(当たると撤退側だけ `✨ 宝物発見` の行が出て、武器が上がれば「新装備」の行も変わる)。乱数を決め打つときは `clearHit` が偽になる値を選ぶこと。
+- 変異のアンカー候補: `grantall` = `openClearChest` の `grantClearChestBox(box)` / `goldmix` = `addClearChestGold` / `relicleak` = `|| acc.relic) continue;` / `noequip` = `grantClearChestBox` の relic の枝の `currentAccessoryIndices[rcp.slot] = box.idx;` / `tworelic` = `relicPlaced = true;` / `dblgrant` = `if (!clearChestBoxes || clearChestOpened) return null;`。
+- ⚠ 金貨の箱は `persistent.gold` にも足している(§5-3 の文言どおり)。`persistent.gold` はラン開始時の値のまま `showResult` では更新されないので、足した後の値は localStorage の累計とは一致しない(遷移するので実害なし)。
