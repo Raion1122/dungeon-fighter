@@ -32,26 +32,27 @@
 ## 2. 着手前の実測(この窓が本番コードと実ファイルで確かめた事実)
 
 ⚠ 行番号は 2026-11-04 の HEAD `5cfdf10` 時点。**#107 の着地で必ずズレる**ので、項目 1 で測り直すこと。
+▶ **2026-11-06 項目 1 で `5211ab0` に測り直し済み**。§2-1 の表は新しい行番号へ書き換えた(括弧内は起草時)。§2-2〜§2-8 の本文中の行番号の新旧対応は **§12-1 (1)** を見ること。
 
 ### 2-1. 今のクリア報酬の流れ(`index.html`)
 
 | 行 | 何 |
 |---|---|
 | 3724-3728 | `ROAD_CHEST_ON`(#87)。玄室宝箱・隠し宝箱・廃坑 n1 の寄り道を止めている。残るのは森の鍵束の宝箱と竜の巣の財宝だけ |
-| 3739-3756 | `ROAD_CHEST_GOLD`(消えた宝箱 1 個 = 25G をクリア金貨へ)・`roadChestBonusGold()` |
-| 26304 | `MAGIC_DROP_CLEAR_CHANCE = 0.01` |
-| 26313 | `findAccessoryRecipient(accId)` = 空き枠のあるリーダー → 仲間(classKey 無しの一時ユニットは除外)|
-| 26366 | `markGatedOwned(name)` |
-| 26377-26465 | `rollMagicItemDrop()` |
-| 44014 | `function showResult(win)` |
-| 44042 | `earnedGold = coins + clearGold + roadChestGold` |
-| 44048-44050 | `clearChance` → `clearMagicItem = (Math.random() < clearChance) ? rollMagicItemDrop() : null` |
-| 44065-44087 | 金貨・装備・XP・アクセサリーを **同期的に** localStorage へ保存 |
-| 44098-44108 | `reward = { gold, totalGold, newWeapon, newArmor, earnedXp, ... }` |
-| 44109-44134 | `resultReward.innerHTML` を組み立てる(`✨ 宝物発見` の行は 44124)|
-| 44162 | `resultOverlayEl.classList.add("show")` |
-| 44165-44178 | `sessionStorage "dragonfighters.lastResult"` に `{ scenarioId, ..., reward, chronicle, roster }` |
-| 44180-44185 | `resultBtn` の click → `dfReturnPage()` へ即遷移(竜の巣はエンディングへ)|
+| 3739-3762(起草時 3739-3756)| `ROAD_CHEST_GOLD`(消えた宝箱 1 個 = 25G をクリア金貨へ・frost-hold の行 3752 は #107)・`roadChestBonusGold()` 3754 |
+| 26308(26304)| `MAGIC_DROP_CLEAR_CHANCE = 0.01` |
+| 26317(26313)| `findAccessoryRecipient(accId)` = 空き枠のあるリーダー → 仲間(classKey 無しの一時ユニットは除外)|
+| 26370(26366)| `markGatedOwned(name)` |
+| 26381-26469(26377-26465)| `rollMagicItemDrop()`(gated アクセの絞り 26405・pick 26410)|
+| 44019(44014)| `function showResult(win)` |
+| 44048(44042)| `earnedGold = coins + clearGold + roadChestGold` |
+| 44053-44055(44048-44050)| `clearChance` → `clearMagicItem = (Math.random() < clearChance) ? rollMagicItemDrop() : null` |
+| 44069-44093(44065-44087)| 金貨・装備・XP・アクセサリーを **同期的に** localStorage へ保存 |
+| 44103-44113(44098-44108)| `reward = { gold, totalGold, newWeapon, newArmor, earnedXp, ... }` |
+| 44115-44139(44109-44134)| `resultReward.innerHTML` を組み立てる(`✨ 宝物発見` の行は 44124)|
+| 44167(44162)| `resultOverlayEl.classList.add("show")` |
+| 44170-44183(44165-44178)| `sessionStorage "dragonfighters.lastResult"` に `{ scenarioId, ..., reward, chronicle, roster }` |
+| 44185-44189(44180-44185)| `resultBtn` の click → `dfReturnPage()` へ即遷移(竜の巣はエンディングへ)|
 
 ### 2-2. ⚠⚠⚠ 罠 A — `rollMagicItemDrop()` は**引いた瞬間に付与して保存まで済ませる**
 
@@ -176,7 +177,7 @@ grep -nE "resultReward|resultBtn" tools/*.js
 方針(会議の合意):
 
 - 5e SRD 5.1 の実在のマジックアイテム・**カタカナの音写**(メモリ「実在マジックアイテムはカタカナ名」)
-- **効果は既存の配線のキーだけ**: `avoidAll` / `avoidArrow` / `freeAction` / `fireResist` / `hpBonus` / `undeadDR` / `skillBonus` / `dmgBonus` / `acBonus` / `saveBonus`(14836-14880 の既存アクセが使っているもの)。**新しい効果の配線は 0 本**
+- **効果は既存の配線のキーだけ**: `avoidAll` / `avoidArrow` / `freeAction` / `fireResist` / `hpBonus` / `undeadDR` / `skillBonus` / `dmgBonus` / `acBonus` / `saveBonus`(14839-14884 の既存アクセが使っているもの。★ 起草時 14836-14880 → §12-1 (5) で訂正)。**新しい効果の配線は 0 本**
 - フレーバーの文は 1 品ずつ、**その行き先の依頼人・敵**に結び付けて書く(ガイウスの譲れない点)
 - 対象は 12 か所(本筋 6 + 本筋外 6)。生成クエスト(単眼の暴君)・街道の襲撃・隊商護衛には置かない
 
@@ -201,7 +202,7 @@ grep -nE "resultReward|resultBtn" tools/*.js
 
 ⭐ **frost-hold だけは新しい品を作らず、既存の `gauntlets-ogre-power` を伝承の品にする**(2026-11-04 ユーザー指定「今回の巨人の箇所は、『ガントレットオブオーガパワー』にしてほしいかな」。ダイアログで「既存の品を砦の専用へ」を選択)。
 
-- index.html:14860 と tavern.html:7131 の既存の行に `relic: "frost-hold"` を**足すだけ**。id / name / 効果 / rarity は変えない。
+- index.html:14864(★ 起草時 14860 → §12-1 (5) で訂正)と tavern.html:7131 の既存の行に `relic: "frost-hold"` を**足すだけ**。id / name / 効果 / rarity は変えない。
 - ⇒ 罠 D の除外で**全クエスト共通の抽選から外れる**(ユーザー了承済み)。もう持っている人の所持・装備はそのまま。
 - フレーバーの文は「巨鬼(オーガ)」のままでよいか、霜の巨人の砦に結び付けて書き直すかは項目 1 で決めてよい(⚠ 書き直すなら tavern 側に文は無いので index だけ)。
 - 新しく作る伝承の品は **11 品**、既存の流用が 1 品 = `relic` を持つ品は合わせて **12 品**。
@@ -420,4 +421,128 @@ function rollClearChests() {
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 項目 1 — 着手前の実測 (基準 5211ab0)
+
+- 測った日 = 2026-11-06 / HEAD = `5211ab0`(#107 の最終 `e5cfe5d` + 文書 1 本)。⛔ `index.html` / `tavern.html` / `audio.js` は 1 バイトも触っていない(測るだけ = changelog 不要)。
+- 長いログ = `C:\Users\PC_User\.claude\dev-loop\r108\item1\`(`remeasure_2-10.log` = §2-10 の 4 本 / `acc_count_grep.log` = 件数を握る golden の grep / `baseline_<driver>.log` ×10 + `baseline_summary.txt` = golden の基準)。
+
+#### (1) §2-10 の再測定 → §2-1〜§2-8 の行番号(5cfdf10 → 5211ab0)
+
+| 何 | 起草時 (5cfdf10) | 今 (5211ab0) |
+|---|---|---|
+| `ROAD_CHEST_ON`(#87) | 3724-3728 | 3724-3728(コメント 3724-3727・宣言 3728)= 変わらず |
+| `ROAD_CHEST_GOLD_EACH` / `ROAD_CHEST_GOLD` / `roadChestBonusGold()` | 3739-3756 | 3739 / 3740-3753(frost-hold 75 の行 3752 が #107 で増えた)/ 3754-3762 |
+| `MAGIC_DROP_CLEAR_CHANCE = 0.01` | 26304 | **26308** |
+| `ladderMaxWeaponIdx()` | (26306 付近) | 26310-26314 |
+| `findAccessoryRecipient(accId)` | 26313 | **26317** |
+| `markGatedOwned(name)` | 26366 | **26370**(`DF_GATED_OWNED_KEY` 26369) |
+| `rollMagicItemDrop()` | 26377-26465 | **26381-26469**(pool の組み立て 26382-26408 / gated アクセの絞り `if (!acc \|\| !acc.gated) continue;` = **26405** / `pool.length === 0` 26409 / `Math.random` で pick = 26410 / 付与の後半 26411-26468)|
+| `pickChestLoot()` | — | 26471(宝箱の `magicItem` → `rollMagicItemDrop()` = 26758)|
+| `function showResult(win)` | 44014 | **44019** |
+| `earnedGold = coins + clearGold + roadChestGold` | 44042 | **44048** |
+| `clearChance` → `clearMagicItem = (Math.random() < clearChance) ? rollMagicItemDrop() : null` | 44048-44050 | **44053-44055** |
+| 金貨・装備・XP・アクセを同期で localStorage へ | 44065-44087 | **44069**(`winEq`)-**44093**(catch) |
+| `reward = { ... }` | 44098-44108 | **44103-44113** |
+| `resultReward.innerHTML` を組み立てる | 44109-44134 | **44115**(VICTORY)-**44139**(`resultRewardEl.innerHTML = html`)。`✨ 宝物発見` = **44124**(変わらず)|
+| `resultOverlayEl.classList.add("show")` | 44162 | **44167**(竜の巣の「▶ エンディングへ」= 44166)|
+| `sessionStorage "dragonfighters.lastResult"` | 44165-44178 | **44170-44183**(⇒ 宝箱の抽選は **44183 の後**に置く)|
+| `resultBtn` の click → `dfReturnPage()` | 44180-44185 | **44185-44189** |
+| 撤退 `lastResult`(探索中の離脱)| — | 44229 |
+| `accessories[]` | 14836-14880 | **14839-14884**(`gauntlets-ogre-power` = **14864-14865**)|
+| `recomputeAccessoryStock()` | 15053 | **15057** |
+| `addScroll` / `pickScrollId` / `maybeGrantScrollDrop` | 15225 / 15241 / 15255 | **15229 / 15245 / 15259**(隠し要素の判定 15262-15263)|
+| 森の外套 5 個目 = 50G | 18923 | `maybeDropShadowAmulet` 18920・50G = **18927-18928** |
+| `savePersistentAccessoryStock()` | 18980 | **18984** |
+| 撃破フック(`maybeDropShadowAmulet` / `maybeGrantScrollDrop`)| 19075-19079 | **19081-19082** |
+| 道具袋の `.rarity-*` | 19783 / 19786 | **19787 / 19790** |
+| `--rarity-rare/epic` / `.rarity-rare/epic`(index) | 24-25 / 2655-2656 | 同じ(**tavern.html には 0 件** = 変わらず)|
+| `getAccessoryAcBonus` ほか効果の読み手 | — | 16630-16716(下の (5))|
+| tavern `ACCESSORIES_TV` | — | **7113-7144**(ガントレット = **7131**)|
+| tavern 開発用の付与リスト(`?givemagic` / `DF_DEV_MAGIC_SHOP`)| 5534 | **5531-5535**(ガントレット = 5534)|
+| `SCENARIOS`(index)| — | 12041-(12 行き先のキー = 12042 / 12059 / 12087 / 12109 / 12134 / 12154 / 12176 / 12197 / 12220 / 12245 / 12271 / 12296)|
+
+- 乱数を固定して `showResult` / `lastResult` を読む本 = **9 本のまま**(起草時と同じ顔ぶれ)。`resultReward` を読む本 = `driver_sce1_events:1399` / `verify_run_chronicle:1304`(起草時 1301 → 1304)。
+- `assets/chest.png` / `assets/chest_open.png` は実在。`sfx("chestFound")` = 15239 / 15294 / 26714。
+- 新しく使う名前(`clearchest` / `resultChests` / `buildMagicItemPool` / `grantMagicItemPick` / `questRelicFor` / `HIDDEN_FOE_TYPES` / `runHiddenFoeSlain` / `CLEAR_CHEST_` / `relic`)は index / tavern / js とも **0 件** = ぶつからない。`tools/verify_clear_chests.js` は未作成・port 10706/10707 を握る既存ドライバ 0 本。
+
+#### (2) 罠 D の後半 — 店・ラダー・酒場の装備候補は `gated` だけで伝承の品を外せるか
+
+| 入手口 | 関数と絞り | `gated` だけで外れるか |
+|---|---|---|
+| index 宝箱のランク上げラダー | `ladderMaxWeaponIdx()`(26310-26314)`if (!weapons[i].gated)`。宝箱の `weapon` / `armor` / `shield` の中身もラダー経由 | ✅ そもそも**武器の表だけ**。アクセは宝箱へ `magicItem`(`pickChestLoot` 26473)→ `rollMagicItemDrop()` 経由でしか来ない |
+| index 共通の抽選 | `rollMagicItemDrop()` 26403-26408 `if (!acc \|\| !acc.gated) continue;` | ❌ **gated を通すのはここ** → `buildMagicItemPool()` で `acc.relic` を外す(計画どおり・変異 `relicleak`)|
+| tavern 武器防具屋 | `shopPool(kind)`(7234〜)は武器/防具/盾だけ。`item.gated && !DF_DEV_MAGIC_SHOP` で買えない(7365)・未所持の gated は非表示(7928)。アクセは**売っていない**(5527「アクセサリはショップ非対応」)| ✅ 対象外 |
+| tavern 酒場の装身具の候補 | `unlockedAccessoriesTV()`(7151-7159)= `accessoryIds` の所持 ∩ `accAllowedTV`(classReq)。`cycleAccessoryTV`(7178-7189)もこれを回すだけ | ✅ gated ではなく**所持の台帳**で絞る = 宝箱で得た後にだけ出る(伝承の品の正しい振る舞い)|
+| ⚠⚠ **tavern 闇市の古物商(#99)** | **`curioGearPoolTV()`(10910-10920)`ACCESSORIES_TV.forEach(a => { if (a.gated) out.push({ acc: a.id }); });`** → `refreshCurioGearTV()`(10942-10948)が未所持の品から 1〜2 品を **25 牙貨**で並べる・`buyCurioGearTV()`(10967-)が `accessoryIds` へ直接足す | ❌ **gated だけでは外れない**。伝承の品 11 品(と relic を足したガントレット)が**古物商で牙貨で買えてしまう** |
+| tavern 開発用の付与 | `?givemagic` / `DF_DEV_MAGIC_SHOP` の id 直書きリスト(5531-5535)| —(開発用。§4-2 の注記どおり 11 品を足すと運用と揃う)|
+
+⇒ **起草時の「gated のままなので店・ラダーからは今の仕組みで外れる」は半分外れ**。外れないのは古物商 1 か所。
+項目 3(tavern を触る項目)で `curioGearPoolTV()` の装飾品の枝を **`if (a.gated && !a.relic)`** にする必要がある(1 行。⚠ 母集団だけ絞れば `curioItemTV` / 保存済みの `plazaStateTV.curioGear` は「品が引けない行は出さない」で自然に落ちる…ではない: `curioItemTV` は id で引くだけなので、**既に棚に載っている保存済みの行は残る**。棚の行も `relic` で落とすかは項目 3 で決める)。
+- ⚠⚠ **ユーザー判断が要るかもしれない点(項目 3 の前に確認)**: ガントレットオブオーガパワーは今、古物商で 25 牙貨で買える。relic を足して古物商からも外すと「**牙貨で買える道が消える**」。ユーザーが了承したのは「全クエスト共通の抽選から外れる」(§4-2)まで。⭐ 推奨 = 外す(`questRelicFor` のコメント「その行き先のクリア時の宝箱でしか出ない品」と揃う)。
+- ⚠ 罠 C の訂正(事実): `savePersistentAccessoryStock()`(18984)の所持台帳 `accessoryIds` は**単調**(19002-19008 = 過去の id を残して足す)。古物商もこの台帳へ直接足している。⇒ 「装備していないと所持にならない」は**装備枠の在庫 `accessoryStock`(`recomputeAccessoryStock`)についてだけ**正しい。酒場で選べるかは台帳で決まる。§5-3 の「受け取り手が無ければ 50G」は設計の判断として残す(台帳へ足すだけ、という別解もある)。
+
+#### (3) 件数・id を握る golden(11 行足す + ガントレットに `relic` を足したときの予告)
+
+- `grep -nE "accessories\.length|ACCESSORIES_TV\.length" tools/*.js` = **0 件**。
+- `grep -lE "gauntlets-ogre-power|ガントレットオブオーガパワー" tools/*.js` = **0 本**(起草時と同じ)。
+- 広く取った語(`ACCESSORIES_TV` / `'accessories'` / `accDef(` / `unlockedAccs` / `accessoryState` / `ownedGatedNames` / curio)= `driver_equip_compact_ios` / `verify_plaza_curio` / `verify_save_slots` / `verify_sheet_equip` + id 名指し `driver_dev_gate2`。
+
+| ドライバ | 予告 | 理由 |
+|---|---|---|
+| **`verify_plaza_curio`** | 🔴 **確実に赤**(何もしなくても・古物商を直しても) | (4b) 装備の表の行数と `ACCESSORIES_TV` の id の並びを基準の木 `54f6409` と比べる(行 +11 で赤)/ (1a) 「name/flavor/effect 以外の欄が完全一致」= ガントレットに `relic` が増えて index・酒場とも赤 / (0a) 母集団 = 21 品・装飾品 11・基準の木の gated の置き場と同じ集合(古物商を直さない = 32 品・装飾品 22 / 直す = 20 品・装飾品 10 でどちらも赤)/ (3a)(3b) 21 品・20 品の数で赤 |
+| `verify_save_slots` | 🟡 たぶん緑 | `ACCESSORIES_TV` を実行時に読んで全 id を種まきする(件数を書いていない)|
+| `driver_dev_gate2` | 🟢 緑 | `ring-free-action` が `accessoryIds` に入るかだけ |
+| `driver_equip_compact_ios` / `verify_sheet_equip` | 🟢 緑 | `ownedGatedNames`(武器・防具の名前)だけ。アクセは数えない(`rows.length === 13` は画面の数)|
+| 乱数固定の 9 本 + `verify_run_chronicle` | 🟢 のはず | アクセの件数は読まない。⚠ ただし `relic` を足すとガントレットが共通の抽選から抜けるので、`rollMagicItemDrop` の pool が**今より 1 つ減る**(新しい 11 品は relic で外れる限り増えない)。⇒ 1%(クリア)/ 0.5%(宝箱の magicItem)に当たった回だけ pick の添字が変わる。乱数を固定した本がその当たりを踏んでいれば赤になるので、赤なら最初にここを疑う(罠 B と罠 D が重なる所)|
+
+#### (4) 非退行の基準(5211ab0・素の走行・`--negative` なし・直列・port 10706 から 2 刻み)
+
+走らせ方 = `C:\Users\PC_User\.claude\dev-loop\r108\item1\run_baseline.ps1`(PowerShell で 1 本ずつ `node tools/<d>.js --port <p>`・`timeout` で包まない)。2026-11-06 06:55〜07:16。
+
+| ドライバ | port | exit | 集計 | 握っている値(後の項目で同じであるべきもの)|
+|---|---|---|---|---|
+| `driver_mapdef_step2` | 10706 | 0 | 74/74 PASS | — |
+| `driver_sce1_events` | 10708 | **1** | **211/214** | (9) エピローグが VICTORY の `resultReward` に描かれる = 緑(`金貨 +100 獲得 (累計 100)<br>XP +300 (累計 300/1000) ・ Lv 1<br><span style="opacity:.85">🕯…`)|
+| `verify_corner_check` | 10710 | 0 | 20/20 | `lastResult.reward.gold` = goblin-mine **107** / bandits-forest **82** / lizard-swamp **82** / orc-fort **107** / undead-temple **107** / dragon-lair **132** / tower-mother **382** / 生成 tier3 **107**(各 `?roadchest=0` = 7・塔の母 307)|
+| `verify_kobold_warren` | 10712 | 0 | 21/21 | — |
+| `verify_lore_check` | 10714 | 0 | 26/26 | (3 秒で終わる本。空振りではない)|
+| `verify_road_ambush` | 10716 | 0 | 41/41 | (2f) 馬車全損で clearGold 0 |
+| `verify_road_boon` | 10718 | 0 | 20/20 | — |
+| `verify_road_events` | 10720 | 0 | 25/25 | — |
+| `verify_witch_hut` | 10722 | 0 | 29/29 | (4f) 礼金 = clearGold(gold の増分 − coins − 宝箱の補填)|
+| `verify_run_chronicle` | 10724 | 0 | 74/0/0 | (6a) `?chronicle=0` の `lastResult` のキー = `scenarioId, scenarioTitle, cleared, defeated, reward, roster` / 素 = + `chronicle` |
+
+- ⚠ **`driver_sce1_events` は着手前から赤**(#108 と無関係・直さない)。FAILED の集合 = **(2)** 「sceneFlags のキーはちょうど 3 本」/ **(4d)** 「生成クエスト側でも土台自体は生きている」/ **(N2-隣)** 「変異 N2 は D1/D4 を巻き込まない」。3 本とも実測は `["hag_choice","mine_alerted","mine_ranged_opening","s3_novice_swayed","servant_rescued"]` = 後のチケット(#106 の `hag_choice` ほか)が `sceneFlags` にキーを足したのに、期待値が 3 本のまま。分類 = 期待表が古い(ポート由来の偽の赤ではない・exit 1)。
+  ⇒ **非退行の判定 = 「FAILED の集合がこの 3 本から増えない」**。`resultReward` を読む (9) は緑。
+- ⭐ `lastResult` のキーの並びは (6a) の 6 / 7 個。§5-3 で `chest` を足すと**素の腕のキーが 1 つ増える**。(6a) は `?chronicle=0` の腕で「chronicle が無い」ことを見る述語なので、`chest` が増えても赤くならないはず(項目 4 で確かめる)。
+
+#### (5) §4-2 の伝承の品の表を本番コードで検算
+
+| 確かめたこと | 結果 |
+|---|---|
+| 効果キーがもう配線済みか(§11 = 新しい配線 0 本)| ✅ 表の 7 キーは全部、`getEquippedAccessories(unit)` を回す既存の読み手がある: `avoidArrow` = `getTotalAvoidance` 16636 / `hpBonus` = `getAccessoryHpBonus` 16672 / `dmgBonus` = `getAccessoryDmgBonus` 16685 / `acBonus` = `getAccessoryAcBonus` 16699 / `undeadDR` = `getUndeadDamageReduction` 16711 / `saveBonus` = `getSaveBonus` 16618-16624 / `skillBonus` = `getUnitSkillBonus` → `mergeSkillBonusInto` 16576(キー `perception` / `stealth` は `js/skill-check.js:68` / `:71` の `CHECKS` に実在)。⇒ **新しい配線は要らない** |
+| id がぶつからないか | ✅ `relic-<scenarioId>` 11 個・`relic` という語そのものが index / tavern / js で **0 件** |
+| 名前がぶつからないか | ✅ カタカナ名 11 個とも index / tavern / js で **0 件** |
+| 行き先の id が実在するか | ✅ 12 個とも index の `SCENARIOS`(12042〜12296)・`ROAD_CHEST_GOLD`(3741-3752)・tavern の依頼の `id:`(各 1 件)に実在。frost-hold も #107 で着地済み(12296)|
+| SRD 5.1 の原名 | ✅ 12 品とも SRD 5.1 の Magic Items に載る名前(Ioun Stone は種類 Protection・Belt of Giant Strength は種類 Fire)|
+| ガントレットの既存の行 | ✅ id / name / `dmgBonus: 2` / `gated: true` / `rarity: "special"` は index 14864-14865 と tavern 7131 で一致。`classReq` 無し |
+
+**表の事実の訂正(数値・名前・キーは変えていない)**:
+
+1. §4-2 の「14836-14880 の既存アクセ」→ **14839-14884**(#107 までの行ズレ)。
+2. §4-2 の「index.html:14860 と tavern.html:7131 の既存の行」→ **index.html:14864**(tavern 7131 は同じ)。
+3. 表そのもの(12 行の scenarioId / 名前 / 原名 / 効果キー)に事実の誤りは **0 件**。
+
+**数値の注意(⛔ 直していない = 釣り合いはプレイテストで動かす・§8 の「測らないこと」)**:
+
+- ⚠ **森のグローブオブミサイルスネアリング `avoidArrow: 0.5` は、同じ森の残影の獣の外套(`shadow-amulet` = `avoidAll 0.05` + `avoidArrow 0.50`)と重ねると矢の回避が 1.05 = 矢が必ず外れる**。`getTotalAvoidance` は**足し算**で上限が無く、判定は `Math.random() < avoidance`(39021-39027)。1 人が 2 枠に両方を着けられる(別 id なので「同一不可」に当たらない)。⇒ 数値か上限をどうするかは**ユーザー判断**(項目 2 で品を足す前に聞くのがよい)。
+- `undeadDR` は**最大値**(足さない)。神殿のマントル `undeadDR: 2` は、スカラベ(3)を着けている人には効かない。
+- `skillBonus perception` は足し算 = ローブオブアイズ(+3)+ アイズオブジイーグル(+2)= +5。
+
+#### (6) 項目 2 へ渡すこと
+
+- 宝箱の抽選の置き場 = `lastResult` を書き終えた **44183 の後**(`showResult` の閉じ括弧 44184 の前)。`resultBtn` の click は 44185-44189。
+- `buildMagicItemPool()` へ切り出すのは 26382-26408、`grantMagicItemPick(pick)` は 26411-26468。`Math.random` は 26410 の 1 回だけ。
+- 古物商(tavern `curioGearPoolTV` 10917-10918)の relic 除外は**項目 3 の範囲に足す**(§6 に書かれていない)。ガントレットを古物商から外すかは上の (2) の確認待ち。
+- 森の品の `avoidArrow` の重ね掛け(矢 100% 回避)は品を足す前にユーザーへ確認。
+- 予告の赤 = `verify_plaza_curio`(確実)。言い直しの方針(基準の木 `54f6409` との比較から relic の行を除くか)は項目 4。
