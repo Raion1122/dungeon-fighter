@@ -50,7 +50,11 @@ const PORT = parseInt(arg('port', '9100'), 10);
 const SCENARIOS = ['goblin-mine', 'bandits-forest', 'lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair'];
 /* ★[#82 2026-10-03] 比率を持つ大型 def の本数。当初の 12 体 + 塔の母のワイバーン wyvern / wyvernBoss (displaySize 240) = 14。
  * ⛔ 期待値を緩めない (≥ にしない) — 大型を足すチケットはここへ名前つきで足す。 */
-const N_LARGE = 12 + 2;
+const N_LARGE = 12 + 2 + 1;
+/* ★[#107 2026-11-06] 霜の巨人 frostGiant (displaySize 184・比率あり) を足して 15 体。冬狼 winterWolf は比率 (bodyRatioX/Y) を持つが displaySize 130 < 176 で
+ *   「大型」(シートを測る母集団 = displaySize >= 176) には入らない ⇒ 2 つの数が初めて分かれた:
+ *   N_LARGE = 大型 (§2a/§2b/§5a/§6 = displaySize >= 176 の def) / N_RATIO = 比率を持つ def の本数 (§1a)。⛔ どちらも緩めない (≥ にしない)。 */
+const N_RATIO = 12 + 2 + 2;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (配信をメモリ上で差し替える)
@@ -426,8 +430,8 @@ async function knockbackProbe(page) {
       check('(1a) 比率を持たない def x 6 原点で新旧の箱が 4 辺とも一致する',
         r.badN === 0, r.nPlain + ' def x ' + r.nOrigins + ' 原点 / 不一致 ' + r.badN
           + (r.bad.length ? ' 例: ' + r.bad.join(' | ') : ''));
-      check('(1a-装置) 母集団が実在する (比率なし 40 本以上 / 比率あり ちょうど ' + N_LARGE + ' 本)',
-        r.nPlain >= 40 && r.nRatio === N_LARGE,
+      check('(1a-装置) 母集団が実在する (比率なし 40 本以上 / 比率あり ちょうど ' + N_RATIO + ' 本)',
+        r.nPlain >= 40 && r.nRatio === N_RATIO,
         '比率なし=' + r.nPlain + ' 比率あり=' + r.nRatio + ' [' + r.ratioKeys.join(',') + ']');
     }
 

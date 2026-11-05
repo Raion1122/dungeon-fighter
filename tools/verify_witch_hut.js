@@ -277,7 +277,9 @@ const NEG_EXPECT = {
   opacitystuck: ['(3d)'],
   passageall:   ['(3f)'],
   unlockfree:   ['(1a)', '(1c)', '(4b)'],
-  nosite:       ['(1a)', '(1d)', '(1f)', '(1g)', '(4b)'],
+  /* ★[#107 項目4] + (4c): 撤退の 1 段目を retireGiant() にした (#107 項目2) ので、lakeside が way のままの既定・retireGiant() 後の地図は
+     固定値と食い違う (決定的・verify_lost_cargo / verify_silent_tomb の nosite に (4c) を足したのと同じ理由 = 手順の型 §5)。全数走査 r107 で実測 */
+  nosite:       ['(1a)', '(1d)', '(1f)', '(1g)', '(4b)', '(4c)'],
   signclash:    ['(1f)'],
   nosearch:     ['(2c)'],
 };

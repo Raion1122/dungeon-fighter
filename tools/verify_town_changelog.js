@@ -552,8 +552,13 @@ function hookSection() {
           t.lis.length === 4 && (k >= 0 ? eq(t.lis.slice(k), normL.slice(0, 4 - k)) : gone), { k, gone });
         if (S === 'd1440') {
           const b = t.box;
-          check('(3a)', S, '酒場の矩形 left/top/right == [1140,20,1420] ±1・bottom ≤ legacy の bottom + 1 (高さは文面で動く)',
-            !!b && near(b.slice(0, 3), [1140, 20, 1420], 1) && b[3] <= leg.t.box[3] + 1 && b[3] > b[1], { box: b, legacy: leg.t.box });
+          /* ★[#107 2026-11-06] 「bottom ≤ legacy の bottom + 1」は「今日の 4 件が de7617e の 4 件より短い」ことに依っていた (文面依存)。
+             #107 の霜の巨人の砦の行で 4 件が長くなり、箱は CSS の上限 max-height: 38vh (border-box) = top 20 + 342 = 362 で頭打ちになった
+             (#106 の全数走査では 360 = legacy と同じ・#107 の全数走査で 362)。⇒ 上限は文面に依らない CSS の頭打ち 20 + 38vh へ移す
+             (legacy 360 はその内側。de7617e の 4 件で 360 ±1 に戻ることは上の [legacy] の行がそのまま縛る)。 */
+          const capB = 20 + Math.round(0.38 * vp.h);
+          check('(3a)', S, '酒場の矩形 left/top/right == [1140,20,1420] ±1・bottom ≤ max-height の頭打ち (20 + 38vh = ' + capB + ') + 1 (高さは文面で動く・★[#107] 上限を文面に依らない値へ)',
+            !!b && near(b.slice(0, 3), [1140, 20, 1420], 1) && b[3] <= capB + 1 && b[3] > b[1], { box: b, legacy: leg.t.box, cap: capB });
         } else {
           check('(3a)', S, '酒場の矩形 == [230,20,370,69] ±1', near(t.box, [230, 20, 370, 69], 1), t.box);
         }
