@@ -367,7 +367,7 @@ function retireGiant() {
 - ⛔ 冬狼の転倒(噛みつきの STR セーヴ)・群れの戦術(有利)
 - ⛔ 戦う / 見逃すの 2 択(#106 の形を流用しない)
 - ⛔ #103〜#106 の強さの見直し・390 幅の札(#104 / #105 / #106 のはみ出し)・マミーの火の弱点・縁のマゼンタ(ユーザー判断待ちの別件)
-- ⛔ `cross_n` / `farm_n` の格上げ・他の拠点の `signDx`
+- ⛔ `cross_n` / `farm_n` の格上げ・他の拠点の `signDx`(★ 項目4 で神殿 `temple` だけはユーザー決定 (b) 2026-11-05 により `signDx: -12` へ = §12-4 (2))
 - ⛔ `js/road-events.js`(新しい点は拠点 = 街道の出来事は出ない)
 - ⛔ 触らない: `town.html` / `title.html` / `audio.js` / `js/save-slots.js` / `js/tavern-map.js` / `js/npc-crowd.js`・勝利判定・`defeatEnemy()`・`runEncounter` の手番ループ・`checkTrapTrigger()`
 - `実装依頼書/README.md` の #107 行は**承認時に起草窓が足す**(並走窓なし)。
@@ -762,3 +762,91 @@ n1big 氷の砦の大広間 (24x16)
 - (3e) の冬狼の値(4d8・DC 12)と `ROCK` / `BREATH` は SRD のまま = 触っていない。変異 15 本の担当(NEG_EXPECT)は 1 本も変えていない。
 - 結果: 素 3 回連続 = `plain_{1,2,3}.log` **27/27 PASSED   FAILED 0   PENDING 0** × 3(130 / 129 / 131 秒・exit 0)/ `--negative`(`negative.log`)= `[素・基準] 27/27` → `負のコントロール 15 / 15 が検出成功` → `[vet] --negative OK: 15 本すべて担当ラベルが赤・担当外の赤 0・注入行はすべて実行`(**2041 秒 = 34.0 分**・exit 0・N=20 の測定と同時) ⇒ 項目4 の 1 腕の上限は項目3 の 2325 秒 × 1.3 = 約 3023 秒のままでよい。
 - 既存 golden: frostGiant / winterWolf を握るのは本ドライバだけ(`grep -ln "frostGiant\|winterWolf" tools/*.js`)。frost-hold を名指しする `verify_dragon_fold`(**PASS 35 / FAIL 0**)と `verify_swamp_novice`(**PASS 34 / FAIL 0**)を再走 = 項目2 の言い直しのあとの色(緑)から退行なし。
+
+### 12-4. 項目4 — 既存 golden の言い直し + 母集団の非退行(2026-11-05〜11-06・基準 HEAD `b59766e`)
+
+作業の置き場 = `~/.claude/dev-loop/r107/item4/`(申し送り `item4_notes.md`・パッチ `fix/fix_*.py`・ログ `logs/{pre,post,sdx,tri}/`・地図の sha1 の独立計算 `sha_vm.js`・札の掃引 `sign/measure_temple.js`)。
+本番ファイルで触ったのは `js/world-map.js` の 1 行(神殿の `signDx: -12` = 下の (2)・ユーザー決定 (b))だけ。`index.html` / `tavern.html` / `audio.js` は 1 バイトも触っていない(changelog の要否は (2) の末尾)。
+
+#### (1) 予告どおり赤の 15 本の言い直し(commit `5190e48`・⛔ 期待値は緩めず、前の値は撤退の世界へ当て直して残す)
+
+⭐ 地図の sha1 は `js/world-map.js` を node の vm で読み、既定 → `retireGiant()` → … → `retireTower()` の順に同じ式で求めた値(`sha_vm.js`)と、ページで測った値が一致した。今回は**点と道が増えた**ので既定の値は必ず変わり、#106 の既定の値は 1 文字も変えず `retireGiant()` の 1 段目へ移した。
+
+| 段 | `verify_quest_walk` (5a) / `verify_world_steps` (1d) の式 | `verify_road_events` (4a) の式(STEPS 込み) | 点 / 道 / SITES |
+|---|---|---|---|
+| 既定(#107) | `644bf9dac129dffb` | `026ec0e8d3863628` | 15 / 15 / 12 |
+| `retireGiant()` 後 = #106 の既定 | `63f3bce7696bf14a` | `62a182595bd19ac4` | 14 / 14 / 11 |
+| + `retireHag()` | `3dd5550782057025` | `2145a1b895486427` | 14 / 14 / 10 |
+| + `retireTomb()` | `44b1de14f8b2c9d0` | `cba6eec82b479584` | 14 / 14 / 9 |
+| + `retireCargo()` | `3918d569e7f3f7db` | `23ee1c56f280c2e7` | 14 / 14 / 8 |
+| + `retireWarren()` | `647e71f6b2956389` | `391c6d4c0c6b4857` | 14 / 14 / 7 |
+| + `retireTower()` | `876c5f6336f96811` | `4c0a8a6b3d65cda0` | 14 / 14 / 6 |
+
+| 本 | 言い直し(本件の点 15・道 15・札 13・停留所 25・刻み点 10) | 素の再走 |
+|---|---|---|
+| `verify_quest_walk` | (0z) 12 組・unlockAfter 10・side 6 /(2z) 12 組 /(2a) 未解放 10 /(2b) 3 → 5 → 7 → 9 → 11 → **13** 枚(霜の峠は神殿の後 = 5 本目から)/(2c) **15 ノード**すべてへ経路 /(2d) 拠点 12・未解放 10 /(3d)(3e)(4b) 札 13 /(5a) 上の 7 値 /(n1z) 12 組 | 25/25 |
+| `verify_world_steps` | (1d) 上の 7 値・既定は NODES 15 / EDGES 15 / SITES 12 /(2d)(5c) 札 13 | 33/33(⚠ (2d) は (2) を経て緑) |
+| `verify_road_events` (4a) | 上の 7 値・既定は NODES 15 / EDGES 15 / STEPS 10 / SITES 12 | 25/25 |
+| `verify_quest_draw` | (0b) side 6(`frost-hold` = locked・前提は本筋の 5 番目)/(1d) 解放済み 12 | 18/18 |
+| `verify_quest_visibility` | (0b) scenarios 12 / side 6・(0c)(3b)(3d) 札 13・(5c) NODES 15 / EDGES 15 / STEPS 10 / SITES 12 | 39/39 |
+| `verify_tavern_map` (6a)(6b)(7b) | 12 件 / side 6 / SITES 12 | 47/47 |
+| `verify_party_four` (0a) | 本筋 6 + side 6 | 緑 |
+| `verify_world_heromark` | `EXPECT_NODES` 14 → **15**(項目1 で名簿に足した `:470`)・`EXPECT_SIGNS` 13(照合 15 x 13 = 195 組・交差 0) | 18/18 |
+| `verify_world_map` | (7b-data)(7b-dom)(7d) 札 13・(7e) 12 枚・(7f) ノード 15 / 札 13(`:1892` の母集団ガード)。(7f) の例外は (2) で外した | 57/57・`--negative` 44/44 |
+| `driver_mapeditor_painting` | 1a テーマ 12・1a2 `frost-hold` も n0big / n1big・3e optgroup 12 | 105/106(1d2 だけ = 着手前から赤) |
+| `verify_lore_check` | **数え直し**(HEAD `b59766e` のページ)= 61 キー = 技能あり 49(frostGiant = history・SRD Giant)/ 対象外 12(winterWolf・SRD Monstrosity)・cr 43(frost-giant 8 / winter-wolf 3)/ 出さない 18 | 26/26 |
+| `verify_enemy_traits` (0b)(0c) | 表のキー 11・ドライバの SRD 表に frostGiant / winterWolf(冷気の完全耐性・眠りの免疫なし) | 15/15 |
+| `verify_counterspell` (4c) / `verify_run_chronicle` (0c) | 「HP を引く点」48 → **51**(項目3d の後の本番で数え直し = 20 + 31。冷気の息の仲間 `a.hp -=`・頭 `hp -=` と岩投げの仲間 `ally.hp -=`。呼び口は 2 つとも `enemyAttackTurn` の中 = 手番の内) | 25/25 / 74 PASSED |
+| `driver_cleanup_phase1` (D4) | `MSG_DEFEAT` の参照 17 → **21**(冷気の息の単文 1・三項式 1 行 = 2 出現・岩投げの単文 1) | 28/28 |
+
+- 着手前から赤の 2 本(`verify_codex_map_skill` (3a)・`driver_mapeditor_painting` 1d2)は触っていない。
+
+#### (2) ⚠⚠ 予告外の赤 — `verify_world_steps` (2d) → ユーザー決定 (b)「神殿の札を少し左へ」(commit `42736a0`)
+
+- **何が起きたか**: 言い直しの後、(2d)「札の押し点(中心 + 四隅の内側 8px)を何も奪わない」が赤になった。奪われていた点は `temple:右上` / `temple:右下` の 2 つで、奪っていたのは **frost_peak の点の当たり判定**(`.worldNode`)。項目2 の時点では母集団ガード(札 13 ≠ 12)で止まっていて見えなかった。
+- **実測**(`r107/item4/probe_ws2d.js`): 1280x900 では神殿の札 x 909.0〜1046.2・frost_peak の点 x 1037.6〜1073.4。札の右端の約 **8.6px x 31.7px** を押すと霜の峠へ歩く(札の中心は神殿)。1440x900 も同じ形。390x844 は神殿の札が画面外。`?giant=0` では 3 点とも神殿。
+  ⇒ §2-3 の机上「当たり判定 (x 1258〜1302) は神殿の札の右端(机上 ≈ 1254)から約 4px 離れる」は**崩れた**(実描画の札の右端は world ≈ 1266)。
+- **ユーザー決定 (b)(2026-11-05)**: 神殿の札を左へ寄せる。⚠ **§11「他の拠点の `signDx` は触らない」をこの件だけユーザー判断で上書き**した。frost_peak の座標・`signDx` −112・点・道は動かしていない(⇒ 地図の sha1 は不変 = `signDx` は nodesFP に入らない)。
+- **掃引**(`r107/item4/sign/measure_temple.js` = 項目1 の `measure_signs.js` を写し、神殿の `signDx` を変える形へ。`sign/sweep.json`。cleared = 本筋 6 本・主人公 = title / frost_peak / temple / mine・1440 / 1280 / 390):
+
+| 神殿の `signDx` | 押し点の奪われ(全札) | 札の右端と frost_peak の当たり判定(1440 / 1280) | 主人公 mine → 神殿の札(1440) | 主人公 frost_peak → 神殿の札(1440) | 札 × 札 / 停留所の点 / 刻み点 / はみ出し |
+|---|---|---|---|---|---|
+| 0(項目2) | temple 2 点 ← frost_peak | 8.6px 食い込む | 2.7% | 11.0% | 0 |
+| −4 | 0 | 5.3px 食い込む | 5.0% | 9.8% | 0 |
+| −10 | 0 | 0.4px 食い込む | 8.6% | 8.0% | 0 |
+| **−12(採用)** | **0** | **1.2px / 0.7px 離れる** | **9.8%** | **7.4%** | **0** |
+| −14 | 0 | 離れる | **11.0%**((7f) の上限 10% 超え) | 6.8% | 0 |
+
+  ⇒ **−12** = 押し点が全部戻り、かつ札の矩形が当たり判定から離れる最小の値。これより左は (7f)(主人公が mine に立つと神殿の札を 10% 以上隠す)が赤。390 は 3 か所とも札が画面内(title だけは神殿の札が画面外 = どの値でも同じ)。
+- **言い直し**: `verify_world_map` の (7f) は frost_peak → 神殿が **7.3%**(ドライバの実測)= 上限 10% の内に戻ったので、`5190e48` で足した例外 `frost_peak->temple: 0.12` を**外した**(例外は #106 の `temple->lakeside` だけ)。mine → 神殿は 9.8%(上限の内)。変異 `crowdsign` のアンカーを `signDx: -12` 付きの行へ(中身は x を寄せるだけのまま)。
+- **再走**(`logs/sdx/`・11 本 exit 0): `verify_world_steps` 33/33((2d) 奪われた点 0)・`verify_world_map` 57/57・同 `--negative` 44/44・`verify_world_heromark` 18/18・`verify_quest_walk` 25/25・`verify_quest_visibility` 39/39・`verify_road_events` 25/25・`verify_frost_hold` 27/27・`verify_witch_hut` 29/29・`verify_silent_tomb` 24/24・`verify_lost_cargo` 22/22。
+- **changelog**: `js/world-map.js` はフックの対象外。変化は「新しい点の隣の札を 12px 寄せた」で、未公開の行「雪山に新しい行き先『霜の巨人の砦』」に含まれる ⇒ 行は足していない。
+
+#### (3) 母集団の非退行(全数走査・#106 §12-4 と同じ手順)
+
+- **基準** `base107.tsv` = #106 の走査 `r106/item4/run_post106/post106.tsv`(248 腕)の `verify_witch_hut --negative` を、#106 の再走(上限 10800 秒・`run_rerun106` = 12/12 OK・exit 0)で上書きしたもの。`241c718..0298eca` は md と素材だけ ⇒ 着手前 = `0298eca` の色。
+- **腕** = その 248 腕(同じ並び)+ `verify_frost_hold` 素 / `--negative` = **250 腕**。clone 根 = `git clone --shared` → `42736a0`(`cmptree107.py`: content differ 0・md 2 本の改行だけ違う = #106 と同じ)。直列・SKIP 再開型・**1 腕の上限 10800 秒**(#106 の教訓 = いちばん長い `verify_witch_hut --negative` 約 6745 秒に合わせた。新しい `verify_frost_hold --negative` は 2055 秒で、この上限の内)。
+- **走らせ方**: 11-05 08:17 に起動(Phase A = 19:50 の手前で止める `--stop-at`・239 腕)→ 01:05 まで待って Phase B(11 腕・SKIP 再開)→ **11-06 06:03 に完了・合計 982.9 分**。夜(20:00〜24:59)はまたいでいない。
+- **結果: 緑 224 / 非緑 26**。
+  - **緑→赤 4**:
+
+| 腕 | 中身 | 帰属 | 処置(commit `9fee173`) |
+|---|---|---|---|
+| `driver_wallbox` 素 | (1a) 比率あり 16 ≠ 14・(2a)(2b)(5a)(6-oldbox) 大型 15 ≠ 14 | **#107**(霜の巨人 = displaySize 184・比率あり / 冬狼 = 比率ありだが displaySize 130 < 176 = 「比率あり」と「大型」の数が初めて分かれた) | `N_LARGE` = 12+2+1(displaySize ≥ 176)/ `N_RATIO` = 12+2+2((1a))へ分けた。霜の巨人の箱は (2a) の仕様どおり(badSpec 0)= 箱の値は直していない。素 28/28 |
+| `verify_town_changelog` 素 | (3a) d1440 酒場の更新情報の箱 bottom 362 > legacy 360 + 1 | **#107**(霜の巨人の砦の行で 4 件が長くなり、箱は CSS の `max-height: 38vh`(border-box)= 20 + 342 = **362** で頭打ち) | 上限を文面に依らない「20 + 38vh」へ移した(de7617e の 4 件で 360 ±1 に戻る `[legacy]` の行はそのまま)。素 56/56・`--negative` 8/8 |
+| `verify_witch_hut --negative` | 変異 `nosite` が担当外の (4c) も赤 | **#107**(項目2 で (4c) の 1 段目を `retireGiant()` にした = lakeside が `way` のままの変異では `retireGiant()` 後の地図が固定値と食い違う。決定的・手順の型 §5 の予告どおり) | `NEG_EXPECT.nosite` に (4c)。`--negative --only nosite` = ✓ OK(6 節赤 = 担当どおり) |
+| `verify_npc_crowd` 素 | (1a)(4d) 盤面の種が捨てられる(t3 の席札が無い・id 一致 false) | **非帰属**(本番 `42736a0` で 1/3 緑・着手前 = `r106/item4/clone106 @1e79b20` で **0/3 緑** = 盤面の種の揺れ。#104 / #106 の走査でも同じ本が赤 ↔ 緑を往復) | なし |
+
+  - **赤→緑 0** / **両方非緑 22**(`verify_tower_mother_b --negative` は基準も赤 = #106 で非帰属と判定した揺れ。総括行は今回 `[素・基準]` = 素で止まった形)。
+  - **exit 3 = 7 腕・基準と同じ 7 腕** ⇒ #107 が増やした exit 3 = 0。taskkill は `probe_party_size`(600 秒の設計どおり)だけ。
+  - **新規 2**: `verify_frost_hold` 素 **27/27**(132 秒)・`--negative` **15/15 OK**(`[vet] --negative OK: 15 本すべて担当ラベルが赤・担当外の赤 0・注入行はすべて実行`・2055 秒・exit 0。総括行は最後の変異の `22/27 … [変異 shortcut]`)。
+  - 言い直した 15 本 + (2) の 2 本は、走査でも素・`--negative` とも exit 0(`driver_mapeditor_painting` は着手前からの 1d2 だけ)。
+- ⇒ **#107 帰属の緑→赤 = 0**(帰属 3 本は件数・文面依存の上限・撤退の段の担当表 = 言い直し済み・挙動の退行ではない)。
+
+#### (4) ユーザー判断待ち
+
+| 件 | 中身 |
+|---|---|
+| §9 実機 | 卓に Lv8 で並ぶか・霜の峠の札と神殿の札が縦画面で押せるか(神殿の札を 12px 寄せた後)・岩投げと冷気の息の吹き出しの回数・大広間の竜の語り |
+| push | #107 のコミットはすべて未 push。ユーザー指示待ち |
+| 揺れ(別件・本件の範囲外) | `verify_npc_crowd` の盤面の種・`verify_tower_mother_b --negative` の随伴と出口の競走(#106 §12-4 (3) の仮説のまま) |
