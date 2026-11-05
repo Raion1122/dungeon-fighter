@@ -619,3 +619,102 @@ function rollClearChests() {
 - ⚠ (2c)「`resultReward.innerHTML` が `?clearchest=0` と同じ」は、**1%(`clearChance`)に当たらない乱数の列でだけ**成り立つ(当たると撤退側だけ `✨ 宝物発見` の行が出て、武器が上がれば「新装備」の行も変わる)。乱数を決め打つときは `clearHit` が偽になる値を選ぶこと。
 - 変異のアンカー候補: `grantall` = `openClearChest` の `grantClearChestBox(box)` / `goldmix` = `addClearChestGold` / `relicleak` = `|| acc.relic) continue;` / `noequip` = `grantClearChestBox` の relic の枝の `currentAccessoryIndices[rcp.slot] = box.idx;` / `tworelic` = `relicPlaced = true;` / `dblgrant` = `if (!clearChestBoxes || clearChestOpened) return null;`。
 - ⚠ 金貨の箱は `persistent.gold` にも足している(§5-3 の文言どおり)。`persistent.gold` はラン開始時の値のまま `showResult` では更新されないので、足した後の値は localStorage の累計とは一致しない(遷移するので実害なし)。
+
+### 12-3. 項目 3 — 隠し要素の印・色分け・tavern (基準 f5d52f5)
+
+- 実施日 = 2026-11-06。触ったのは `index.html` / `tavern.html` / `js/changelog.js`(`py tools/add_changelog.py` で 1 行)/ `tools/verify_plaza_curio.js`(予告どおりの言い直し)。⛔ `maybeGrantScrollDrop` の隠し要素の判定(§11)は 1 文字も触っていない。
+- 長いログ = `C:\Users\PC_User\.claude\dev-loop\r108\item3\`(`smoke_item3.js` + `smoke.log` / `run_tv.sh` + `tv_summary.txt` + `tv_<driver>.log` / `run_after3.ps1` + `after3_<driver>.log` ×10 + `after3_summary.txt` / `item2_smoke.log` / `tv_curio_neg_<変異>.log`)。
+
+#### (1) 入れたもの(行番号は項目 3 の後)
+
+| 何 | 行 |
+|---|---|
+| index `HIDDEN_FOE_TYPES = ["goblinChariot","shadowBeast","stoneGolem","caelum","mimic"]` / `let runHiddenFoeSlain = false` / `isHiddenFoe(enemy)`(一覧 + `def.multiHead`)/ `markHiddenFoeSlain(enemy)` | 15333 / 15334 / 15335 / 15339(`maybeGrantScrollDrop` の直前・別の一覧)|
+| index `startGame()` の頭で `runHiddenFoeSlain = false`(ラン開始。ラン = ページ 1 枚なので宣言でも false)| 15894 |
+| index 撃破の集約点 `defeatEnemy` の `maybeGrantScrollDrop(enemy);` の次行に `markHiddenFoeSlain(enemy);` | 19169 |
+| index `clearChestRelicP()` = `return runHiddenFoeSlain ? CLEAR_CHEST_RELIC_P_HIDDEN : CLEAR_CHEST_RELIC_P;`(定数 44130 / 44131)| 44141 |
+| tavern `:root` に `--rarity-rare` / `--rarity-epic`(index と同じ値・2 段だけ)| 22-23 |
+| tavern `.rarity-rare` / `.rarity-epic`(index 2655-2656 と同じ値)+ `.relicTag` + `.equipSlotChip .slotSub` | 609-617 |
+| tavern `ACCESSORIES_TV`: ガントレットに `relic: "frost-hold"` / 伝承の品 11 行(id / name / gated / rarity / relic は index 14906・14929-14950 と完全一致。effect は酒場で表示する短い文)| 7151 / 7167-7177 |
+| tavern `relicPlaceTV(acc)`(行き先の名前 = 酒場の依頼の表 `scenarios` の `title`。撤退で依頼が無ければ "")/ `accColorClassTV(acc)`(relic = `rarity-epic` / gated = `rarity-rare` / それ以外 = 従来の `item-special`)| 7180 / 7186 |
+| tavern 装身具チップ(`renderEquippedSummary` の `chip` に `opt.tag` / `opt.sub`)= 伝承の品は名前の後ろに「伝承」の札・下の行に「効果 ・ 行き先」| 8029-8035 / 8054 |
+| tavern 古物商 `curioGearPoolTV()` = `if (a.gated && !a.relic)`(2026-11-06 ユーザー決定。ガントレットも古物商から外れる)| 10972 |
+| tavern 開発用の付与リスト(`?givemagic` / `DF_DEV_MAGIC_SHOP`)に伝承の品 11 id | 5553-5556 |
+
+**決めたこと(記録)**:
+
+1. **「所持アクセサリーの一覧」= 装身具チップ**。酒場に装身具の一覧は無い(武器・盾・防具は `renderEquipSlot` の一覧があるが、装身具は主人公の「装身具1/2」のチップを押して所持品を巡回するだけ)。新しい一覧は作らず、所持品が出る唯一の場所 = チップに色・札・行き先を付けた(準備画面とマッチング画面の引き出しの両方が同じ `renderEquippedSummary` を呼ぶ)。
+2. ⚠ **チップの名前は `.equipSlotChip .slotVal`(2 クラス)が墨色で上書きしていた** = 今までの `item-special` も実は紫に見えていなかった(スモークの初回で算出色が `rgb(58,41,18)` = 墨色で赤)。⇒ `.equipSlotChip .slotVal.rarity-*` を同じ値で 1 段強く書いた。引き出し(`#pmDrawer` の暗幕)の上は `#pmDrawer .equipSlotChip .slotVal` の明るい文字のまま(暗い紫・青は暗幕で読めないため。色は付かないが「伝承」の札と下の行は出る)。
+3. 開発用の付与リスト(5553-5556)に 11 id を足した = 運用(新しい品は URL チート無しで試せる)と揃える。`window.__dfDevMode` のときだけ走る = 本番の振る舞いは変わらない。他の id の直書きリストは tavern / town / world / js に無い(`grep cloak-elvenkind` = 表とこのリストの 2 か所だけ)。
+4. 古物商の棚に**既に保存されている**ガントレットの行(`plazaStateTV.curioGear`)は、来訪ごとの `refreshCurioGearTV()`(10644)で引き直されるので次の入場で消える。`curioItemTV` は触っていない(依頼の範囲どおり母集団の 1 行だけ)。
+5. 隠し要素の type 名は `enemy.type`(`maybeGrantScrollDrop` と同じ読み方)。ハイドラは `def.multiHead`。カエルムは `type === "caelum"`(`def.isNpcSpirit` は §2-6 の一覧に無いので見ない)。
+
+#### (2) スモーク(使い捨て・`smoke_item3.js`・port 10740)= **16/16 PASS・exit 0・pageerror 0**
+
+| 見たこと | 結果 |
+|---|---|
+| (e0) 定数 0.04 / 0.20・一覧 5 type | ✅ |
+| (e1) 素のラン = false・`clearChestRelicP()` 0.04 / (e2) 普通の敵(goblin)を `defeatEnemy` → 立たない | ✅ |
+| (e3) type を `goblinChariot` にした敵を `defeatEnemy`(既存の撃破フックを通す)→ true・0.20 / (e4) `multiHead` も隠し要素・null と普通の敵は違う | ✅ |
+| (e5) `startGame()` で false・0.04 / (e6) ページ再読込(新しいラン)で false・0.04 | ✅ |
+| (e7) `Math.random = 0.1` で `rollClearChests()`: 印なし relic 0 箱 / 印あり relic 1 箱(切り替え点を抽選が読んでいる)| ✅ |
+| (a) index の relic 12 行 = tavern `accDef(id)` の 12 行(id / name / gated / rarity / relic 完全一致)| ✅ |
+| (b) 古物商の母集団 20 品(装飾品 10)・relic 0・ガントレット無し | ✅ |
+| (c) `.rarity-epic` / `.rarity-rare` の算出色(color + text-shadow)と `:root` の 2 変数が index と同じ | ✅ |
+| (d) 伝承の品(`relic-goblin-mine`)+ リングオブプロテクションを着けたセーブ → 装身具1 = `rarity-epic`・紫 `rgb(122,59,160)`・「伝承」・下の行「AC +1 ・ ゴブリンの巣窟」/ 装身具2 = `rarity-rare`・青 `rgb(43,93,142)`・札も下の行も無し | ✅ |
+
+- 項目 2 のスモーク `smoke_chests.js`(port 10730)= **20/20 PASS**(`item2_smoke.log`)。
+
+#### (3) 酒場側のドライバ(直列・2026-11-06 08:00〜08:07・`run_tv.sh`)
+
+| ドライバ | port | 結果 |
+|---|---|---|
+| `verify_plaza_curio` | 10742 | 言い直す前 = **exit 3**(変異 `gearshadow` の注入点の行が変わった = 予告の赤の手前で止まる)→ 下の言い直しの後 **28/28 PASS・exit 0**。`--negative --only gearshadow` = (0a)(3a)(3b) 赤 / `numdrift` = (1a) 赤 / `gearowned` = (3b) 赤(3 本とも担当の節が赤 = 言い直しで検出力を落としていない)|
+| `verify_plaza_map` | 10744 | 43/43 |
+| `verify_save_slots` | 10746 | 30/30 |
+| `driver_equip_compact_ios` | 10748 | 31/31 |
+| `driver_dev_gate2` | 10741 | 62/62 |
+| `verify_sheet_equip` | 10743 | 21/21 |
+| `verify_prep_retire` | 10745 | 30/30 |
+
+`verify_plaza_curio` の言い直し(⛔ これ以外は 1 文字も変えていない):
+
+| 箇所 | 前 → 後 | 理由 |
+|---|---|---|
+| 変異 `gearshadow` の注入点 | `if (a.gated)` → `if (a.gated && !a.relic)`(注入する欠陥 = shadow-amulet を母集団へ入れる、は同じ)| 古物商の行そのものを項目 3 で変えた |
+| `POOL_KEYS`(母集団の正解の集合)| 基準の木の gated 装飾品 11 → 配信中の酒場の表で `relic` を持つ id を除いた 10 | ガントレットが伝承の品になり古物商で売らない(ユーザー決定)|
+| (0a) | 21 品・装飾品 11 → **20 品・装飾品 10**・relic 12 品のどれも含まない | 同上 |
+| (3a) | 21 品すべて / 21 品以外 0 → **20** | 同上 |
+| (3b) | 「20 品を持って残り 1 品」「21 品とも持っている」→ **19 / 20**(文言だけ。中身は `POOL_KEYS` から数える)| 同上 |
+| (1a) `rowDiff` | 基準の行に `relic` が無いときだけ `relic` を比べない | 基準の木 `54f6409` は relic の欄より前。ガントレットに `relic: "frost-hold"` が付いた(index・酒場とも)。relic の一致は項目 4 の (3f) が index ↔ 酒場で見る |
+| (4b) | 装飾品の表の行数・並び = 基準と同じ → **#108 の伝承の品の行(基準に無い id で relic を持つ行)を除いて**同じ・かつちょうど 11 行増えている | index・酒場とも 11 行増えた |
+
+#### (4) 非退行(素の走行・直列・port 10706 から 2 刻み・`run_after3.ps1`)2026-11-06 08:07〜08:28
+
+| ドライバ | exit | 集計 | 基準との比較 |
+|---|---|---|---|
+| `driver_mapdef_step2` | 0 | 74/74 | 同じ |
+| `driver_sce1_events` | 1 | 211/214 | FAILED の集合 = (2)/(4d)/(N2-隣)= 基準と同じ(ログの「隣」は PowerShell の出力で文字化けしているだけ)|
+| `verify_corner_check` | 0 | 20/20 | 同じ |
+| `verify_kobold_warren` | 0 | 21/21 | 同じ |
+| `verify_lore_check` | 0 | 26/26 | 同じ |
+| `verify_road_ambush` | 0 | 41/41 | 同じ |
+| `verify_road_boon` | 0 | 20/20 | 同じ |
+| `verify_road_events` | 0 | 25/25 | 同じ |
+| `verify_witch_hut` | 0 | 29/29 | 同じ |
+| `verify_run_chronicle` | 0 | 74/0/0 | 同じ |
+
+- ⇒ index 側の言い直し = 0 本。撃破フックに 1 行足しても、乱数を固定した本の乱数の消費は変わらない(`markHiddenFoeSlain` は乱数を引かない)。
+
+#### (5) changelog
+
+- 項目 2 の #108 の行(宝箱 3 つ・隠し要素を倒した回は出やすい)は、項目 3 で `clearChestRelicP` を配線して**初めて本当になった**。そのうえで酒場側の見える変化(装身具の欄で伝承の品が紫 +「伝承」+ 行き先・マジックアイテムは青・古物商に並ばなくなった = ガントレットは牙貨で買えなくなった)は別の変化なので 1 行足した:
+  `<b>伝承の品は酒場の装身具の欄で紫に</b> — 「伝承」の札と、どの依頼で手に入れた品かが分かる。マジックアイテムは青。伝承の品は闇市の古物商には並ばなくなった(ガントレットオブオーガパワーも霜の巨人の砦の伝承の品になった)。`(4 件維持で「沈黙の墓所」の行が落ちた)
+
+#### (6) 項目 4 へ渡すこと
+
+- (3e) の口 = `runHiddenFoeSlain`(`let`・15334)を `page.evaluate` で直接立て下げ → `clearChestRelicP()`(44141)を 2 定数(44130 / 44131)と比べる。撃破経由なら `enemies[i].type = 'goblinChariot'; defeatEnemy(i)`(スモーク (e3) の作法)。
+- (3f) の口 = 酒場の `ACCESSORIES_TV` は IIFE の中 = 実行時は `window.__equipTV.accDef(id)`(5610)で引く。ソースの表なら `verify_plaza_curio` の `evalDecl(src, 'ACCESSORIES_TV')` の作法。
+- 変異 `namedrift` のアンカー候補 = tavern 7167 `{ id: "relic-goblin-mine", name: "アイウーンストーン(防護)",`(括弧は全角。1 か所だけ)。
+- (5b) の口 = 酒場の `.rarity-epic` / `.rarity-rare`(609-610)。⚠ 装身具チップの中は `.equipSlotChip .slotVal.rarity-*` の方が効く(同じ値)。引き出し `#pmDrawer` の中では明るい文字に上書きされる(決めたこと 2)= (5b) は準備画面のチップか素の要素で測ること。
+- 古物商の言い直しは済み(`verify_plaza_curio` 28/28)。項目 4 の非退行の一覧に `verify_plaza_curio` を足すと、項目 3 の言い直しが生きているかも見られる。

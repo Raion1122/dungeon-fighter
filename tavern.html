@@ -18,6 +18,9 @@
       --wood-dark: #3a2614;
       --wood-mid: #5a3a1e;
       --stone: #2a251e;
+      /* ★[#108] index.html と同じ値 (写すのは rare / epic の 2 段だけ) */
+      --rarity-rare: #5a9fdd;
+      --rarity-epic: #b366d9;
     }
     * { box-sizing: border-box; }
     html, body {
@@ -599,6 +602,19 @@
     .item-special { color: #7a28a8; font-weight: 700; text-shadow: 0 0 4px rgba(180,80,220,0.3); }
     .equipItem.selected .item-magic,
     .equipItem.selected .item-special { filter: brightness(0.9); }
+    /* ★[#108] レアリティの文字色 (index.html の .rarity-rare / .rarity-epic と同じ値。写すのはこの 2 段だけ)。
+       装身具: 伝承の品 = 紫 (epic) / ゲート付きのマジックアイテム = 青 (rare)。 */
+    /*   ⚠ 装身具チップの名前は .equipSlotChip .slotVal (2 クラス) が墨色で上書きするので、チップ用に同じ値を 1 段強く書く。
+         (引き出し #pmDrawer の暗幕の上は #pmDrawer .equipSlotChip .slotVal の明るい文字のまま = 暗い紫は読めないため) */
+    .rarity-rare, .equipSlotChip .slotVal.rarity-rare { color: #2b5d8e; text-shadow: 0 0 3px rgba(90,159,221,0.4); }
+    .rarity-epic, .equipSlotChip .slotVal.rarity-epic { color: #7a3ba0; text-shadow: 0 0 4px rgba(179,102,217,0.45); }
+    .relicTag {
+      display: inline-block; margin-left: 4px; padding: 0 4px;
+      font-size: 10px; font-weight: 700; letter-spacing: 1px; line-height: 1.5;
+      color: #fff; background: var(--rarity-epic); border-radius: 3px; text-shadow: none;
+      vertical-align: 1px;
+    }
+    .equipSlotChip .slotSub { font-size: 10px; line-height: 1.3; color: var(--parchment-ink-soft); }
 
     /* スキル選択リスト */
     .skillList {
@@ -5533,7 +5549,11 @@
         ["ring-free-action", "ring-fire-resist", "amulet-health", "amulet-undead-ward",
          "amulet-silver-tongue", "gauntlets-ogre-power", "belt-giant-strength",
          "ring-protection", "cloak-protection",
-         "eyes-eagle", "cloak-elvenkind"].forEach(id => set.add(id));
+         "eyes-eagle", "cloak-elvenkind",
+         // ★[#108] 伝承の品 11 品 (開発用の所持化。運用 = 新しい品は URL チート無しで試せるように)
+         "relic-goblin-mine", "relic-bandits-forest", "relic-lizard-swamp", "relic-orc-fort",
+         "relic-undead-temple", "relic-dragon-lair", "relic-tower-mother", "relic-kobold-warren",
+         "relic-lost-cargo", "relic-silent-tomb", "relic-witch-hut"].forEach(id => set.add(id));
         localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify([...set]));
       } catch (e) { /* ignore */ }
     }
@@ -7128,7 +7148,7 @@
       classReq: "mage", skillBonus: { persuasion: 2, investigation: 2 }, effect: "酒場の聞き込み・依頼の吟味 +2 (魔法使いだけに効く)" },
     // 第5弾 豪傑の武具 (SRD 5.1: Gauntlets of Ogre Power / Belt of Giant Strength)。近接ダメージ +。効果は index.html 側で発動。
     //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること (dmgBonus は index 側だけが戦闘で読む)。
-    { id: "gauntlets-ogre-power", name: "ガントレットオブオーガパワー", rarity: "special", gated: true, effect: "近接ダメージ +2" },
+    { id: "gauntlets-ogre-power", name: "ガントレットオブオーガパワー", rarity: "special", gated: true, relic: "frost-hold", effect: "近接ダメージ +2" },   // ★[#108] 霜の巨人の砦の伝承の品
     { id: "belt-giant-strength", name: "ベルトオブジャイアントストレングス", rarity: "special", gated: true, effect: "近接ダメージ +3" },
     // 第6弾 守りの装身具 (SRD 5.1: Ring of Protection / Cloak of Protection)。AC +1 / 全セーヴ +1。効果は index.html 側で発動。
     //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること (acBonus / saveBonus は index 側だけが読む)。
@@ -7141,7 +7161,34 @@
     //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること。
     { id: "eyes-eagle", name: "アイズオブジイーグル", rarity: "special", gated: true, effect: "知覚 +2 (罠や隠された宝を見つけやすい)" },
     { id: "cloak-elvenkind", name: "クロークオブエルヴンカインド", rarity: "special", gated: true, effect: "隠密 +2 (気づかれずに近づきやすい)" },
+    // ★[#108] 伝承の品 (その行き先のクリア時の宝箱でしか出ない)。効果は index.html 側で発動 (ここは選択と表示だけ)。
+    //   ⚠ index.html の accessories[] と id / name / gated / rarity / relic を完全一致させること (verify_clear_chests (3f))。
+    //   ⚠ relic を持つ品は古物商 (curioGearPoolTV) で売らない。表示は紫 (.rarity-epic) +「伝承」+ 行き先の名前 (scenarios の title)。
+    { id: "relic-goblin-mine", name: "アイウーンストーン(防護)", rarity: "special", gated: true, relic: "goblin-mine", effect: "AC +1" },
+    { id: "relic-bandits-forest", name: "グローブオブミサイルスネアリング", rarity: "special", gated: true, relic: "bandits-forest", effect: "矢を 50% の確率でかわす" },
+    { id: "relic-lizard-swamp", name: "ペリアプトオブウーンドクロージャー", rarity: "special", gated: true, relic: "lizard-swamp", effect: "最大 HP +6" },
+    { id: "relic-orc-fort", name: "ブレイサーズオブディフェンス", rarity: "special", gated: true, relic: "orc-fort", effect: "AC +2" },
+    { id: "relic-undead-temple", name: "マントルオブスペルレジスタンス", rarity: "special", gated: true, relic: "undead-temple", effect: "全セーヴ +1 / アンデッドから受けるダメージ -2" },
+    { id: "relic-dragon-lair", name: "ベルトオブファイアジャイアントストレングス", rarity: "special", gated: true, relic: "dragon-lair", effect: "近接ダメージ +5" },
+    { id: "relic-tower-mother", name: "ローブオブアイズ", rarity: "special", gated: true, relic: "tower-mother", effect: "知覚 +3 (罠や隠された宝を見つけやすい)" },
+    { id: "relic-kobold-warren", name: "ブーツオブエルヴンカインド", rarity: "special", gated: true, relic: "kobold-warren", effect: "隠密 +2 (気づかれずに近づきやすい)" },
+    { id: "relic-lost-cargo", name: "ペリアプトオブヘルス", rarity: "special", gated: true, relic: "lost-cargo", effect: "最大 HP +4 / 全セーヴ +1" },
+    { id: "relic-silent-tomb", name: "ブローチオブシールディング", rarity: "special", gated: true, relic: "silent-tomb", effect: "AC +1 / 全セーヴ +1" },
+    { id: "relic-witch-hut", name: "ペリアプトオブプルーフアゲンストポイズン", rarity: "special", gated: true, relic: "witch-hut", effect: "全セーヴ +2" },
   ];
+  /* ★[#108] 伝承の品の行き先の名前 = この酒場の依頼の表 (scenarios) の title が唯一の正。撤退などで依頼が無ければ "" */
+  function relicPlaceTV(acc) {
+    if (!acc || !acc.relic) return "";
+    const q = scenarios.find(s => s && s.id === acc.relic);
+    return (q && q.title) || "";
+  }
+  /* ★[#108] 装身具の名前の色: 伝承の品 = 紫 (rarity-epic) / ゲート付き (マジックアイテム) = 青 (rarity-rare) / それ以外の品 = 従来の item-special */
+  function accColorClassTV(acc) {
+    if (!acc || acc.id === "none") return "";
+    if (acc.relic) return "rarity-epic";
+    if (acc.gated) return "rarity-rare";
+    return "item-special";
+  }
   function accDefTV(id) { return ACCESSORIES_TV.find(a => a.id === id) || ACCESSORIES_TV[0]; }
   // 職業専用アクセ (classReq)。指定職以外は装備候補に出さず、効果も乗らない (index と同じ規約)。
   function accAllowedTV(acc, classKey) {
@@ -7984,7 +8031,8 @@
       const d = document.createElement("div");
       d.className = "equipSlotChip" + (opt.locked ? " locked" : "") + (opt.placeholder ? " placeholder" : "");
       d.innerHTML = `<div class="slotLabel">${label}</div>` +
-                    `<div class="slotVal ${colorCls || ""}">${name}</div>`;
+                    `<div class="slotVal ${colorCls || ""}">${name}${opt.tag || ""}</div>` +
+                    (opt.sub ? `<div class="slotSub">${opt.sub}</div>` : "");
       if (opt.onClick && !opt.locked && !opt.placeholder) {
         d.style.cursor = "pointer";
         d.title = "タップで変更";
@@ -8001,7 +8049,13 @@
       const ids = heroAccessoryIds();
       for (let s = 0; s < 2; s++) {
         const def = accDefTV(ids[s]);
-        chip("装身具" + (s + 1), def.name, def.id !== "none" ? "item-special" : "", { onClick: () => cycleAccessoryTV(s, sumRepaint) });
+        // ★[#108] 伝承の品 = 紫 +「伝承」の札 + 効果の後ろに行き先の名前 / ゲート付き = 青
+        const place = relicPlaceTV(def);
+        chip("装身具" + (s + 1), def.name, accColorClassTV(def), {
+          onClick: () => cycleAccessoryTV(s, sumRepaint),
+          tag: def.relic ? '<span class="relicTag">伝承</span>' : "",
+          sub: def.relic ? [def.effect || "", place].filter(Boolean).join(" ・ ") : "",
+        });
       }
     }
     chip("道具", "準備中", "", { placeholder: true });
@@ -10915,7 +10969,7 @@
         (p[slot] || []).forEach((it, tier) => { if (it && it.gated) out.push({ slot, cls, tier }); });
       }
     }
-    ACCESSORIES_TV.forEach(a => { if (a.gated) out.push({ acc: a.id }); });   // shadow-amulet は gated を持たない = 隠し要素の報酬なので売らない
+    ACCESSORIES_TV.forEach(a => { if (a.gated && !a.relic) out.push({ acc: a.id }); });   // shadow-amulet は gated を持たない = 隠し要素の報酬なので売らない。★[#108] 伝承の品 (relic) も売らない (その行き先の宝箱でしか出ない・2026-11-06 ユーザー決定)
     return out;
   }
   function curioItemTV(g) {

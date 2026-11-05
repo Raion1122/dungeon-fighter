@@ -136,8 +136,9 @@ const MUTATIONS = {
   gearowned: { expect: ['(3b)'], why: '抽選で持っている品を除かない',
     edits: [['tavern.html', '    const pool = shuffled(curioGearPoolTV().filter(g => !curioOwnedTV(g)));', '    const pool = shuffled(curioGearPoolTV());  /* mut-gearowned */']] },
   gearshadow: { expect: ['(0a)', '(3a)'], why: '母集団に shadow-amulet (クロークオブディスプレイスメント) を入れる',
-    edits: [['tavern.html', '    ACCESSORIES_TV.forEach(a => { if (a.gated) out.push({ acc: a.id }); });',
-      '    ACCESSORIES_TV.forEach(a => { if (a.gated || a.id === "shadow-amulet") out.push({ acc: a.id }); });  /* mut-gearshadow */']] },
+    /* ★[#108 項目 3] 注入点の行が `if (a.gated && !a.relic)` になった (伝承の品を売らない) ⇒ 注入点だけ言い直し (変異の中身は同じ) */
+    edits: [['tavern.html', '    ACCESSORIES_TV.forEach(a => { if (a.gated && !a.relic) out.push({ acc: a.id }); });',
+      '    ACCESSORIES_TV.forEach(a => { if ((a.gated && !a.relic) || a.id === "shadow-amulet") out.push({ acc: a.id }); });  /* mut-gearshadow */']] },
   gearprice: { expect: ['(3c)'], why: '装飾品の値段を 30 にする',
     edits: [['tavern.html', '  function curioPriceTV(g) { return g && g.acc ? 25 : 30; }', '  function curioPriceTV(g) { return g && g.acc ? 30 : 30; }  /* mut-gearprice */']] },
   curioleak: { expect: ['(5a)'], why: '?curio=0 を見ない (isCurioOnTV が常に true)',
@@ -314,7 +315,10 @@ function rowDiff(base, now) {
   if (!base || !now) return 'missing';
   const want = RENAME19[base.name] || base.name;
   if (now.name !== want) return 'name ' + now.name + ' != ' + want;
-  const a = canon(base, ['name', 'flavor', 'effect']), b = canon(now, ['name', 'flavor', 'effect']);
+  /* ★[#108 項目 3] 基準の木 (54f6409) は relic の欄より前 ⇒ 基準に relic が無い行では relic を比べない
+   *   (ガントレットオブオーガパワーに relic: "frost-hold" が付いた。relic の一致は verify_clear_chests (3f) が index ↔ 酒場で見る) */
+  const omit = ['name', 'flavor', 'effect'].concat(base.relic === undefined ? ['relic'] : []);
+  const a = canon(base, omit), b = canon(now, omit);
   return a === b ? null : 'fields ' + a.slice(0, 160) + ' / ' + b.slice(0, 160);
 }
 
@@ -492,7 +496,11 @@ const PLAZA_SEED = (extra) => ({
   /* 古物商の母集団 (基準の木の酒場の表から): gated の武器・鎧 + gated の装飾品 */
   const POOL_KEYS = [];
   for (const c of CLASSES) for (const s of ['weapons', 'armors']) ((bT.cls[c] || {})[s] || []).forEach((it, t) => { if (it && it.gated) POOL_KEYS.push(c + ':' + s + ':' + t); });
-  (bT.acc || []).forEach((a) => { if (a.gated) POOL_KEYS.push('acc:' + a.id); });
+  /* ★[#108 項目 3] 伝承の品 (配信中の酒場の表で relic を持つ品) は古物商で売らない (2026-11-06 ユーザー決定)。
+   *   基準の木の gated 装飾品 11 のうちガントレットオブオーガパワーが relic になった ⇒ 母集団は 21 → 20 品 (装飾品 11 → 10)。 */
+  const RELIC_IDS = (nT.acc || []).filter((a) => a && a.relic).map((a) => a.id);
+  (bT.acc || []).forEach((a) => { if (a.gated && RELIC_IDS.indexOf(a.id) < 0) POOL_KEYS.push('acc:' + a.id); });
+  const POOL_N = POOL_KEYS.length, POOL_ACC_N = POOL_KEYS.filter((k) => /^acc:/.test(k)).length;
 
   /* ══ (0b) 基準の木から旧名 19 品の行を取り出せた ══ */
   const lineFound = (src) => OLD19.filter((n) => src.indexOf('name: "' + n + '"') >= 0);
@@ -705,11 +713,15 @@ const PLAZA_SEED = (extra) => ({
       if (((bI.ally[c] || {})[s] || []).length !== ((rtI.ally[c] || {})[s] || []).length) bad4b.push('idx:ally:' + c + ':' + s);
       if (((bT.cls[c] || {})[s] || []).length !== ((rtT[c] || {})[s] || []).length) bad4b.push('tv:' + c + ':' + s);
     }
-    if ((bI.acc || []).length !== (rtI.acc || []).length) bad4b.push('idx:acc');
-    if ((bT.acc || []).length !== (nT.acc || []).length || (nT.acc || []).map((x) => x.id).join() !== (bT.acc || []).map((x) => x.id).join()) bad4b.push('tv:acc(source)');
-    check('(4b) 装備の表の行数が両ファイル・全職・全区分 (index 本表 3 + 仲間の表 18 + 装飾品 / 酒場 18 + ACCESSORIES_TV の id の並び) で ' + BASE_REV + ' と同じ', bad4b.length === 0, bad4b);
+    /* ★[#108 項目 3] 装飾品の表は伝承の品 11 行 (relic-<行き先>・基準の木に無い id) が増えた ⇒ その行だけ除いて行数と並びを比べる */
+    const notNewRelic = (base) => (x) => !(x && x.relic && !(base || []).some((b) => b.id === x.id));
+    const rtIAcc = (rtI.acc || []).filter(notNewRelic(bI.acc)), nTAcc = (nT.acc || []).filter(notNewRelic(bT.acc));
+    if ((bI.acc || []).length !== rtIAcc.length || (rtI.acc || []).length - rtIAcc.length !== 11) bad4b.push('idx:acc');
+    if ((bT.acc || []).length !== nTAcc.length || nTAcc.map((x) => x.id).join() !== (bT.acc || []).map((x) => x.id).join() || (nT.acc || []).length - nTAcc.length !== 11) bad4b.push('tv:acc(source)');
+    check('(4b) 装備の表の行数が両ファイル・全職・全区分 (index 本表 3 + 仲間の表 18 + 装飾品 / 酒場 18 + ACCESSORIES_TV の id の並び) で ' + BASE_REV + ' と同じ (装飾品は #108 の伝承の品 11 行を除いて・ちょうど 11 行増えている)', bad4b.length === 0, bad4b);
 
-    /* ── (0a) 母集団 = 21 品 (武器 8・鎧 2・装飾品 11)・shadow-amulet を含まない・基準の木から導いた 21 の置き場と同じ集合 ── */
+    /* ── (0a) 母集団 = 20 品 (武器 8・鎧 2・装飾品 10)・shadow-amulet を含まない・基準の木から導いた置き場 (伝承の品を除く 20) と同じ集合 ──
+     *   ★[#108 項目 3] 21 → 20 / 装飾品 11 → 10 = ガントレットオブオーガパワーが伝承の品 (relic) になり古物商で売らなくなった */
     const p0 = await page.evaluate(() => {
       const T = window.__plazaTV; if (typeof T.curioPool !== 'function') return { missing: true };
       const pool = T.curioPool();
@@ -717,8 +729,8 @@ const PLAZA_SEED = (extra) => ({
         acc: pool.filter((g) => g.acc).length, byName: pool.some((g) => typeof g === 'string' || (g && g.name)) };
     });
     const poolStanding = !p0.missing && Array.isArray(p0.keys) && p0.keys.length > 0;
-    check('(0a) [装置] 酒場の母集団 __plazaTV.curioPool() が 21 品 (武器 8・鎧 2・装飾品 11)・shadow-amulet を含まない・' + BASE_REV + ' の表の gated の置き場 ' + POOL_KEYS.length + ' と同じ集合・名前で持たない',
-      poolStanding && p0.on && p0.keys.length === 21 && p0.w === 8 && p0.a === 2 && p0.acc === 11 && p0.keys.indexOf('acc:shadow-amulet') < 0
+    check('(0a) [装置] 酒場の母集団 __plazaTV.curioPool() が 20 品 (武器 8・鎧 2・装飾品 10)・shadow-amulet も伝承の品 (relic ' + RELIC_IDS.length + ' 品) も含まない・' + BASE_REV + ' の表の gated の置き場から伝承の品を除いた ' + POOL_KEYS.length + ' と同じ集合・名前で持たない',
+      poolStanding && p0.on && p0.keys.length === 20 && POOL_N === 20 && POOL_ACC_N === 10 && p0.w === 8 && p0.a === 2 && p0.acc === 10 && p0.keys.indexOf('acc:shadow-amulet') < 0 && RELIC_IDS.length === 12 && !p0.keys.some((k) => RELIC_IDS.some((id) => k === 'acc:' + id))
         && sameSet(p0.keys, POOL_KEYS) && !p0.byName, Object.assign({}, p0, { want: POOL_KEYS.length }));
     if (!poolStanding) {
       for (const l of S3_LABELS) check(l + ' (0a) の母集団が立っていないので測らない = 赤で記録', false, '装置が立っていない');
@@ -738,10 +750,10 @@ const PLAZA_SEED = (extra) => ({
       return { sizes, distinct: Object.keys(seen).length, missing: poolKeys.filter((k) => !seen[k]), dup, outside, outsideKeys: Object.keys(seen).filter((k) => poolKeys.indexOf(k) < 0),
         saved: JSON.stringify(saved) === JSON.stringify(T.curioGear()) };
     }, POOL_KEYS);
-    check('(3a) 何も持っていない状態で refreshCurioGear を 200 回: 毎回 1〜2 品・21 品すべてが 1 回以上・21 品以外 0・同じ回に同じ品が 2 つ並ばない・置き場は保存される',
-      Object.keys(a3.sizes).every((n) => n === '1' || n === '2') && !!a3.sizes['1'] && !!a3.sizes['2'] && a3.distinct === 21 && a3.missing.length === 0 && a3.outside === 0 && a3.dup === 0 && a3.saved, a3);
+    check('(3a) 何も持っていない状態で refreshCurioGear を 200 回: 毎回 1〜2 品・20 品すべてが 1 回以上・20 品以外 0 (伝承の品は出ない)・同じ回に同じ品が 2 つ並ばない・置き場は保存される',
+      Object.keys(a3.sizes).every((n) => n === '1' || n === '2') && !!a3.sizes['1'] && !!a3.sizes['2'] && a3.distinct === 20 && a3.missing.length === 0 && a3.outside === 0 && a3.dup === 0 && a3.saved, a3);
 
-    /* ── (3b) 20 品を持っている状態で 200 回 = 残りの 1 品 (武器・鎧・装飾品の 3 通り) / 21 品とも持っている = 0 品 ── */
+    /* ── (3b) 19 品を持っている状態で 200 回 = 残りの 1 品 (武器・鎧・装飾品の 3 通り) / 20 品とも持っている = 0 品 (★[#108] 母集団 21 → 20) ── */
     const b3 = await page.evaluate((poolKeys) => {
       const T = window.__plazaTV, C = window.__vpc; const pool = T.curioPool().filter((g) => poolKeys.indexOf(C.key(g)) >= 0); const out = {};
       const leaves = [pool.findIndex((g) => g.slot === 'weapons'), pool.findIndex((g) => g.slot === 'armors'), pool.findIndex((g) => g.acc)];
@@ -759,7 +771,7 @@ const PLAZA_SEED = (extra) => ({
       return out;
     }, POOL_KEYS);
     const leaveKeys = Object.keys(b3).filter((k) => /^leave:/.test(k));
-    check('(3b) 20 品を持っている状態で 200 回 = 毎回ちょうど残りの 1 品 (残す品 = 武器 / 鎧 / 装飾品の 3 通り)・21 品とも持っている = 200 回とも 0 品で店の装備品の行 0',
+    check('(3b) 19 品を持っている状態で 200 回 = 毎回ちょうど残りの 1 品 (残す品 = 武器 / 鎧 / 装飾品の 3 通り)・20 品とも持っている = 200 回とも 0 品で店の装備品の行 0',
       leaveKeys.length === 3 && leaveKeys.every((k) => b3[k].ok === 200) && b3.zero === 200 && b3.gearRowsDom === 0 && b3.rowsGear === 0, b3);
 
     /* ── (3c) 値段: refreshCurioGear が付けた値段で行を描き、描かれた「牙貨 N」と行の値段を見る ── */
@@ -887,7 +899,7 @@ const PLAZA_SEED = (extra) => ({
     const wantDrop = pick ? (pick.gear.acc ? 25 : 30) : -1;
     check('(3e) 見えている装備品の行の「購入」を実クリック → 牙貨 −' + wantDrop + '・その品を所持・行が消える・持ち物 (plazaInventory) は不変',
       !!pick && pick.under && !!e4 && pick.price === wantDrop && e4.fang === pick.fang - wantDrop && e4.owned && e4.left === n3 - 1 && e4.inv, { pick: pick && { name: pick.name, price: pick.price, under: pick.under }, e4 });
-    /* (3b) の続き: 21 品とも持っている状態で古物商の露店を開いたまま抽選し直す → 見えている行は古物商の在庫の品だけ */
+    /* (3b) の続き: 20 品とも持っている状態で古物商の露店を開いたまま抽選し直す → 見えている行は古物商の在庫の品だけ */
     const b3s = await page.evaluate(() => {
       const T = window.__plazaTV, C = window.__vpc, PM = window.PLAZA_MAP;
       T.curioPool().forEach((g) => C.own(g));
@@ -899,7 +911,7 @@ const PLAZA_SEED = (extra) => ({
       const ids = vis.map((e) => { const nm = e.querySelector('.pshopName').textContent; return Object.keys(all).find((x) => all[x].name === nm) || ('?' + nm); });
       return { stall: T.map.openStall(), cg: (T.curioGear() || []).length, gearDom: C.gearRows().length, ids, stallOf: ids.map((id) => PM.stallOf(id)) };
     });
-    check('(3b) 21 品とも持っている状態で古物商の露店を開いたまま抽選し直す → 装備品の行 0・見えている行は古物商の在庫の品だけ (リングオブスペルターニングを含む)',
+    check('(3b) 20 品とも持っている状態で古物商の露店を開いたまま抽選し直す → 装備品の行 0・見えている行は古物商の在庫の品だけ (リングオブスペルターニングを含む)',
       b3s.stall === 'curio' && b3s.cg === 0 && b3s.gearDom === 0 && b3s.ids.length > 0 && b3s.ids.indexOf('ring_spell_turning') >= 0 && b3s.stallOf.every((s) => s === 'curio'), b3s);
     await page.close();
 

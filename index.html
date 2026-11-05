@@ -15327,6 +15327,19 @@
       return pool[Math.floor(Math.random() * pool.length)];
     }
 
+    /* ★[#108] 隠し要素を倒した回か (クリア時の宝箱の伝承の品の当選率を上げる = clearChestRelicP)。
+     *   ⚠ maybeGrantScrollDrop の hidden 判定とは別の一覧 (あちらにゴブリン戦車を足すと巻物のドロップが変わる = §11)。
+     *   ラン = ページ 1 枚なので宣言で false。startGame でも false に戻す。立てるのは撃破の集約点 (markHiddenFoeSlain) だけ。 */
+    const HIDDEN_FOE_TYPES = ["goblinChariot", "shadowBeast", "stoneGolem", "caelum", "mimic"];
+    let runHiddenFoeSlain = false;
+    function isHiddenFoe(enemy) {
+      if (!enemy) return false;
+      return HIDDEN_FOE_TYPES.indexOf(enemy.type) >= 0 || !!(enemy.def && enemy.def.multiHead);
+    }
+    function markHiddenFoeSlain(enemy) {
+      if (isHiddenFoe(enemy)) runHiddenFoeSlain = true;
+    }
+
     // ボス/隠し要素撃破時のスクロール確定ドロップ (defeatEnemy から呼ばれる)
     function maybeGrantScrollDrop(enemy) {
       if (!enemy || !enemy.def) return;
@@ -15878,6 +15891,7 @@
     function startGame() {
       if (gameStarted) return;
       gameStarted = true;
+      runHiddenFoeSlain = false;   // ★[#108] ラン開始 = 隠し要素の印を下ろす
       applyNodeZoom();   // ★[P7] 起点ノードが大部屋 (廃坑入口 33x22) のときは初手から引く
       startScreen.style.display = "none";
       updateInfo("ゲームスタート！");
@@ -19152,6 +19166,7 @@
       maybeDropLeatherArmor(index);
       maybeDropShadowAmulet(index);   // Phase 2-G: shadowBeast 撃破でクロークオブディスプレイスメント入手
       maybeGrantScrollDrop(enemy);    // ボス/隠し要素撃破でスクロール確定ドロップ
+      markHiddenFoeSlain(enemy);      // ★[#108] 隠し要素を倒した回 = クリア時の宝箱で伝承の品が出やすい
       maybeGrantPolymorphWand(enemy); // 闇市: 低Tierボスから稀にポリモーフの杖 (wandDropEnabled 時のみ)
 
       const nm = (enemy.def && enemy.def.name) || "敵";
@@ -44122,10 +44137,9 @@
     const CLEAR_CHEST_REVEAL_MS      = 600;    // 選んだ箱を開ける時間 → 残り 2 つを同時に開ける
     let clearChestBoxes  = null;    // rollClearChests() の結果 (勝利の画面を出している間だけ非 null)
     let clearChestOpened = false;   // 二重付与を防ぐ旗 (開けた後のタップ・resultBtn では何もしない)
-    /* ⭐⭐ 項目 3 の切り替え点 (ここ 1 か所): 隠し要素を倒した回は CLEAR_CHEST_RELIC_P_HIDDEN を返す。
-     *   項目 3 で runHiddenFoeSlain を配線したら → return runHiddenFoeSlain ? CLEAR_CHEST_RELIC_P_HIDDEN : CLEAR_CHEST_RELIC_P; */
+    /* ⭐⭐ 切り替え点 (ここ 1 か所): 隠し要素を倒した回 (runHiddenFoeSlain = markHiddenFoeSlain) は CLEAR_CHEST_RELIC_P_HIDDEN。 */
     function clearChestRelicP() {
-      return CLEAR_CHEST_RELIC_P;
+      return runHiddenFoeSlain ? CLEAR_CHEST_RELIC_P_HIDDEN : CLEAR_CHEST_RELIC_P;
     }
     // 箱の中身を決めるだけ (付与しない)。伝承の品は 3 箱で最大 1 つ。
     function rollClearChests() {
