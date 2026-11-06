@@ -718,3 +718,89 @@ function rollClearChests() {
 - 変異 `namedrift` のアンカー候補 = tavern 7167 `{ id: "relic-goblin-mine", name: "アイウーンストーン(防護)",`(括弧は全角。1 か所だけ)。
 - (5b) の口 = 酒場の `.rarity-epic` / `.rarity-rare`(609-610)。⚠ 装身具チップの中は `.equipSlotChip .slotVal.rarity-*` の方が効く(同じ値)。引き出し `#pmDrawer` の中では明るい文字に上書きされる(決めたこと 2)= (5b) は準備画面のチップか素の要素で測ること。
 - 古物商の言い直しは済み(`verify_plaza_curio` 28/28)。項目 4 の非退行の一覧に `verify_plaza_curio` を足すと、項目 3 の言い直しが生きているかも見られる。
+
+### 12-4. 項目 4 — 受入ドライバ + 既存 golden の非退行 (基準 614270e)
+
+- 実施日 = 2026-11-06。触ったのは `tools/verify_clear_chests.js`(新規)・本依頼書・`実装依頼書/README.md` だけ。⛔ `index.html` / `tavern.html` / `audio.js` は 1 バイトも触っていない(= changelog 不要)。本番に検証専用の行は 0 本。
+- 長いログ = `C:\Users\PC_User\.claude\dev-loop\r108\item4\`(`run1.log`〜`run3.log` / `negative.log` / `run_after4.ps1` + `after4_<driver>.log` ×17 + `after4_summary.txt`)。
+
+#### (1) `tools/verify_clear_chests.js` の形
+
+- 作法は `verify_plaza_curio` に揃えた: 配信バイトを起動時に凍結 / 変異は配信スナップショットだけ / アンカーは手つかずの原本で 1 件ちょうど・置換前後で長さが違う・改行なし・置換文字列が原本に無い・他の `tools/*.js` に同じ文字列が無い(罠E)を素の走行でも起動時に検算 → 崩れたら exit 3 / `--negative` は 1 本ずつ子プロセス・担当の節が赤くならなければ exit 1。exit = 0 / 1 / 2(環境)/ 3(アンカーの腐敗・伝承の品が 12 件でない)。port 既定 10706。
+- ページ = ダンジョン 11 枚(1 枚 = 1 タブ = まっさらな `dragonfighters.*`・`goblin-mine`・戦士 + 魔法使い + 僧侶)+ 酒場 1 枚(`plazaClock = 21` を種まき)。箱の中身は `clearChestBoxes`(let)を差し替えて決め打ち。所持 = `ownedGatedNames` ∪ `accessoryIds` の名前、装備 = リーダーの武器・鎧 + 全員の装身具、の 2 経路で数える。
+- 21 判定・20 節: (0a)(0b)(1a)(1b)(2a)(2b)(2c)(3a)〜(3f)(4a)(4b)(5a)×2(ダンジョン・酒場)(5b)(Xa)(Xb)(9a)。1 回 ≒ 10 秒。
+
+#### (2) §8 からの言い直し(⭐ 期待値を弱めたものは 0 本)
+
+| 節 | §8 の文言 | 実際に測ったもの | 理由 |
+|---|---|---|---|
+| (0a) | 12 件・0 件なら exit 3 | 配信中の index のソースの表(`evalDecl(src,'accessories')`)で **12 件でなければブラウザを立てる前に exit 3**。実行時の `accessories[]` でも数え直す。加えて「ガントレット = frost-hold・残り 11 品 = `relic-<scenarioId>`」 | 依頼の受入条件「relic != 12 で exit 3」。⭐ 装置の検算 `relic11`(沼の行から relic を外す)で **exit 3 になることを `--negative` の親が確かめる** |
+| (2c) | 同じ乱数の列で `?clearchest=0` と同じ | `Math.random` を差し替え、**showResult が直接引く 1 回(= clearHit)だけ 0.5** を返し、ほかは LCG(種 12345)。決め打ちが 1 回だけ効いたことも数える | §12-2 (4): 1% に当たる列では撤退側だけ「✨ 宝物発見」が出るので、当たらない値でしか成り立たない |
+| (3d) | relicP = 1 に決め打ち | `Math.random` を常に 0 にして `rollClearChests()`(relicP は定数なので乱数の側で「必ず当たる」にした)→ relic はちょうど 1 つ | 定数を書き換えずに同じ状況を作る |
+| (3e) | 定数を読んで比べる | 定数を読んで比べる + **既存の撃破フック経由**(`enemies[i].type = 'goblinChariot'; defeatEnemy(i)` → 立つ) | 項目 3 のスモーク (e3) の作法を足した |
+| (4b) | 開けた後に resultBtn を押しても二重にならない | 開けた後の **2 つの口**: 別の箱のタップの呼び口 `openClearChest(別の k)` + resultBtn。どちらでも localStorage と `chest` が不変 | resultBtn の click は自前で `clearChestOpened` を見ている ⇒ 変異 `dblgrant`(`openClearChest` の旗を外す)が届くのは前者だけ。resultBtn だけでは空振りする |
+| (4a) | 1 箱ぶん付与されてから遷移 | `dfReturnPage` を差し替え、**呼ばれた瞬間の金貨**が付与後の値であること + 額が `21 + opened` と一致 | 「付与 → 遷移」の順を直接測る |
+| (5a) | 伝承の品の名前に `.rarity-epic`、マジックアイテムに `.rarity-rare` | ダンジョン = **実際の `.rcBox` の click** で開けて、名前の class + 算出色。酒場 = **準備画面の装身具チップ**(`#equipEquippedSummary` の装身具1/2)で 伝承の品 = `rarity-epic`・紫・「伝承」の札・下の行「AC +1 ・ ゴブリンの巣窟」/ ゲート付き(ring-protection)= `rarity-rare`・青・札なし | ⚠ 酒場に「所持アクセサリーの一覧」は無い(§12-3 決めたこと 1)。所持品が出る唯一の場所 = チップ |
+| (5b) | 算出色が index と同じ | 素の要素の算出色(color + text-shadow)と `:root` の 2 変数が index と同じ + **規則が実在する**(styleSheets に `.rarity-epic` / `.rarity-rare`・クラス無しの要素と色が違う)+ チップの算出色も index の色 | 「同じ」だけだと規則が両方とも消えても通るので、実在を AND した。⚠ `#pmDrawer` の中は明るい文字に上書きされるので測らない(§12-3 決めたこと 2) |
+| (Xb) | (追加) | 宝箱が有効な腕は clearHit が当たる値(0.005)でも「✨ 宝物発見」を出さず、何も付与しない | 罠 B の 3(1 回引いて捨てる)。(Xa) と同じ乱数で対にした |
+
+#### (3) 素の走行(port 10750・3 回)
+
+| 回 | exit | 集計 |
+|---|---|---|
+| 1 | 0 | 21/21 PASSED・節 20・10 秒 |
+| 2 | 0 | 21/21 PASSED・9 秒 |
+| 3 | 0 | 21/21 PASSED・10 秒 |
+
+- 主な実測値: 共通プール 13 件(武器 3・装身具 10)・relic 0 / 1 箱目の武器 = フレームタングだけ所持と装備に増える / 金貨 37 の箱 = +37(変わったキーは gold だけ)/ 伝承の品 = リーダーの空き枠へ / 全枠を埋める(shadow-amulet)と金貨 +50・fallback / relicP 0.04 ↔ 0.20 / resultBtn だけで +21・遷移の瞬間の金貨 1121 / 色 = 紫 `rgb(122, 59, 160)`・青 `rgb(43, 93, 142)`(index・酒場とも)。
+
+#### (4) `--negative`(port 10752・68 秒)= **exit 0**
+
+| 変異 | 注入した欠陥 | 担当 | 実際に赤くなった節 | exit |
+|---|---|---|---|---|
+| `grantall` | `openClearChest` が 3 箱とも付与する | (1b) | (1a)(1b)(2b)(3b)(3c)(4a) | 0 |
+| `goldmix` | `addClearChestGold` が `lastResult.reward.gold` にも足す | (2a) | (2a)(4a) | 0 |
+| `relicleak` | `buildMagicItemPool` の `\|\| acc.relic` を外す | (3a) | (3a) | 0 |
+| `noequip` | relic の枝の `currentAccessoryIndices[rcp.slot] = box.idx;` を外す | (3b) | (3b) | 0 |
+| `tworelic` | `relicPlaced = true` → `false` | (3d) | (3d) | 0 |
+| `dblgrant` | `openClearChest` の `clearChestOpened` の旗を外す | (4b) | (4b) | 0 |
+| `namedrift` | 酒場の `relic-goblin-mine` の name「防護」→「防具」 | (3f) | (3f) | 0 |
+| `relic11`(装置の検算) | 沼の伝承の品から relic を外す(11 件) | exit 3 | (0a) で「11 件 (期待 12)」と出して止まる | **3**(期待どおり) |
+
+- 担当外の巻き込みは `grantall`(3 箱とも付与するので、付与の数を数える節が全部赤 = 当然)と `goldmix`((4a) は reward の不変も見ている)だけ。
+
+#### (5) 既存 golden の非退行(素の走行・直列・port 10760 から 2 刻み・`run_after4.ps1`)2026-11-06 08:48〜09:15
+
+| ドライバ | exit | 集計 | 基準との比較 |
+|---|---|---|---|
+| `driver_mapdef_step2` | 0 | 74/74 | 同じ |
+| `driver_sce1_events` | 1 | 211/214 | FAILED の集合 = (2)/(4d)/(N2-隣)= 着手前と同じ(増えていない)|
+| `verify_corner_check` | 0 | 20/20 | 同じ |
+| `verify_kobold_warren` | 0 | 21/21 | 同じ |
+| `verify_lore_check` | 0 | 26/26 | 同じ |
+| `verify_road_ambush` | 0 | 41/41 | 同じ |
+| `verify_road_boon` | 0 | 20/20 | 同じ |
+| `verify_road_events` | 0 | 25/25 | 同じ |
+| `verify_witch_hut` | 0 | 29/29 | 同じ |
+| `verify_run_chronicle` | 0 | 74/0/0 | 同じ |
+| `verify_plaza_curio` | 0 | 28/28 | 同じ(項目 3 の言い直しが生きている)|
+| `verify_plaza_map` | 0 | 43/43 | 同じ |
+| `verify_save_slots` | 0 | 30/30 | 同じ |
+| `driver_equip_compact_ios` | 0 | 31/31 | 同じ |
+| `driver_dev_gate2` | 0 | 62/62 | 同じ |
+| `verify_sheet_equip` | 0 | 21/21 | 同じ |
+| `verify_prep_retire` | 0 | 30/30 | 同じ |
+
+- ⇒ 項目 4 で言い直した golden = **0 本**。
+
+### 12-5. まとめ(#108 完了)
+
+| 項目 | コミット | 中身 |
+|---|---|---|
+| 1 | `f305f5e` | 着手前の実測(基準 `5211ab0`)。古物商が `gated` だけでは伝承の品を外せないことを見つけた |
+| 2 | `f5d52f5` | クリア時の宝箱 3 つ(抽選と付与の分離・伝承の品 11 品 + ガントレットに relic・撤退 `?clearchest=0`)+ changelog |
+| 3 | `614270e` | 隠し要素の印(relicP 0.04 → 0.20)・酒場の伝承の品(紫/青・「伝承」+ 行き先・古物商から除外)+ `verify_plaza_curio` の言い直し + changelog |
+| 4 | (このコミット) | 受入 `tools/verify_clear_chests.js`(21 判定・変異 7 + 装置の検算 1)・既存 golden 17 本の非退行(言い直し 0)|
+
+- 残り = **§9 実機**(iPhone 縦持ちで 3 箱が横に収まるか・押しやすさ・紫の光の柱の重さ・酒場の装身具チップの紫/青と下の行)と **push(ユーザー判断)**。
+- 確率・金貨の額(0.04 / 0.20 / 0.10 / 20〜50G)と伝承の品の数値は仮のまま(プレイテストで動かす)。森のグローブ + クロークで矢の回避が 1.05 になる件はユーザー決定でそのまま(2026-11-06)。
