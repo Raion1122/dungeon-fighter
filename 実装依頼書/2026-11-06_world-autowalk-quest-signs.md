@@ -1,0 +1,272 @@
+# #109 ワールドマップ — 遠くを 1 回押せば着くまで歩く + 札は受注中の行き先と街だけ
+
+- **起草**: 2026-11-06(計画窓) / **ステータス**: **承認済**(2026-11-06 ユーザー承認)
+- **触るファイル**: `world.html` / `tools/verify_world_autowalk.js`(新規)/ 言い直しが要る既存 golden(§2-6)/ `js/changelog.js`(任意・§10)
+- ⛔ **触らないファイル**: `js/world-map.js`(NODES / EDGES / STEPS / SITES / UNLOCK は 1 バイトも変えない。`(4a)` 系が sha1 で恒等固定)・`js/road-events.js`・`index.html`・`tavern.html`
+- 並走: 2026-11-06 時点で別窓の未コミット差分は無い(`git status` クリーン・HEAD `b86e1cd`)。それでも **ファイル単位 add**・`git diff --cached <file>` を読んでから commit。
+
+---
+
+## 1. 目的
+
+ワールドマップは #40 から「1 タップ = 経路上の次の 1 点まで」で、遠くの拠点へ行くには同じ所を何度も押す必要がある(phlan → temple は 11 ホップ = 11 タップ)。
+また、解放済みの拠点にはすべて羊皮紙の札が立つので、受けていない依頼の地の札まで並び、どこへ向かえばいいかが埋もれる。
+
+**ユーザー要望(2026-11-06)**:
+
+1. **遠くの点を 1 回タップしたら、そこまで自動でコマを進める。** 道中の出来事(街道の出来事・襲撃)の選択肢はその都度出してよい = 出来事が開いたら止まり、閉じたら続きを歩く。
+2. **札は受注中の依頼の行き先だけに出す。** 受注していない行き先には出さない。**ただし街(港町フラン)の札は常に出す。**
+
+**この窓の決定(既定が明らかなので聞かずに決めた。違えば該当節だけ差し替える)**:
+
+- 「受注中」の判定 = **`questDest`(sessionStorage)**。封蝋(#64)・入場確認(#23)と **同じ式** にする → 「札が立つ ⟺ 封蝋が付く ⟺ 押して入れる」。
+  ⛔ 器 `activeQuest`(localStorage)では判定しない(#64 §2-4 の罠 B と同じ理由 = タブを開き直すと「札はあるのに入れない」が起きる)。
+- 「街」= **SITES に居ない拠点**(今日は `phlan` だけ)。⭐ 規則で書くので、将来 SITES に居ない街を足せば自動で札が立つ。
+  `village_s`(南の村)/ `lakeside`(湖畔の集落)/ `pier`(港の倉庫街)は名前は集落だが **依頼の地**(SITES に居る)なので、受注していなければ札は出ない。
+- 不採用: 「受けられる依頼の地は全部出す(今日どおり)」= 要望の否定 /「歩き出したら途中で止められない」= 別の点を押せば行き先が差し替わる今日の挙動を残す。
+
+---
+
+## 2. 着手前の実測(2026-11-06・HEAD `b86e1cd`)
+
+### 2-1. 1 タップ = 1 ホップの核心は 1 行
+
+| ファイル:行 | 何 |
+|---|---|
+| `world.html:1552` `goToPoint(id)` | 押し口(拠点 `click` → `goToNode` → ここ / 刻み点 `click` → ここ)。全部ここへ合流 |
+| `world.html:1556` | `walkStepOff ? WM.findPath(...) : WM.findWalkPath(...)` |
+| `world.html:1561` | ★ `var hop = walkStepOff ? path : path.slice(0, 1);` ← 1 ホップ制限 |
+| `world.html:1563-1567` | `walkPath(hop, …)` の到着で `elGoal` を(着いていれば)消し `onArriveStep(last, id)` |
+| `world.html:1523` `onArriveStep(atId, destId)` | 着いた点で ①押した行き先の拠点なら入場(`onArriveNode`)②襲撃 `maybeRoadAmbush` ③街道の出来事 `maybeRoadEvent`。**今日は戻り値なし** |
+| `world.html:1180` `walkPath(ids, onArrive)` | 先頭で `stopWalk()` = **別の点を押せば今の歩きは打ち切られる**(今日の挙動・残す) |
+
+撤退 `?walkstep=0`(#40)はすでに「経路全部を 1 回で歩く」が、**出来事を 1 回も振らない**(`maybeRoadEvent` / `maybeRoadAmbush` の先頭 `if (walkStepOff) return false;` = `world.html:1344` / `:1441`)。だから「`walkStepOff` を既定にする」では要望 1 の後半(出来事はその都度)を満たさない。
+
+### 2-2. ⚠⚠⚠ 罠 A — 「出来事が閉じたら続きを歩く」の再開口は 1 つしか無い
+
+- 街道の出来事: `open` → 選択 → `finishRoadEvent`(`world.html:1378`)→ **`RE.showResult(ev, text, null, boon)`**(同関数の末尾)。
+  `js/road-events.js:675` `showResult(ev, text, onDone, boon)` は「先へ進む」ボタンで `close(); onDone()` を呼ぶ。**今日は `onDone` が `null`**。
+  → 再開はこの `null` を「続きを歩く関数」へ差し替える **1 か所だけ**。⛔ `js/road-events.js` は触らない。
+- 襲撃: 戦う枝は `location.href = "index.html"` でページを去る(`world.html:1491`)。world に残る枝(逃げる等)があれば、その結果の「先へ進む」でも再開する(実装窓が `onAmbushChoice` / `finishRoadAmbush` の枝を読んで全部に付ける)。
+- **出来事が開かなかった点**では止まらずそのまま次へ。
+
+### 2-3. ⚠⚠⚠ 罠 B — 古い歩きの「続き」が新しい行き先を上書きする
+
+歩いている途中に別の点を押す / 出来事の再開関数が後から呼ばれる と、**前の行き先へ向かう続き**が走って新しい行き先を奪う。
+→ `goToPoint` ごとに **歩きの番号(トークン)** を 1 つ進め、続きは「自分の番号がまだ最新のときだけ」動く。
+⭐ §8 の変異 `staletoken` として装置に内蔵する。
+
+### 2-4. ⚠ 罠 C — 中継の拠点で入場させない(#40 の 2026-09-01 実測の再来)
+
+`onArriveStep` の入場は `lastArrival.arrived && WM.has(atId)` = **押した行き先に着いたときだけ**。自動で歩き続けても `destId` を元の行き先のまま渡し続ければ、通りすがりの `phlan`(`enter` を持つ唯一の点)で `town.html` へ飛ばない。
+⛔ 続きのホップで `destId` を「次の 1 点」に書き換えないこと(変異 `passenter`)。
+
+### 2-5. 札の出し方(今日)
+
+| ファイル:行 | 何 |
+|---|---|
+| `world.html:1039` `isNodeRevealed(id)` | `questWalkOff` なら true / SITES に居なければ true(= phlan)/ それ以外は `WM.isRevealed(sc, clearedList)`(解放の鎖) |
+| `world.html:1071-1072` | `shown = isNodeRevealed(id)`、`className = "worldNode worldNode-" + (site && shown ? "site" : "way")` |
+| `world.html:1078` | `shown` のときだけ `title` 属性(hover で地名が漏れない) |
+| `world.html:1082-1123` | `site && shown` のときだけ `.worldSign`(札)を el の 2 人目の子として足す。封蝋 `.worldSeal` は `questDest` 一致のときだけ札の子 |
+| `world.html:1622` `__world.revealed()` | `isNodeRevealed` の結果をドライバへ出す |
+| `tavern.html:8867` | `sessionStorage.setItem("dragonfighters.questDest", prepScenario.id)` = 出発時に書かれる唯一の口 |
+| `world.html:1279` | 「入る」で `questDest` を消費する唯一の口 |
+
+→ 札の条件を `isNodeRevealed(id)` から **新関数 `isSignShown(id)`** へ差し替える:
+
+    /* ★[#109] 札を立てるか。⭐ 街 (SITES に居ない拠点) は常に立てる。
+       依頼の地は「解放済み かつ 受注中の行き先」だけ。式は封蝋・入場と同じ (questDest)。 */
+    function isSignShown(id) {
+      if (!isNodeRevealed(id)) return false;
+      if (questSignOff || questWalkOff) return true;     /* 撤退 = 今日の姿 */
+      var sc = WM.scenarioOfNode(id);
+      if (!sc) return true;                              /* 街 = phlan */
+      return !!questDest && sc === questDest;
+    }
+
+⛔ `isNodeRevealed` と `__world.revealed()` は **意味を変えない**(解放の鎖の検査 = verify_quest_walk が握る)。札用に `__world.signed()` を **足す**。
+⭐ 札の無い依頼の地は今日の「未解放」と同じ体裁(`worldNode-way` + `title` なし)。**当たり判定 44px と `data-node` / `data-kind` は変えない**(#23 罠 A)= 押せば今日どおりそこへ歩ける(入れはしない)。
+
+### 2-6. 札・押し口を握る既存 golden(実測: `grep -c`)
+
+| ドライバ | worldSign | questDest | goToNode/Point | 予想 |
+|---|---|---|---|---|
+| verify_world_map | 9 | 0 | 1 | ⚠ 札を押す・数える節が **questDest 無し**で走る → 札が phlan の 1 枚になり赤の見込み |
+| verify_world_heromark | 16 | 0 | 1 | ⚠ 同上 |
+| verify_world_steps | 18 | 0 | 4 | ⚠ 札 + **1 ホップ前提** (3a)(3c)(3d)(4b) と変異 `fullwalk` / `hopnone` が直撃 |
+| verify_quest_walk | 18 | 48 | 2 | ⚠ 「.worldSign を DOM で数えて 7」(`world.html:1114` のコメント)= 解放済み全部を数えている |
+| verify_quest_visibility | 8 | 22 | 1 | 封蝋の節は questDest あり。札の枚数を数えていれば赤 |
+| verify_frost_hold / lost_cargo / silent_tomb / witch_hut | 2 / 2 / 2 / 4 | 1〜2 | 2〜5 | 自分の地の札を見る節が questDest 無しなら赤 |
+| verify_road_events / road_boon / road_ambush | 0 | 2 / 2 / 9 | 4 / 3 / 2 | 札は見ない。**1 タップ = 1 ホップ**で停留所を数えていれば赤 |
+
+⭐ 言い直しの方針(実装窓が項目 1 で 1 本ずつ実測して決める):
+- **その節が「札そのもの」を測っている** → 期待値を新しい規則へ言い直す(phlan + 受注先)。
+- **その節は札を「押す的」として使っているだけ** → 種まきに `?questsign=0` を足す(撤退で今日の姿)か、`questDest` を種まく。⛔ 期待値を緩めて通さない。
+- **1 ホップ前提の節** → `?autowalk=0`(§7)を種まきに足して今日の姿で測る。自動歩行そのものは新ドライバが測る。
+⚠ 言い直しは本数と節番号を §12 に全部書く。
+
+### 2-7. changelog の要否
+
+`scripts/hooks/check_changelog.py:32` `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` → **`world.html` は鳴らない**。
+ただしプレイヤーに見える変化なので、書ける要約は実在する。§10 の 1 行を入れる(ユーザーの「毎回更新」要望に沿う)。
+
+---
+
+## 3. 変更範囲
+
+| ファイル | 変更 |
+|---|---|
+| `world.html` | ① `goToPoint` を「点ごとに出来事を振り、開かなければ次のホップへ・開いたら止まって閉じたら続き」へ(トークン付き)② `isSignShown` を足して `buildNodes` の `shown` を差し替え ③ 撤退 2 本 ④ `__world` に `autoWalkOn()` / `walkToken()` / `signed()` を足す |
+| `tools/verify_world_autowalk.js` | 新規受入。port base **10720** |
+| 既存 golden | §2-6 の方針で言い直し / 種まき |
+| `js/changelog.js` | §10 |
+
+⛔ `js/world-map.js` / `js/road-events.js` / `index.html` / `tavern.html` は開かない。
+
+---
+
+## 4. STEP1 — 自動で歩き続ける(`world.html` `goToPoint`)
+
+方針: **1 ホップずつ歩く今日の仕組み(`world.html:1561` の 1 行)はそのまま**残し、着いた点で出来事が開かなかったら **自分で次のホップを呼ぶ**。`?autowalk=0` のときだけ「次のホップを呼ばない」= #40 の姿。
+
+    var walkSeq = 0;                     /* ★[#109] 歩きの番号 (罠 B) */
+    var autoResume = null;               /* 出来事が閉じたら呼ぶ続き。無ければ null */
+
+    function goToPoint(id) {
+      ...(今日どおり: 存在確認 / 同じ点なら onArriveNode / path が引けなければ false / elGoal を出す)...
+      var my = ++walkSeq;
+      autoResume = null;
+      stepToward(id, my);
+      return true;
+    }
+    function stepToward(id, my) {
+      if (my !== walkSeq) return;                         /* 古い続きは捨てる (罠 B) */
+      var path = walkStepOff ? WM.findPath(heroNodeId, id) : WM.findWalkPath(heroNodeId, id);
+      if (!path || !path.length) return;
+      var hop = walkStepOff ? path : path.slice(0, 1);    /* ⛔ 今日の 1 行のまま */
+      var last = hop[hop.length - 1];
+      walkPath(hop, function () {
+        if (my !== walkSeq) return;
+        if (last === id) elGoal.classList.remove("show");
+        var opened = onArriveStep(last, id);              /* ⛔ destId は id のまま (罠 C) */
+        if (last === id || walkStepOff || !AUTO_WALK_ON) return;
+        if (opened) { autoResume = function () { stepToward(id, my); }; return; }
+        stepToward(id, my);
+      });
+    }
+
+- `onArriveStep` は **入場 / 襲撃 / 出来事のどれかを開いたら true** を返すよう直す(`maybeRoadAmbush` / `maybeRoadEvent` はもう boolean を返している)。
+- `finishRoadEvent` の `RE.showResult(ev, text, null, boon)` の `null` を `function () { var f = autoResume; autoResume = null; if (f) f(); }` へ(罠 A)。襲撃で world に残る枝も同じ。
+- ⛔ 歩く速さ `PX_PER_MS = 0.18` / `PX_PER_FRAME = 34` は動かさない。
+- ⛔ 刻み点マーカー・`elGoal` の体裁は変えない。
+- ⭐ 目的地に着いた後は今日どおり(拠点なら入場判定、刻み点なら止まる)。
+- ⚠ 点ごとに `stopWalk()` → 次の `walkPath` で歩きアニメが 1 フレームだけ止まって見える可能性がある。目で気になるなら §9 で判断(⛔ 受入では測らない)。
+
+## 5. STEP2 — 札は受注中の行き先と街だけ(`world.html` `buildNodes`)
+
+§2-5 の `isSignShown` を `isNodeRevealed` の下に足し、`buildNodes` の `var shown = isNodeRevealed(id);` を `isSignShown(id)` へ。封蝋の条件式は変えない(札がある依頼の地 ⟹ 受注先なので必ず封蝋も付く。phlan には付かない)。
+
+## 6. STEP3 — ドライバ用の窓
+
+`__world` に `autoWalkOn()` / `walkToken()`(= walkSeq)/ `signed()`(= `Object.keys(NODES).filter(isSignShown)`)を足す。⛔ 既存のメンバは名前も意味も変えない。
+
+---
+
+## 7. 撤退スイッチ(2 本・独立)
+
+- **`?autowalk=0`** — 1 タップ = 1 ホップ(#40 の姿)へ戻る。
+- **`?questsign=0`** — 解放済みの依頼の地すべてに札(今日の姿)へ戻る。
+- ⚠ 判定位置 = `world.html` の `?walkstep=0`(`world.html:1055` 付近)と同じ書き方。ページ遷移をまたぐ = **sessionStorage へ写す**(酒場 → 出発 → world の導線はクエリを持ち越せない・#12 の作法)。キーは `dragonfighters.autoWalkOff` / `dragonfighters.questSignOff`。
+- ⛔ `?walkstep=0` / `?questwalk=0` / `?questmark=0` / `?roadevent=0` と相乗りさせない。
+
+---
+
+## 8. 受入条件 — `tools/verify_world_autowalk.js`(新規・port base 10720)
+
+方針: 歩きは `__world.goToPoint` と **拠点 el の DOM クリック** の 2 経路で起こし、**`arrivalCount()` / `lastArrival()` / `heroNode()`** と **DOM の `.worldSign`** で突き合わせる。出来事は `?roadseed=N` で決定論にする。
+
+### §0 装置
+
+- **(0a)** phlan → temple の `findWalkPath` が 2 ホップ以上(遠い行き先が実在する。#42 実測 11)。
+- **(0b)** 出来事が少なくとも 1 回開く seed を見つけてから §2 を測る(0 回なら exit 3 = 空振り)。
+- **(0c)** `.worldSign` が 1 枚以上ある(phlan)。
+
+### §1 自動歩行
+
+- **(1a)** `?roadevent=0` で phlan から temple を **1 回だけ**押す → 待つ → `heroNode() === "temple"`、`arrivalCount()` = 経路のホップ数(= `findWalkPath` の長さ)。
+- **(1b)** 着いた後に `askOpen()` が true(受注先なら)/ 受注先でなければ false。
+- **(1c)** 途中に `phlan` を通る経路(pier → forest)で `location.pathname` が `world.html` のまま(罠 C)。
+- **(1d)** 歩いている途中に別の点を押す → 最後に着いたのは **後から押した点**(罠 B)。
+
+### §2 出来事で止まって続く
+
+- **(2a)** 出来事が開いた時点で `isMoving()` false・`heroNode()` は経路の途中。
+- **(2b)** 選択 → 「先へ進む」 → そのまま目的地まで歩いて着く(もう 1 回押さない)。
+- **(2c)** 1 本の歩きの中で同じ点で 2 回開かない(`roadVisited` の今日の約束)。
+
+### §3 札
+
+- **(3a)** `questDest` 無し → `.worldSign` は phlan の 1 枚だけ、`signed()` も `["phlan"]`。
+- **(3b)** `questDest = "goblin-mine"` → 札は phlan と mine の 2 枚、mine の札に `.worldSeal`。
+- **(3c)** 札の無い解放済みの拠点(forest 等)も **押せば歩いて行ける**(`data-node` / 当たり判定は残る)が入場ダイアログは開かない。
+- **(3d)** `revealed()` は今日と同じ集合(解放の鎖の意味は変えていない)。
+
+### §4 撤退
+
+- **(Xa)** `?autowalk=0` → 1 タップで `arrivalCount()` が 1 だけ増える。
+- **(Xb)** `?questsign=0` → 札は今日どおり解放済み全部。
+- **(Xc)** 2 本は独立(片方だけ立てても他方は新しい姿)。
+
+### ⛔ 測らないこと
+
+- 歩く速さ・カメラの追い方・点ごとの一瞬の止まり・札の見た目(目で動かす余地を残す)。
+
+### 負のコントロール(`--negative`。赤くならなければ exit 1)
+
+| 変異 | 注入する欠陥 | 赤くなるべき節 |
+|---|---|---|
+| `onehop` | 自動の続きを呼ばない(今日の姿) | (1a)(2b) |
+| `staletoken` | 続きでトークンを見ない(罠 B) | (1d) |
+| `passenter` | 続きのホップで destId を次の 1 点へ書き換える(罠 C) | (1c) |
+| `noresume` | `showResult` の onDone を null のまま(罠 A) | (2b) |
+| `noeventstop` | 出来事が開いても止まらず歩き続ける | (2a) |
+| `allsigns` | `isSignShown` を `isNodeRevealed` のまま | (3a)(3b) |
+| `nophlan` | 街も受注判定にかける | (3a)(0c) |
+| `deadnode` | 札の無い拠点の当たり判定を消す | (3c) |
+
+### 既存 golden の非退行
+
+§2-6 の表の 12 本 + 全数走査。⚠ 予想は 2026-11-06 の grep からの推定。**走らせて赤なら期待値を書き換える前に理由を突き止め、「言い直し / 種まき」のどちらにしたかを節番号つきで §12 に書く**。
+
+---
+
+## 9. 実機/実感の確認(ここが本当の受入)
+
+- iPhone 縦: 遠くの拠点を 1 回押す → 止まらず歩く・出来事で止まる・「先へ進む」で続く、が気持ちよいか。点ごとの一瞬の止まりが目立たないか。
+- 受注していない状態で地図を開いたとき、港町の札しか無くて迷わないか(迷うなら別チケット)。
+- ⚠ ローカルは http 起動(file:// 直開きは音が出ない)。PC は Ctrl+F5。
+
+---
+
+## 10. changelog(`world.html` はフック対象外だが書く)
+
+    py tools/add_changelog.py "<b>地図は 1 回押せば着くまで歩く</b> — 道中の出来事では立ち止まり、選んだら続きを歩く。札は受けた依頼の行き先と港町だけに。"
+
+---
+
+## 11. やらないこと
+
+- ⛔ 歩く速さの変更・早送りボタン。
+- ⛔ 受注していない行き先を「薄い札」で出す等の中間案(実機で迷ったら別チケット)。
+- ⛔ 街(`town.html`)・酒場・闇市の地図の歩き方。
+- ⛔ `js/world-map.js` の NODES / SITES / UNLOCK への変更(街の印フィールド等を足さない。街の判定は「SITES に居ない」の規則で足りる)。
+- `実装依頼書/README.md` に足す行:
+
+    | 109 | [2026-11-06_world-autowalk-quest-signs.md](2026-11-06_world-autowalk-quest-signs.md) | **承認済** | 0% | ワールドマップ: 遠くを 1 回押せば着くまで歩く(出来事で止まり「先へ進む」で続き)+ 札は受注中の行き先(`questDest`)と街(SITES に居ない拠点)だけ。⚠⚠ 再開口は `showResult` の onDone 1 か所 / 歩きのトークンで古い続きを捨てる / 続きでも destId を書き換えない(通りすがりの phlan で町へ飛ぶ)。撤退 `?autowalk=0` / `?questsign=0`。新 driver `verify_world_autowalk` port base 10720 |
+
+---
+
+## 12. 実装結果
+
+(実装窓が埋める)
