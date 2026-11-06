@@ -229,8 +229,8 @@ const MUTATIONS = {
   /* ⚠⚠ (1b) は走行前 storagePre も見ているので「元から在った値を残す」形の変異は
      **空振りする**。⇒ 見捨てた枝で **実際に setItem する**形にする (項目 3 の申し送り)。 */
   dismisswrite: { file: 'world.html', targets: ['1b'], record: ['1a'],
-    from: '      if (!fight) { RE.showResult(ev, text, null, null); return; }',
-    to: '      if (!fight) { writeAmbushBattle(atId, false); /* neg:dismisswrite */ RE.showResult(ev, text, null, null); return; }',
+    from: '      if (!fight) { RE.showResult(ev, text, resumeAutoWalk, null); return; }',   /* ★[#109] 再開口 (null → resumeAutoWalk) に追従 */
+    to: '      if (!fight) { writeAmbushBattle(atId, false); /* neg:dismisswrite */ RE.showResult(ev, text, resumeAutoWalk, null); return; }',
     why: '見捨てた枝でも roadBattle / roadReturn を書く' },
 
   nullfight: { file: 'world.html', targets: ['1a'],
@@ -1172,7 +1172,12 @@ async function measureAmbush(browser, port, errs, opts) {
   const seed = opts.seed;
   const dest = opts.dest || DEST_FIRE;
   const mode = opts.mode || 'none';
-  const query = '?roadseed=' + seed + (opts.extraQuery || '');
+  /* ★[#109 項目2] 種まき &autowalk=0 = この実クリック走行は「1 タップ = 1 停留所」(#40 の姿) で停留所を 1 つずつ踏み、
+     到着の列・発火の件数・撤退との恒等 ((0c)(1f)(5a) ほか) を数える。#109 の自動歩行では 1 タップで行き先まで歩くので
+     1 タップ 1 ホップへ戻して測る。⛔ 期待値は 1 文字も変えていない。自動歩行そのものは tools/verify_world_autowalk.js が測る。
+     ⛔ ?walkstep=0 の腕には足さない (撤退どうしを相乗りさせない)。 */
+  const autoOff = /walkstep=0/.test(opts.extraQuery || '') ? '' : '&autowalk=0';
+  const query = '?roadseed=' + seed + (opts.extraQuery || '') + autoOff;
   const out = { label: opts.label || '', seed: seed, dest: dest, mode: mode, query: query,
     taps: [], arrivals: [], opens: [], ambushOpens: 0, roadOpens: 0, amb: null,
     opensCaptured: false, noParty: !!opts.noParty, nullRoll: !!opts.nullRoll };

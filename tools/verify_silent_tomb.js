@@ -229,8 +229,9 @@ const MUTATIONS = {
       to: '    lake_n:    (' + HIT('signclash') + ', { kind: "site", x:  736, y: 288, label: "湖の北の島", desc: "湖に浮かぶ小島。古の魔法使いが眠る墓所" }),   /* ★変異signclash */' }],
   /* ⭐ 通過した拠点でも入場判定を呼ぶ (arrived の条件を外す) */
   passopen: [
-    { file: F_WORLD, from: '      if (lastArrival.arrived && WM.has(atId)) { onArriveNode(atId); return; }   /* ⭐ 入場が優先 */',
-      to: '      if (WM.has(atId)) { if (!lastArrival.arrived) ' + HIT('passopen') + '; onArriveNode(atId); return; }   /* ★変異passopen */' }],
+    /* ★[#109] onArriveStep が「器を開いたら true」を返すようになったのに追従 (return; → return true;) */
+    { file: F_WORLD, from: '      if (lastArrival.arrived && WM.has(atId)) { onArriveNode(atId); return true; }   /* ⭐ 入場が優先 */',
+      to: '      if (WM.has(atId)) { if (!lastArrival.arrived) ' + HIT('passopen') + '; onArriveNode(atId); return true; }   /* ★変異passopen */' }],
   /* NODE_EXTRA_SPAWN_KINDS から n1 の search を外す */
   nosearch: [
     { file: F_INDEX, from: '      t["silent-tomb"] = { n0: ["search", "loot"], n1: ["search"] };',

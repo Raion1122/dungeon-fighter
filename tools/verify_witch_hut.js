@@ -960,7 +960,9 @@ async function runSuite(browser, port, mutKey, label) {
       templeRows.push({ view: v.w + 'x' + v.h, m, t0 });
     }
     {
-      const w = await openWorld({ cleared: mainIds, q: WORLD_Q, view: SIGN_VIEWS[0], keep: true, settle: 1500 });
+      /* ★[#109 項目2] 種まき &autowalk=0 = 「押し続けると着く」は 1 回押すと 1 停留所進む (#40 の姿) が前提 (presses.length >= 2 の母集団)。
+         #109 の自動歩行では 1 回で着くので、1 タップ 1 ホップへ戻して測る。⛔ 期待値は変えていない。 */
+      const w = await openWorld({ cleared: mainIds, q: WORLD_Q + '&autowalk=0', view: SIGN_VIEWS[0], keep: true, settle: 1500 });
       const presses = [];
       let arrived = false;
       for (let i = 0; i < PRESS_MAX && !arrived; i++) {

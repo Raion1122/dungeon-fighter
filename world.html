@@ -1061,6 +1061,20 @@
     var walkStepOff = false;
     try { walkStepOff = sessionStorage.getItem(WALK_STEP_OFF_KEY) === "1"; } catch (e) {}
 
+    /* ══ 撤退スイッチ ?autowalk=0 (#109 §7) ═══════════════════════
+       ⭐ 立てると「1 タップ = 1 ホップ」(#40 の姿) へ戻る = 着いた点で次のホップを呼ばない。
+       ⚠ 書き方は上の ?walkstep=0 と同じ (クエリ → sessionStorage へ写す → "1" を読む)。
+       ⛔ ?walkstep=0 / ?questwalk=0 / ?questmark=0 / ?roadevent=0 と相乗りさせない。
+       ⛔ __world に窓を足さない (26 個で恒等固定)。ドライバはこのキーを直接読む。 */
+    var AUTO_WALK_OFF_KEY = "dragonfighters.autoWalkOff";
+    try {
+      if (new URLSearchParams(location.search).get("autowalk") === "0") {
+        sessionStorage.setItem(AUTO_WALK_OFF_KEY, "1");
+      }
+    } catch (e) {}
+    var AUTO_WALK_ON = true;
+    try { AUTO_WALK_ON = sessionStorage.getItem(AUTO_WALK_OFF_KEY) !== "1"; } catch (e) {}
+
     var nodeEls = {};
     function buildNodes() {
       Object.keys(NODES).forEach(function (id) {
@@ -1387,7 +1401,8 @@
             maxHp が非決定的に動く。#47 §2-2 / 変異 dismissboon が番人)。 */
       var boon = ROAD_BOON_ON ? RE.boonOf(ev, choice, outcome) : null;
       if (boon) pushRoadBoon(boon, roadLast && roadLast.at);
-      RE.showResult(ev, text, null, boon);
+      /* ★[#109] 「先へ進む」で自動歩行の続きを呼ぶ (罠 A の再開口 1/2)。 */
+      RE.showResult(ev, text, resumeAutoWalk, boon);
     }
 
     /* ══ 街道の実りを次の潜行へ渡す (#47 §5-4) ═══════════════════════════
@@ -1485,7 +1500,9 @@
         ambLast.text = text;
         ambLast.fight = fight;
       }
-      if (!fight) { RE.showResult(ev, text, null, null); return; }
+      /* ★[#109] world に残る枝はここ 1 か所に集まる (罠 A の再開口 2/2)。
+         ⛔ 戦う枝 (下) はページを去るので続きを付けない。 */
+      if (!fight) { RE.showResult(ev, text, resumeAutoWalk, null); return; }
       writeAmbushBattle(atId, !!outcome.success);
       /* ⛔ クエリを足さない —— world → index の唯一の入場口と同じ形 ((1e) が縛る)。 */
       RE.showResult(ev, text, function () { location.href = "index.html"; }, null);
@@ -1534,13 +1551,17 @@
              (walkPath は中継ノードで何も鳴らさない) ので、これが本当の「今日のまま」。
          ⛔ onArriveNode 自体は 1 バイトも変えていない。変えたのは **呼ぶ条件**だけ。
          ⛔ 通りすがりでイベントを起こさない ((4c) が縛る)。 */
-      if (lastArrival.arrived && WM.has(atId)) { onArriveNode(atId); return; }   /* ⭐ 入場が優先 */
+      /* ★[#109] 戻り値 = 器 (入場 / 襲撃 / 出来事) を開いたら true。
+         ⭐ 自動歩行はこれが true の点で立ち止まり、器が閉じたら続きを歩く。 */
+      if (lastArrival.arrived && WM.has(atId)) { onArriveNode(atId); return true; }   /* ⭐ 入場が優先 */
       /* ★ 街道での襲撃 (#51 §5-2)。⛔ **街道の出来事より前**に振る —— 出たらそちらは
          振らない (同じ停留所で器が 2 つ開くのを防ぐ)。 */
-      if (maybeRoadAmbush(atId)) return;
+      /* ⚠ 撤退 ?roadevent=0 では器 #worldEventBox が DOM に無いので、襲撃を振っても何も開かない。
+           そのとき「開いた」と答えると自動歩行が続きを待ったまま止まる ⇒ 実際に器が開いたかで答える。 */
+      if (maybeRoadAmbush(atId)) return isRoadBoxShown();
       /* ★ 街道の出来事 (#45 §6-1)。⛔ walkPath の中からは呼ばない —— 撤退時は
          中継ノードを通過するので回数が合わなくなる (変異 arrivedup が縛る)。 */
-      maybeRoadEvent(atId);
+      return maybeRoadEvent(atId);
     }
 
     /* ══ 1 タップ = 経路上の「次の 1 点」まで (#40 §6-1) ══════════════════
@@ -1549,23 +1570,62 @@
          ((3a)(3c) と負のコントロール hopnone が縛る)。
        ⚠ 撤退時 (walkStepOff) は **今日どおり経路全部**を 1 回で歩く。
        ⚠ 母集団は NODES ではなく **細分化グラフ (NODES ∪ STEPS)**。 */
+    /* ══ 自動歩行 (#109 §4) ═══════════════════════════════════════════
+       ⭐ 1 ホップずつ歩く仕組み (下の path.slice(0, 1)) はそのまま。着いた点で器が
+         開かなければ **自分で次のホップを呼ぶ**。開いたら立ち止まり、器の「先へ進む」
+         (resumeAutoWalk) で続きを歩く。撤退 ?autowalk=0 なら次を呼ばない = #40 の姿。
+       ⚠⚠ 罠 B: 歩きの番号 walkSeq。別の点を押す / 古い続きが後から呼ばれる とき、
+         **自分の番号がまだ最新のときだけ**動く (古い行き先が新しい行き先を奪わない)。
+       ⚠⚠ 罠 C: 続きのホップでも destId は **押した行き先のまま**渡す
+         (通りすがりの phlan で town.html へ飛ばない)。 */
+    var walkSeq = 0;
+    var autoResume = null;               /* 器が閉じたら呼ぶ続き。無ければ null */
+    function resumeAutoWalk() {
+      var f = autoResume; autoResume = null;
+      if (f) f();
+    }
+    function isRoadBoxShown() {
+      var b = document.getElementById("worldEventBox");
+      return !!b && b.classList.contains("show");
+    }
+
     function goToPoint(id) {
       var G = WM.walkNodes();
       if (!Object.prototype.hasOwnProperty.call(G, id)) return false;
-      if (id === heroNodeId && !moving) { onArriveNode(id); return true; }
+      if (id === heroNodeId && !moving) {
+        ++walkSeq; autoResume = null;    /* ⭐ 立ち止まり中の古い続きもここで捨てる */
+        onArriveNode(id); return true;
+      }
       var path = walkStepOff ? WM.findPath(heroNodeId, id) : WM.findWalkPath(heroNodeId, id);
+      /* ⭐[#109] 歩いている最中に「いま発った点」(= heroNodeId) を押したら、そこへ引き返す。
+         ⚠ 経路は空 ([]) になるが、ここで false を返すと自動歩行の続きが元の行き先へ
+           歩き切ってしまう (= 別の点を押しても止まらない)。 */
+      if (id === heroNodeId && moving) path = [id];
       if (path === null || path.length === 0) return false;   /* 到達できない先では動かない */
       var g = G[id];
       elGoal.style.left = g.x + "px"; elGoal.style.top = g.y + "px";
       elGoal.classList.add("show");
-      var hop = walkStepOff ? path : path.slice(0, 1);      /* ★ ここが本チケットの核心 */
+      var my = ++walkSeq;
+      autoResume = null;
+      stepToward(id, my);
+      return true;
+    }
+    function stepToward(id, my) {
+      if (my !== walkSeq) return;                           /* 古い続きは捨てる (罠 B) */
+      var path = walkStepOff ? WM.findPath(heroNodeId, id) : WM.findWalkPath(heroNodeId, id);
+      if ((!path || !path.length) && id === heroNodeId && moving) path = [id];   /* 引き返す */
+      if (!path || !path.length) return;
+      var hop = walkStepOff ? path : path.slice(0, 1);      /* ⛔ #40 の 1 行のまま */
       var last = hop[hop.length - 1];
       walkPath(hop, function () {
+        if (my !== walkSeq) return;
         /* ⭐ 目印は「まだ着いていない」あいだ出したままにする。 */
         if (last === id) elGoal.classList.remove("show");
-        onArriveStep(last, id);
+        var opened = onArriveStep(last, id);                /* ⛔ destId は id のまま (罠 C) */
+        if (last === id || walkStepOff || !AUTO_WALK_ON) return;
+        if (opened) { autoResume = function () { stepToward(id, my); }; return; }
+        stepToward(id, my);
       });
-      return true;
     }
     /* ⛔ 既存の呼び名は残す (__world.goToNode をドライバが握っている)。 */
     function goToNode(id) { return goToPoint(id); }

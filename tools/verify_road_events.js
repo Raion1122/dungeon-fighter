@@ -754,7 +754,12 @@ async function measurePlay(browser, port, errs, opts) {
   const seed = (opts.seed === undefined) ? SEED_MAIN : opts.seed;
   const dest = opts.dest || DEST_MAIN;
   const mode = opts.resolve || 'none';
-  const query = '?roadseed=' + seed + (opts.extraQuery || '');
+  /* ★[#109 項目2] 種まき &autowalk=0 = この実クリック走行は「1 タップ = 1 停留所」(#40 の姿) を前提に
+     停留所ごとの到着・発火・往復の再訪 ((3a)(4c)(5b)(5c) ほか) を数える。#109 の自動歩行では 1 タップで行き先まで歩くので
+     1 タップ 1 ホップへ戻して測る。⛔ 期待値は 1 文字も変えていない。自動歩行そのものは tools/verify_world_autowalk.js が測る。
+     ⛔ ?walkstep=0 の腕には足さない (撤退どうしを相乗りさせない)。 */
+  const autoOff = /walkstep=0/.test(opts.extraQuery || '') ? '' : '&autowalk=0';
+  const query = '?roadseed=' + seed + (opts.extraQuery || '') + autoOff;
   const out = { seed: seed, dest: dest, mode: mode, query: query,
     taps: [], back: [], arrivals: [], events: [] };
   const page = await browser.newPage();

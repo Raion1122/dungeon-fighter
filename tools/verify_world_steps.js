@@ -1187,6 +1187,11 @@ async function measurePlay(browser, port, errs, opts) {
 //        (2026-09-01 に項目 3 が実測した性質。ここが崩れると off アームが town.html で死ぬ)。
 // ══════════════════════════════════════════════════════════════════════════════
 const RETREAT_QUERY = '?walkstep=0';
+/* ★[#109 項目2] 種まき = 自動歩行 (#109) の撤退。§3 / §4 の実操作と (6b) の素のアームは
+   「1 タップ = 1 ホップ」(#40 の姿) を測るので ?autowalk=0 で開く。
+   ⛔ 期待値は 1 つも緩めていない。自動歩行そのものは tools/verify_world_autowalk.js が測る。
+   ⛔ ?walkstep=0 の撤退アーム (off / reopen) には足さない (相乗りさせない)。 */
+const AUTO_WALK_OFF_QUERY = '?autowalk=0';
 const RETREAT_DEST = 'temple';
 async function measureRetreat(browser, port, errs) {
   const base = 'http://localhost:' + port + PAGE_PATH;
@@ -1269,6 +1274,9 @@ async function measureRetreat(browser, port, errs) {
 
   /* ══ C) 素のアーム (別タブ = sessionStorage は空) ((6b) の対照) ════════ */
   const pOn = await open('on');
+  /* ★[#109] 種まき (素 = 1 タップ 1 ホップの対照)。⚠ (6c) が「素のアームに search が付いていない」を縛るので
+     URL ではなく sessionStorage (dragonfighters.autoWalkOff = ?autowalk=0 の写し先) で撒く。 */
+  await pOn.evaluateOnNewDocument(() => { try { sessionStorage.setItem('dragonfighters.autoWalkOff', '1'); } catch (e) {} });
   await load(pOn, base);
   out.on = { boot: await snap(pOn) };
   out.on.tap = await tapOnce(pOn, RETREAT_DEST);
@@ -2397,7 +2405,7 @@ const PENDINGS = [
       m.dom = await measureSteps(browser, PORT, errs, {});
       /* ⭐ 実操作 (実クリックで歩く) の観測。§0 の (0d) と §3 / §4 が読む。
          ⚠ ここが一番時間を食う (約 25 タップ x 最大 1.8 秒の歩き)。 */
-      m.play = await measurePlay(browser, PORT, errs, {});
+      m.play = await measurePlay(browser, PORT, errs, { query: AUTO_WALK_OFF_QUERY });   /* ★[#109] 種まき */
       /* ⭐ 撤退 (?walkstep=0) と **素のアームの対照**。§6 の 4 本がここを読む。
          ⚠ 別タブを 2 枚使う (sessionStorage はタブごと = 素のアームへ撤退が漏れない)。 */
       m.retreat = await measureRetreat(browser, PORT, errs);
@@ -2544,7 +2552,7 @@ const PENDINGS = [
              欠陥を検出したのか装置が欠けているのか読めなくなる。⛔ 片方だけにしない。
              ⚠ 実操作は 1 本あたり数十秒かかる。必要な変異でだけ採る。 */
           const needsPlay = MUTATIONS[k].targets.some(t => /^[34]/.test(t) || t === '0d');
-          if (needsPlay) m.play = await measurePlay(browser, port, negErrs, {});
+          if (needsPlay) m.play = await measurePlay(browser, port, negErrs, { query: AUTO_WALK_OFF_QUERY });   /* ★[#109] 種まき */
           /* ⭐ §6 を狙う変異 (fullwalk / retreatdead / retreatkills) は撤退の観測が要る。
              ⛔ 片方だけにすると「撤退の観測が無い」で機械的に赤くなり、欠陥を検出したのか
                 装置が欠けているのか読めなくなる (needsPlay と同じ理屈)。

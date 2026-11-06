@@ -382,3 +382,91 @@
 
 - ⚠ 種 A / 種 S を足すのは **その腕の URL だけ**(`?autowalk=0` / `?questsign=0` は sessionStorage へ写るので、同じタブでの遷移も撤退のまま)。⛔ 期待値を緩めない。⛔ `?walkstep=0` / `?questwalk=0` と相乗りさせない。
 - ⭐ 自動歩行と新しい札の規則そのものは新ドライバ `verify_world_autowalk`(port base 10720)が測る。種まきで逃がした節の主張が新ドライバのどこで測られているかを項目 4 で対応表にする。
+
+### 12-2. 自動歩行(項目 2)
+
+日時 2026-11-06 19:10〜・基準 HEAD `0a1ecd6`。ログ = `C:\Users\PC_User\.claude\dev-loop\r109\item2\`。
+
+#### (1) ✅ ユーザー決定(§6 を上書き)
+
+- **`__world` に窓を足さない**(`autoWalkOn` / `walkToken` / `signed` は作らない)。`__world` の 26 個固定を `verify_road_events` (4b)・`verify_world_heromark` (3a)・`verify_quest_visibility` (5a) が握っているため(§12-1 (2)-A の (ii))。既存メンバも名前・意味を変えていない。
+  ⇒ 項目 3 / 4 は札を DOM(`.worldSign` の親の `data-node`)で、撤退を URL / sessionStorage(`dragonfighters.autoWalkOff`)で、トークン(罠 B)を振る舞いと変異で測る。
+
+#### (2) `world.html` の変更(CRLF のまま)
+
+| 行 | 何 |
+|---|---|
+| :1063-1076 | 撤退 `?autowalk=0` — `?walkstep=0` と同じ書き方(クエリ → `sessionStorage["dragonfighters.autoWalkOff"]="1"` → `getItem !== "1"` を `AUTO_WALK_ON` へ)。他の撤退スイッチとは相乗りしない |
+| :1405 | 罠 A 再開口 1/2: 街道の出来事 `RE.showResult(ev, text, resumeAutoWalk, boon)`(旧 `null`) |
+| :1505 | 罠 A 再開口 2/2: 襲撃で world に残る枝 `RE.showResult(ev, text, resumeAutoWalk, null)`(旧 `null`)。⛔ 戦う枝(index.html へ移る)は触らない |
+| :1540-1565 | `onArriveStep` が **器を開いたら true** を返す(入場 `return true` / 襲撃 `return isRoadBoxShown()` / 出来事 `return maybeRoadEvent(atId)`) |
+| :1571-1591 | `walkSeq`(罠 B のトークン)・`autoResume`・`resumeAutoWalk()`・`isRoadBoxShown()` |
+| :1592-1612 | `goToPoint(id)` — 今日どおり(存在確認 / 同じ点なら入場 / 経路なしは false / elGoal)+ `my = ++walkSeq; autoResume = null; stepToward(id, my)` |
+| :1613-1629 | `stepToward(id, my)` — §4 の設計どおり。⛔ `path.slice(0, 1)`(:1618)はそのまま・⛔ destId は元の行き先のまま(罠 C) |
+
+⭐ 依頼書の設計から足した 2 点(実走で見つけた):
+
+- **A. 歩いている最中に「いま発った点」を押すと引き返す**(`goToPoint` :1603 / `stepToward` :1616)。`heroNodeId` は次の点に着くまで「発った点」のままなので、その点を押すと経路が `[]` になり `goToPoint` が false を返していた。#40 では 1 ホップで止まるので目立たなかったが、自動歩行では **押しても止まらず元の行き先まで歩き切る**(スモーク (B) で赤を実測)。⇒ `id === heroNodeId && moving` のときだけ経路を `[id]` にして引き返す。⚠ 変異アンカー `if (path === null || path.length === 0) return false;`(`verify_world_steps` hopnone)は 1 字も変えずに残した。
+- **B. 撤退 `?roadevent=0` 中の襲撃で止まらない**(`onArriveStep` :1561)。`?roadevent=0` では器 `#worldEventBox` が DOM に無いので、襲撃を振っても何も開かない(今日も見えない)。そのとき `true` を返すと自動歩行が続きを待ったまま止まる ⇒ 襲撃は **実際に器が開いたか** で答える(スモーク (F2))。
+
+⛔ 変えていないもの: `PX_PER_MS` / `PX_PER_FRAME`・刻み点マーカー・`elGoal` の体裁・`walkPath` 先頭の `stopWalk()`・`maybeRoadEvent` / `maybeRoadAmbush` の中身・`js/road-events.js` / `js/world-map.js` / `index.html` / `tavern.html`。
+
+changelog: `js/changelog.js` へ「<b>地図は 1 回押せば着くまで歩く</b> — 道中の出来事では立ち止まり、選んだら続きを歩く。」(4 件維持)。⭐ 札の文は項目 3 で §10 の全文へ差し替える(項目 2 単独で嘘にしないため)。
+
+#### (3) 既存 golden — 種まき 5 本 + 変異アンカーの追従 2 本(⛔ 期待値は 1 本も緩めていない)
+
+赤は **実走で確かめてから**種をまいた(`item2\pre\` = 種まき前の実走。⚠ 走行中に上の A / B を足したので、最終判定は (4) の post 走行)。
+
+| ドライバ | 種まき前の赤 | 型 | 直し |
+|---|---|---|---|
+| `verify_world_heromark` | **(1c)**(1 回目で 13 ホップ先まで歩き切り、2 回目のタップが空振り) | 種 A | `PLAY_QUERY` を `?roadevent=0&autowalk=0` へ(実操作の腕だけ) |
+| `verify_world_steps` | **(3a)(3b)(3c)(4b)(6b)**(+ 起動時 exit 3 = hopnone のアンカー消失 → A の書き方を変えて解消) | 種 A | `measurePlay` の素 / 変異の 2 か所を `?autowalk=0`、(6b) の素のアーム(on)は **sessionStorage で**撒く((6c) が「素のアームに search が無い」を縛るため URL にしない)。⛔ `?walkstep=0` の off / reopen アームには足さない |
+| `verify_road_events` | **(3a)(4c)(5b)(5c)** | 種 A | `measurePlay` の query に `&autowalk=0`(`walkstep=0` の腕を除く) |
+| `verify_road_ambush` | **(0c)(1f)(5a)(9b)**((9b) は #51 の (1f)(5a) が赤いことの集計) | 種 A | `measureAmbush` の query に `&autowalk=0`(`walkstep=0` の腕を除く) |
+| `verify_witch_hut` | **(1f)**(「神殿の札を押し続けると着く」の母集団 `presses.length >= 2` が 1 回で着いて崩れる) | 種 A | その押す腕だけ `WORLD_Q + '&autowalk=0'` |
+| `verify_road_ambush` | (素は緑) 変異 `dismisswrite` のアンカーが消える(`null` → `resumeAutoWalk`) | アンカー追従 | from / to を新しい行へ。`--negative --mut dismisswrite` で (1b) が赤 = 生きている |
+| `verify_silent_tomb` | (素は緑) 変異 `passopen` のアンカーが消える(`return;` → `return true;`) | アンカー追従 | from / to を新しい行へ。`--negative --only passopen` で (1g) が赤 = 生きている |
+
+- 予告どおり **緑のまま**だった本: `verify_world_map`(3b)(3d)(4b)(4c) を含む全節・`verify_road_boon`(予告は「赤の疑い」→ 実測 20/20)・`verify_quest_walk` / `verify_quest_visibility` / `verify_lost_cargo` / `verify_silent_tomb` / `verify_kobold_warren` / `verify_tower_mother` / `verify_town_exit` / `verify_title_screen`。
+- 変異の生存: `verify_world_steps --negative` = **56/56**(`fullwalk` → (3a)(3b)(3c)(6b)、`hopnone` → (3a)(3c) が種まき後も赤)。
+- アンカー走査(全 `tools/*.js` の文字列リテラルのうち旧 `world.html` に在ったものの出現数の増減)で、変異アンカーが消えたのは上の 2 本だけ(残りはコメント語の数え上げで、変異の注入先ではない)。走査器 = `item2\anch.js`。
+
+#### (4) 検証
+
+- スモーク `item2\smoke_autowalk.js`(port 10731・使い捨て)= **PASS 11 / FAIL 0**:
+  (A) `?roadevent=0` で phlan→temple を `goToNode` 1 回 → temple・arrivalCount 11 = `findWalkPath` 長 11 / (B) 歩行中にいま発った forest を押す → forest に着いて留まる / (B2) 歩行中に pier を押す → pier(phlan を通っても町へ飛ばない)/ (C) pier→forest は phlan を通っても `world.html` のまま / (D) `?roadseed=1` で forest__farm_n@1 の出来事で止まる(1.5 秒待っても動かない)→ 判定なしの枝 →「先へ進む」→ temple まで(arrivalCount 11)/ (F) `?roadseed=6` + 編成あり: 襲撃(見捨てる)と出来事 2 回で毎回止まり、毎回「先へ進む」で続いて temple / (F2) `?roadevent=0` + 編成ありで襲撃が当たる種でも止まらず temple / (E) `?autowalk=0` で 1 ホップだけ・sessionStorage に `"1"`・クエリ無しの再読込でも撤退のまま / pageerror 0。
+- 非退行 16 本(post・種まき後・直列・既定ポート): 下の (5)。
+
+#### (5) 非退行 16 本(post = 最終コード・種まき後・2026-11-06 19:56〜20:27・`item2\post\summary.txt`)
+
+| ドライバ | exit | 集計 | 種まき前 (pre) |
+|---|---|---|---|
+| `verify_world_map` | 0 | 57/57 | 0 |
+| `verify_world_heromark` | 0 | 18/18 | 1 ((1c)) |
+| `verify_world_steps` | 0 | 33/33 | 3 → 素 1 ((3a)(3b)(3c)(4b)(6b)) |
+| `verify_quest_walk` | 0 | 25/25 | 0 |
+| `verify_quest_visibility` | 0 | 39/39 | 0 |
+| `verify_frost_hold` | 1 | 26/27 = FAILED **{(6b)}**(§12-1 の基準と同じ集合・#109 に帰属しない) | 1 ({(6b)}) |
+| `verify_lost_cargo` | 0 | 22/22 | 0 |
+| `verify_silent_tomb` | 0 | 24/24 | 0 |
+| `verify_witch_hut` | 0 | 29/29 | 1 ((1f)) |
+| `verify_road_events` | 0 | 25/25 | 1 ((3a)(4c)(5b)(5c)) |
+| `verify_road_boon` | 0 | 20/20 | 0 |
+| `verify_road_ambush` | 0 | 41/41 | 1 ((0c)(1f)(5a)(9b)) |
+| `verify_kobold_warren` | 0 | 21/21 | 0 |
+| `verify_tower_mother` | 0 | 19/19 | 0 |
+| `verify_town_exit` | 0 | 23/23 | 0 |
+| `verify_title_screen` | 0 | 86/86 | 0 |
+
+⇒ 合格(frost_hold は {(6b)} から増えず・他 15 本は全緑)。
+
+#### (6) 項目 3 / 4 への申し送り
+
+- 新しい関数: `resumeAutoWalk()` :1583 / `isRoadBoxShown()` :1587 / `goToPoint(id)` :1592 / `stepToward(id, my)` :1613 / 撤退 `AUTO_WALK_OFF_KEY` :1069・`AUTO_WALK_ON` :1075。
+- 変異の注入先の候補(どれも world.html にちょうど 1 回):
+  - `onehop` … `        if (last === id || walkStepOff || !AUTO_WALK_ON) return;` → `return;`
+  - `passenter` … `var opened = onArriveStep(last, id);` → `onArriveStep(last, last)`
+  - `noresume` … `RE.showResult(ev, text, resumeAutoWalk, boon);` → `null`
+  - `noeventstop` … `if (opened) { autoResume = function () { stepToward(id, my); }; return; }` → 外す(器が開いても歩き続ける)
+  - `staletoken` … ⚠⚠ トークン検査を外すだけでは **空振りする**: 別の点を押すと `walkPath` の `pendingArrive` 差し替えと `goToPoint` の `autoResume = null` が古い続きを先に殺すため。赤くする筋 = 「出来事の器が開いて立ち止まる → (器を閉じずに) `__world.goToNode(別の点)` → 新しい歩きの最中に器の『先へ進む』」を作り、変異は **2 か所のトークン検査 + `goToPoint` の `autoResume = null;`** をまとめて外す(どれか 1 つでも残ると古い続きは止まる)。
+- 撤退は sessionStorage へ写る ⇒ 同じタブの再読込も撤退のまま。⚠ 撤退を立てる腕は別タブで(素の腕へ漏らさない)。
