@@ -269,4 +269,116 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 着手前の実測(項目 1)
+
+測った日時 2026-11-06 18:20〜19:05・HEAD `383f9d0`。⭐ `git diff b86e1cd 383f9d0 --stat` = 依頼書と README の 2 本だけ ⇒ **`world.html` / `js/road-events.js` / `js/world-map.js` は起草時と 1 バイトも違わない**(§2 の行番号はそのまま有効)。
+
+#### (1) §2 の前提の測り直し(`world.html`)
+
+| 何 | 依頼書 | 実測 | ずれ |
+|---|---|---|---|
+| `goToPoint(id)` | :1552 | :1552 | なし |
+| `walkStepOff ? findPath : findWalkPath` | :1556 | :1556 | なし |
+| ★ 1 ホップ制限 `var hop = walkStepOff ? path : path.slice(0, 1);` | :1561 | :1561 | なし |
+| `walkPath(hop, …)` の到着で elGoal を消し `onArriveStep(last, id)` | :1563-1567 | :1563-1567 | なし |
+| `onArriveStep(atId, destId)` | :1523 | :1523(入場 :1537 → 襲撃 :1540 → 出来事 :1543)。**戻り値なし**(入場の枝も `return;` だけ) | なし |
+| `walkPath(ids, onArrive)` 先頭の `stopWalk()` | :1180 | :1180 / :1181。⭐ 到着の `pendingArrive()` は `stopWalk()`(:1213 = `moving=false`)の**後**に同期で呼ばれる ⇒ 続きのホップで `maybeRoad*` の `if (moving)` 門は通る。ホップ間で `isMoving()` が false に見える瞬間は **無い**(器が開いたときだけ止まる) | なし |
+| `maybeRoadEvent` の `if (walkStepOff) return false;` | :1344 | :1342 / :1344。戻り値は **boolean**(true は :1359 だけ・他は全部 false) | なし |
+| `maybeRoadAmbush` の `if (walkStepOff) return false;` | :1441 | :1439 / :1441。戻り値は **boolean**(true は :1453 だけ) | なし |
+| `finishRoadEvent` 末尾 `RE.showResult(ev, text, null, boon)` | :1378 | :1378 / **:1390** | なし |
+| `js/road-events.js` `showResult(ev, text, onDone, boon)` | :675 | :675。「先へ進む」= `close(); if (typeof onDone === "function") onDone();`(:678)⇒ **null は黙って何もしない**・関数なら閉じた後に 1 回 | なし |
+| `isNodeRevealed(id)` | :1039 | :1039-1044 | なし |
+| `buildNodes` の `shown` / className | :1071-1072 | :1071 / :1072 | なし |
+| `title` 属性 | :1078 | :1078 | なし |
+| 札 `.worldSign`(el の 2 人目の子)/ 封蝋 `.worldSeal` | :1082-1123 | :1082-1123(封蝋の条件 :1117 = `isQuestMarkOn() && !questWalkOff && questDest && scenarioOfNode(id) === questDest`) | なし |
+| `__world.revealed()` | :1622 | :1622 | なし |
+| `?walkstep=0` の判定 | :1055 付近 | :1055-1062(クエリ → `sessionStorage.setItem(WALK_STEP_OFF_KEY,"1")` → `getItem === "1"` を読む)= §7 の撤退 2 本はこの形を写す | なし |
+| 「入る」で `questDest` を消費 | :1279 | :1279(`bindAsk(elAskYes, …)` の中・唯一) | なし |
+| 出発で `questDest` を書く唯一の口 | `tavern.html:8867` | `tavern.html:8867` | なし |
+| 「街」= SITES に居ない拠点 | phlan だけ | `kind:"site"` 13 個 − SITES 12 個 = **phlan だけ**(`js/world-map.js:206-218`) | なし |
+
+#### (2) ⚠⚠ 依頼書と食い違う事実(項目 2 の着手前に決めること)
+
+- **A. ⚠⚠⚠ `__world` の窓は 3 本のドライバがキー集合で恒等固定している** — §6 の `autoWalkOn()` / `walkToken()` / `signed()` を足すと、それだけで次の 3 節が赤くなる(§2-6 の表に無い)。
+  - `verify_road_events` **(4b)**(`tools/verify_road_events.js:1605-1612`)= KEEP 25 個 + 足されたのは `['roadEvent']` だけ
+  - `verify_world_heromark` **(3a)**(`:1296-1334`・`NEW_SEAM_KEYS = ['heroMarkGeom','heroMarkOn','roadEvent']` :492)= `c1c85e0` から増えたキーがこの 3 つちょうど
+  - `verify_quest_visibility` **(5a)**(`:1083-1091`)= `SEAM26` と完全一致・26 個
+  - `world.html:972`(#64)と `:1669-1675`(#51)のコメントも「`__world` に窓を足さない(26 個で恒等固定)」と明記。#51 / #64 はどちらも **窓を足さずに DOM とストレージで観測**した前例。
+  - 選択肢: **(i) 窓を足す** → 上の 3 節を「#109 の 3 本も許す」へ言い直す(3 本の言い直しを §12 に書く)/ **(ii) 窓を足さない** → 新ドライバは札を DOM(`.worldSign` の親の `data-node`)で数え、撤退は URL / sessionStorage(`dragonfighters.autoWalkOff`)で、トークン(罠 B)は (1d) の振る舞いと変異 `staletoken` で測る(既存 golden の言い直し 0)。
+  - ⭐ 項目 1 の推奨 = **(ii)**(#51 / #64 の前例どおり・受入条件の意味は変わらず、観測の口だけが変わる)。⛔ どちらにするかは項目 2 の着手前に決める(項目 1 は設計を変えていない)。
+- **B. `__world.goToPoint` は無い** — §8 の「`__world.goToPoint` と拠点 el の DOM クリックの 2 経路」の前者は **`__world.goToNode`**(:1648。中身は `goToPoint` そのもの = 刻み点 id も受ける :1571)。新ドライバはこちらを使う。
+- **C. 襲撃の再開口は 1 か所だけ**(§2-2 の「world に残る枝が何本か」の答え)— 下の (3)。
+- **D. 札に覆われた点(`COVERED_BY_SIGN = { temple: 'lakeside' }`・`verify_world_map.js:392` / `verify_quest_walk.js:936` / `verify_world_steps.js:844`)** — #106 で「神殿の点は湖畔の集落の札の下 = 神殿は自分の札を押して歩く」と決めた組。新規則では **`questDest = "witch-hut"` のとき湖畔の札だけが立ち、神殿の札は無い** ⇒ 神殿の点を押すと湖畔の札に当たって湖畔へ歩く(神殿へは刻み点経由でしか行けない)。受注地でない神殿へ入る用は無いので受入は変えないが、**§9 の実機で目に入れる候補**。ほかの `questDest` / 受注なしでは湖畔の札が消えるので神殿の点がむしろ露出する(既存ドライバの `pressPointOf` は `coverGone` の枝で点を押す = 壊れない)。
+
+#### (3) 出来事・襲撃の閉じ口(項目 2 で「続き」を付ける場所)
+
+| 器 | 枝 | 閉じ口 | world に残るか | 再開を付けるか |
+|---|---|---|---|---|
+| 街道の出来事(#45/#47) | 全枝(判定なし / 判定つき成功 / 失敗 / `resolveSkillCheck` が null) | `finishRoadEvent` → **:1390** `RE.showResult(ev, text, null, boon)` | 残る | ★ **付ける**(`null` → 続きを呼ぶ関数) |
+| 街道の襲撃(#51) | 見捨てる(`check:false`「見つからぬよう街道を外れて通り過ぎる」) | `finishRoadAmbush` → `fight=false` → **:1488** `RE.showResult(ev, text, null, null); return;` | 残る | ★ **付ける** |
+| 〃 | 判定つきだが `SkillCheck` が無い / `resolveSkillCheck` が null を返した | 同じ **:1488**(`fight = !!(choice && choice.check && outcome)` が false) | 残る | ★ 同じ 1 か所で済む |
+| 〃 | 判定つき「茂みから回り込み、隙を突く」で結果が出た(成否とも) | **:1491** `RE.showResult(ev, text, function () { location.href = "index.html"; }, null)` | **去る**(戦闘へ) | ⛔ 付けない(ページが消える) |
+
+⇒ 再開口は **:1390 と :1488 の 2 か所**(枝ごとに書き分ける必要は無い)。`js/road-events.js` は 1 バイトも触らずに済む(`showResult` が onDone を関数なら呼ぶ・`open` は onChoice を呼ぶだけ)。
+⚠ `resolveSkillCheck` の Promise が reject した場合は今日も結末が出ない(器は開いたまま)= 続きも呼ばれない。今日と同じなので変えない。
+
+#### (4) 既存 golden の母集団(和集合)と基準
+
+母集団の取り方 = `grep -lE 'worldSign|questDest|goToNode|goToPoint|world\.html|arrivalCount|revealed\(|askOpen|__world|worldNode|walkstep|worldSeal|clientFromNode|worldEventBox|ROAD_EVENTS|roadseed' tools/*.js` = **32 本**(= `world\.html` 単独の 32 本と同じ集合 ⇒ 上限が見えている)。
+- 札・歩き・`__world` を実際に叩く本 = §2-6 の 12 本 **+ 4 本**: `verify_kobold_warren`(`worldNode-site` の class を (1a)(4b) で見る)/ `verify_tower_mother`(同 (4a))/ `verify_town_exit`(phlan を押す)/ `verify_title_screen`(phlan を押す)。
+- 残り 16 本は world.html を開いても **シート / BGM / 名簿 / 数値**を測るだけ(`verify_player_sheet` / `verify_ability_scores` / `verify_darkvision` / `verify_mercenary_roster` / `verify_run_chronicle` / `verify_sheet_equip` / `verify_synth_bgm` / `verify_scene_bgm` / `verify_corner_check` / `verify_eol_doorfix` / `verify_declared_traps` / `verify_member_identity` / `verify_party_four` / `verify_recruit_size` / `verify_tower_mother_b`(world.html はアンカーの一意性の検算だけ)/ `probe_paint_overlay`)。項目 4 の全数走査で回す。
+
+基準(素の走行・`--negative` なし・直列・各ドライバの既定ポート・`timeout` で包まない・PowerShell)。ログ = `C:\Users\PC_User\.claude\dev-loop\r109\item1\`(`run_baseline.ps1` / `summary.txt` / `<driver>.log`)。
+
+| ドライバ | port | exit | 集計 | 秒 |
+|---|---|---|---|---|
+| `verify_world_map` | 9120 | 0 | 57/57 | 81 |
+| `verify_world_heromark` | 9490 | 0 | 18/18 | 10 |
+| `verify_world_steps` | 9600 | 0 | 33/33 | 63 |
+| `verify_quest_walk` | 9160 | 0 | 25/25 | 140 |
+| `verify_quest_visibility` | 10221 | 0 | 素 39/39 | 17 |
+| `verify_frost_hold` | 10690 | **1** | **26/27** | 128 |
+| `verify_lost_cargo` | 10653 | 0 | 22/22 | 176 |
+| `verify_silent_tomb` | 10664 | 0 | 24/24 | 273 |
+| `verify_witch_hut` | 10677 | 0 | 29/29 | 470 |
+| `verify_road_events` | 9760 | 0 | 25/25 | 81 |
+| `verify_road_boon` | 9790 | 0 | 20/20 | 68 |
+| `verify_road_ambush` | 9970 | 0 | 41/41 | 68 |
+| `verify_kobold_warren` | 10642 | 0 | 21/21 | 105 |
+| `verify_tower_mother` | 10538 | 0 | 19/19 | 123 |
+| `verify_town_exit` | 9460 | 0 | 素 23/23 | 7 |
+| `verify_title_screen` | 8893 | 0 | 86/86 | 66 |
+
+- ⚠ **着手前から赤 = `verify_frost_hold` (6b) の 1 本だけ**。分類 = **型 3(#109 に帰属しない)**。理由 1 行: (6b) は「触らない約束の関数のソースが `0298eca` と同じ」を縛り、`defeatEnemy` だけ長さ 6517 → 6596(`same:false`)= #108 項目 3(`614270e`)が `defeatEnemy` に `markHiddenFoeSlain(enemy);` を 1 行足したため。#108 は `verify_frost_hold` を「触らないファイル」にしていて非退行の一覧に入れていなかった ⇒ **#108 から赤いまま出荷されている**(製品の不具合ではなく期待表の基準が古い)。#109 は `index.html` に触れないので帰属経路が無い。⇒ **非退行の判定 = `verify_frost_hold` の FAILED の集合が {(6b)} から増えない**。(6b) の言い直しは #109 の範囲外(別チケット / 起草窓へ申し送り)。
+- 時刻で色が変わる本は無かった(闇市の `plazaClock` を握る本は母集団に居ない)。
+
+#### (5) 項目 2 / 3 で赤くなる節の予告と直し方(静的に読んだ予告。⚠ 実走で確かめてから §12 に確定を書く)
+
+方針の型: **【種 A】** 1 ホップ前提の節 → その腕の URL に `?autowalk=0` / **【種 S】** 札を押す的・札の幾何・解放の鎖を札で数える節 → `?questsign=0`(または `questDest` を種まき)/ **【言】** 札そのものの枚数を新規則で言い直す / **【窓】** (2)-A で (i) を選んだときだけ言い直す。
+
+| ドライバ | 節 | 何を測っているか | 予告 | 予定 |
+|---|---|---|---|---|
+| `verify_world_map` | (7b-dom)(7d)(7e)(7f)(7c-1/2 が DOM なら) | 札 13 枚の DOM・中心の命中・押しても遷移しない・駒が札を隠さない | 項目 3 で赤(cleared 焼き込みだけで questDest 無し ⇒ 札 1 枚) | 種 S(札の幾何は全 13 枚が母集団) |
+| 〃 | (3b)(3d)(4b)(4c) | 押し直しループ / 1 つ手前まで歩いてから phlan を 1 回押す | 項目 2 で **緑の見込み**(着いたら抜けるループ・ホップ間で `isMoving` が false にならない)。`dismissRoadEvent` の「先へ進む」で続きが走るが、次のクリックで行き先を差し替えるだけ | 実走で確認。赤なら種 A |
+| `verify_world_heromark` | (1c) | 実クリック 3 回 = 3 ホップ(`okTaps === HOPS`) | 項目 2 で赤(1 回目で行き先まで歩き切る) | 種 A |
+| 〃 | (1e)(3b)(4c) | ▽ と 13 枚の札の非交差 / 札 13 枚 / 撤退でも 13 枚 | 項目 3 で赤 | 種 S |
+| 〃 | (3a) | `__world` のキー集合 | (2)-A (i) を選んだときだけ赤 | 窓 |
+| `verify_world_steps` | (3a)(3b)(3c)(3d)(4a)(4b) + 変異 `fullwalk` / `hopnone` | 1 タップ = 1 刻み・押した回数 = ホップ数・arrivalCount が 1 ずつ | 項目 2 で赤 | 種 A |
+| 〃 | (3a)(3b) の「神殿の札を押す」/ (2d)(5c) 札 13 枚 | 札を押す的・札との非干渉・札の枚数 | 項目 3 で赤 | 種 S |
+| 〃 | (6a)〜(6d) | `?walkstep=0` | 緑の見込み(walkStepOff の枝は経路全部を 1 回で歩くまま) | — |
+| `verify_quest_walk` | (0b)(2a)(2b) | cleared で札の DOM 枚数が変わる = 解放の鎖を札で数える | 項目 3 で赤 | 種 S(鎖の意味は `revealed()` のまま・§8 (3d) と整合) |
+| 〃 | (3d)(3e) | 母集団ガード `signCount === 13` / 13 枚の中心の命中 | 項目 3 で赤 | 種 S |
+| 〃 | (3a)(3b)(3c)(4b) | 受注地の札を押す / `?questwalk=0` で 13 枚 | 緑の見込み(受注地には札がある・`questWalkOff` は isSignShown で今日の姿) | — |
+| `verify_quest_visibility` | (0c)(3b) | 素で 13 枚 / 封蝋を足しても 13 枚のまま | 項目 3 で赤 | 種 S((3b) は「封蝋で枚数が動かない」が主張 = 撤退の姿で測れば意味が保てる) |
+| 〃 | (5a) | `__world` 26 個 | (2)-A (i) のときだけ赤 | 窓 |
+| `verify_frost_hold` / `lost_cargo` / `silent_tomb` / `witch_hut` | frost (1b)(1c) / cargo (1c)(1d)(1f)(4b) / tomb (1d)(1f)(4b) / hut (1c)(1d)(1f)(4b) | 解放の後に `worldNode-site` + 札「地名」が立つ・札どうしの交わり 0 | 項目 3 で赤(questDest 無しの腕) | 種 S(主張は「解放されると拠点として立つ」と「札が混まない」= 全札が母集団) |
+| 〃 | frost (1e) / cargo (1g) / tomb (1g) / hut (1g) | 受注 = その地で `goToNode` + 押し直しループ(250ms で heroNode を拾う)・通りすがりの拠点で開かない | 緑の見込み(questDest あり・`WORLD_Q = ?roadevent=0&ambush=0`・通過点の滞在 ≥ 1 ホップ分 ≈ 0.5〜0.9 秒 > 250ms) | 実走で確認 |
+| `verify_kobold_warren` | (1a)(4b) | `village_s` が `worldNode-site`(DOM) | 項目 3 で赤 | 種 S |
+| `verify_tower_mother` | (4a) の素の腕 `W4` | `pass_n` が `worldNode-site` | 項目 3 で赤 | 種 S |
+| `verify_road_events` | (0d)(3a)(3d)(4c)(0c) と実クリックの走行全体 | 1 タップ = 1 停留所(`arrivals` の増分がちょうど 1)・往復の再訪 | 項目 2 で赤((4c) は確実) | 種 A(`PAGE_PATH = '/world.html'` :316 の腕へ) |
+| 〃 | (4b) | `__world` 26 個 | (2)-A (i) のときだけ赤 | 窓 |
+| `verify_road_boon` / `verify_road_ambush` | 実クリックで停留所を 1 つずつ踏む走行(boon (0c)(0d)(1a)(3a) / ambush (0e)(1a)〜(1g)(3a)) | 1 タップ = 1 停留所 | 項目 2 で赤の疑い | 種 A(`PAGE_PATH` :363 / :454) |
+| `verify_town_exit` / `verify_title_screen` | phlan を押す | 主人公は phlan に立っている ⇒ `goToPoint` の「同じ点」の枝 = 入場 | 緑の見込み | — |
+
+- ⚠ 種 A / 種 S を足すのは **その腕の URL だけ**(`?autowalk=0` / `?questsign=0` は sessionStorage へ写るので、同じタブでの遷移も撤退のまま)。⛔ 期待値を緩めない。⛔ `?walkstep=0` / `?questwalk=0` と相乗りさせない。
+- ⭐ 自動歩行と新しい札の規則そのものは新ドライバ `verify_world_autowalk`(port base 10720)が測る。種まきで逃がした節の主張が新ドライバのどこで測られているかを項目 4 で対応表にする。
