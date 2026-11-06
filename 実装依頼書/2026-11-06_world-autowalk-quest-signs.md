@@ -470,3 +470,88 @@ changelog: `js/changelog.js` へ「<b>地図は 1 回押せば着くまで歩く
   - `noeventstop` … `if (opened) { autoResume = function () { stepToward(id, my); }; return; }` → 外す(器が開いても歩き続ける)
   - `staletoken` … ⚠⚠ トークン検査を外すだけでは **空振りする**: 別の点を押すと `walkPath` の `pendingArrive` 差し替えと `goToPoint` の `autoResume = null` が古い続きを先に殺すため。赤くする筋 = 「出来事の器が開いて立ち止まる → (器を閉じずに) `__world.goToNode(別の点)` → 新しい歩きの最中に器の『先へ進む』」を作り、変異は **2 か所のトークン検査 + `goToPoint` の `autoResume = null;`** をまとめて外す(どれか 1 つでも残ると古い続きは止まる)。
 - 撤退は sessionStorage へ写る ⇒ 同じタブの再読込も撤退のまま。⚠ 撤退を立てる腕は別タブで(素の腕へ漏らさない)。
+
+### 12-3. 札(項目 3)
+
+日時 2026-11-06 20:20〜・基準 HEAD `7de5bf4`。ログ = `C:\Users\PC_User\.claude\dev-loop\r109\item3\`(`pre\` = 種まき前の実走 / `post\` = 最終 / `*.seeded.log` = 種まき後の 1 本ずつの実走)。
+
+#### (1) `world.html` の変更(CRLF のまま)
+
+| 行 | 何 |
+|---|---|
+| :1046-1057 | ★ `isSignShown(id)` を `isNodeRevealed` の直下に足した(§2-5 の式そのまま: 未解放なら false / 撤退 `questSignOff` か `questWalkOff` なら true / `WM.scenarioOfNode(id)` が無い = 街なら true / それ以外は `!!questDest && sc === questDest`) |
+| :1091-1102 | 撤退 `?questsign=0` — `?walkstep=0` / `?autowalk=0` と同じ書き方(クエリ → `sessionStorage["dragonfighters.questSignOff"]="1"` → `getItem === "1"` を `questSignOff` へ)。⛔ 他の撤退と相乗りしない |
+| :1111 | `buildNodes` の `var shown = isNodeRevealed(id);` → `isSignShown(id)` |
+
+⛔ 変えていないもの: `isNodeRevealed` / `__world.revealed()`(意味も中身も)・`__world` のキー(26 個のまま・§12-2 (1) のユーザー決定)・`data-node` / `data-kind` / 44px の当たり判定・封蝋の条件式(`isQuestMarkOn() && !questWalkOff && questDest && …`)・`js/world-map.js` / `js/road-events.js` / `index.html` / `tavern.html`。
+⭐ `questDest` は world.html の既存の変数(:962-963 で sessionStorage から 1 回読む)をそのまま使った = 封蝋・入場と同じ値。
+
+changelog: `js/changelog.js` の項目 2 の行を §10 の全文へ差し替えた(行は増やしていない・4 件のまま)。
+
+#### (2) 札に覆われた点(§12-1 (2)-D・`COVERED_BY_SIGN = { temple: 'lakeside' }`)
+
+- `world.html` に覆いの処理は **無い**(`COVERED_BY_SIGN` はドライバ 3 本の中だけ)⇒ 札が消えれば下の点はそのまま露出する。対処不要。
+- 実測(スモーク): 受注なし → **全 13 拠点の中心の elementFromPoint が自分自身**(temple も temple に当たる)。`questDest="witch-hut"` → 湖畔の札だけが立ち、**temple の中心は lakeside(の札)に当たる** = §12-1 (2)-D の予告どおり。受注地でない神殿へ入る用は無いので受入は変えない。**§9 の実機で目に入れる候補**として残す。
+
+#### (3) 既存 golden — 種まき 11 本(⛔ 期待値は 1 本も緩めていない・言い直し 0 本)
+
+赤は **実走で確かめてから** 種をまいた(`item3\pre\`)。方針: どの節も「札が立つ = 解放の鎖」「札 13 枚の母集団・幾何」を測っていて、札の新しい規則そのもの(phlan + 受注先)を測る節は既存 golden に無かった ⇒ **全部 種 S**(sessionStorage `dragonfighters.questSignOff=1` を測定タブへ撒く = `?questsign=0` の姿)。新しい規則は項目 4 の `verify_world_autowalk` が測る。⚠ URL の `?questsign=0` は使っていない(search を縛る節があるため・項目 2 の (6c) の教訓)。
+
+| ドライバ | 種まき前の赤(実走) | 予告との差 | 撒いた場所 | 種まき後 |
+|---|---|---|---|---|
+| `verify_world_map` | (7b-dom)(7d)(7f) | (7e) は緑だった | `browser.newPage` の包み(cleared を焼く既存の装置)に 1 行 | 57/57 |
+| `verify_world_heromark` | (1e)(3b)(4c) | 予告どおり | 同上の包み | 18/18 |
+| `verify_world_steps` | (2d)(5c) | (3a)(3b) は緑だった(`pressPointOf` の `coverGone` 枝) | 同上の包み | 33/33 |
+| `verify_quest_walk` | (0b)(2a)(2b)(2d)(3d)(3e) | (2d) が増えた(札 1 枚の母集団で歩かせていた) | `measureWorld` と `measureSeededAsk` の seed に `withSignOff()`(新設の小関数) | 25/25 |
+| `verify_quest_visibility` | (0c)(3b)(3d) | (3d)(封蝋が札を奪わない・13 枚の中心)が増えた | B0(素)と B2(器 + questDest)の 2 腕だけ `signOff: true`(seed に 1 行) | 39/39 |
+| `verify_frost_hold` | (0b)(1b)(1c) + 既知の (6b) | (0b) が増えた(全部クリアの札の数) | w4 / w5 / w5off / wAll の 4 腕に `ss: SIGN_OFF` | 26/27 = FAILED {(6b)} |
+| `verify_lost_cargo` | (1a)(1d)(1f)(4b) | (1a) が増え (1c) は緑 | w0 / w1 / w1off と (1f) の札の腕 | 22/22 |
+| `verify_silent_tomb` | (1a)(1d)(1f)(4b) | (1a) が増えた | w0 / w1 / w2 / w2off と (1f) の札の腕 | 24/24 |
+| `verify_witch_hut` | (1a)(1d)(1f)(4b) | (1a) が増え (1c) は緑 | w0〜w3off と (1f) の札の腕 + (1f) ② 神殿の札を観る腕・押す腕 | 29/29 |
+| `verify_kobold_warren` | (1a)(4b) | 予告どおり | world の `prep(wp, [], { ss })` | 21/21 |
+| `verify_tower_mother` | (4b)((1a)(1c)(4a) の ON/OFF 反転表) | 予告は (4a) → 実際に赤いのは集計の (4b) | world の `prep` の直後に同じタブで 1 行(この本の `prep` は ss を持たない) | 19/19 |
+
+- ⛔ 受注の腕(questDest を撒いている (1g)(1e) 等)には撒いていない = 新しい規則の下で受注地に札が立つことを既存 golden がそのまま踏んでいる(緑のまま)。
+- 緑のままだった本: `verify_road_events` / `verify_road_boon` / `verify_road_ambush` / `verify_town_exit` / `verify_title_screen`。
+- 変異アンカー: 全 `tools/*.js` の文字列リテラルを旧 `world.html`(HEAD `7de5bf4`)と新で数え直す走査(`item3\anch.js` = 項目 2 の走査器の写し)で、**消えたもの 0 件・1 件 → 2 件以上になったもの 0 件**(増えたのは `dragonfighters.` / `?questwalk=0` 等のコメント語の数え上げだけ)⇒ from/to の追従は不要。
+
+#### (4) 検証
+
+- スモーク `item3\smoke_signs.js`(port 10741・使い捨て・cleared = 本筋 6 本)= **PASS 20 / FAIL 0**:
+  `?questsign=0` → 札 = 解放済みの拠点全部 13 枚・sessionStorage に `"1"`・クエリ無しの再読込でも撤退のまま / questDest 無し → `.worldSign` は `["phlan"]`・封蝋 0 / `revealed()` は撤退の姿と同じ 15 件(questDest あり・なしとも)/ 札の無い forest は `data-kind="site"`・`worldNode-way`・title なし・CSS 44px(札のある phlan と同じ実寸)・中心は forest 自身に当たり、DOM クリックで歩いて着く・入場ダイアログは開かない・`world.html` のまま / questDest="goblin-mine" → 札は `["mine","phlan"]`・封蝋は mine だけ / questDest="witch-hut" → `["lakeside","phlan"]` / 受注なしで全拠点の中心が自分自身 / `?questsign=0` だけ → 自動歩行は生きている(phlan→swamp を 1 回で 3 ホップ)・`autoWalkOff` は立たない / `?autowalk=0` だけ → 札は phlan 1 枚・`questSignOff` は立たない / pageerror 0。
+- 非退行 16 本(post): 下の (5)。
+
+#### (5) 非退行 16 本(post = 最終コード・種まき後・直列・既定ポート・`item3\post\summary.txt`)
+
+2026-11-06 21:04〜21:37。
+
+| ドライバ | exit | 集計 | 種まき前 (pre・`item3\pre\`) |
+|---|---|---|---|
+| `verify_world_map` | 0 | 57/57 | 1 ((7b-dom)(7d)(7f)) |
+| `verify_world_heromark` | 0 | 18/18 | 1 ((1e)(3b)(4c)) |
+| `verify_world_steps` | 0 | 33/33 | 1 ((2d)(5c)) |
+| `verify_quest_walk` | 0 | 25/25 | 1 ((0b)(2a)(2b)(2d)(3d)(3e)) |
+| `verify_quest_visibility` | 0 | 39/39 | 1 ((0c)(3b)(3d)) |
+| `verify_frost_hold` | 1 | 26/27 = FAILED **{(6b)}**(§12-1 の基準と同じ集合・#109 に帰属しない) | 1 ((0b)(1b)(1c)(6b)) |
+| `verify_lost_cargo` | 0 | 22/22 | 1 ((1a)(1d)(1f)(4b)) |
+| `verify_silent_tomb` | 0 | 24/24 | 1 ((1a)(1d)(1f)(4b)) |
+| `verify_witch_hut` | 0 | 29/29 | 1 ((1a)(1d)(1f)(4b)) |
+| `verify_road_events` | 0 | 25/25 | 0 |
+| `verify_road_boon` | 0 | 20/20 | 0 |
+| `verify_road_ambush` | 0 | 41/41 | 0 |
+| `verify_kobold_warren` | 0 | 21/21 | 1 ((1a)(4b)) |
+| `verify_tower_mother` | 0 | 19/19 | 1 ((4b)) |
+| `verify_town_exit` | 0 | 23/23 | 0 |
+| `verify_title_screen` | 0 | 86/86 | 0 |
+
+⇒ 合格(frost_hold は {(6b)} から増えず・他 15 本は全緑)。
+
+#### (6) 項目 4 への申し送り
+
+- `isSignShown(id)` = `world.html:1051`(撤退 `QUEST_SIGN_OFF_KEY` :1095・`questSignOff` :1101・`buildNodes` の差し替え :1111)。
+- 変異の注入先の候補(どれも `world.html` にちょうど 1 回。⚠ 注入前に `split().length - 1 === 1` で一意性を確かめること):
+  - `allsigns` … `var shown = isSignShown(id);           /* ★[#109] 札は受注中の行き先と街だけ */` → `var shown = isNodeRevealed(id);`
+  - `nophlan` … `if (!sc) return true;                              /* 街 = phlan */` → `if (!sc) return false;`(= 街も受注判定にかける。phlan は SITES に居ないので受注先になり得ない)
+  - `deadnode` … `el.setAttribute("data-kind", n.kind);` の直後に `if (n.kind === "site" && !shown) el.style.pointerEvents = "none";` を足す(札の無い拠点の当たり判定を消す)
+- ⚠ 既存 golden 11 本は種 S で「今日の姿」を測っている ⇒ **札の新しい規則(phlan + 受注先・札の無い拠点が押せる・revealed 不変)を測るのは新ドライバだけ**。対応表の候補: (3a) ← world_map (7b-dom)・heromark (3b)・steps (5c)・quest_visibility (0c) の「札の枚数」/ (3c) ← quest_walk (2d)(3d) の「押せる・入れない」/ (3d) ← quest_walk (0b)(2a)(2b) の「解放の鎖」。
+- 測れなくなった主張: なし(各節の主張は撤退の姿で今日どおり測っている)。新しい規則の下での札どうしの幾何 (7d)(7f) は、札が高々 2 枚になるので 13 枚の幾何が上界(新ドライバで測らなくてよい)。

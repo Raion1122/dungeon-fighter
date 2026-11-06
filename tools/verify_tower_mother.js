@@ -467,6 +467,10 @@ async function runSuite(browser, port, mutKey, label) {
     const wp = await newPage();
     const openWorld = async (q) => {
       await prep(wp, MAIN4);
+      /* ★[#109 項目3] 種まき questSignOff=1 (= ?questsign=0 の撤退)。#109 から札は「受注中の行き先と港町だけ」。
+         (4a) は「pass_n が拠点 (worldNode-site) として立つ / ?tower=0 で中継点に戻る」を測るので今日の姿の札で測る。
+         ⛔ 期待値は変えていない。札の新しい規則は verify_world_autowalk が測る。⚠ prep は sessionStorage を消すので、その後に同じタブで撒く。 */
+      await wp.evaluate(() => sessionStorage.setItem('dragonfighters.questSignOff', '1'));
       await wp.goto(base + 'world.html' + (q || ''), { waitUntil: 'load', timeout: 60000 });
       await wp.waitForFunction((S) => !!window.WORLD_MAP && !!document.getElementById('worldNode_' + S), { timeout: 30000 }, TOWER_SITE);
       await sleep(800);

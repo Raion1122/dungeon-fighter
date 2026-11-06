@@ -510,8 +510,22 @@ async function readStorage(page) {
  *  ⚠ revealed / questDest / askOpen は **項目 3 が足す検証シーム**。まだ無いので
  *     hasXxx で「有るか無いか」を持ち帰り、assert 側が有無を判断する
  *     (無い物を呼んで例外にすると、実装前は全 assert が fatal で潰れる)。 */
+/* ★[#109 項目3] 種まき questSignOff=1 (= ?questsign=0 の撤退)。#109 から札は「受注中の行き先と港町だけ」になった。
+ *   このドライバの札の節 ((0b)(2a)(2b)(2d)(3d)(3e)) は「解放の鎖で札が立つ / 札 13 枚の母集団」を測るので、
+ *   解放の鎖は今日の姿の札で数える (鎖の意味 = __world.revealed() は #109 で変えていない)。
+ *   ⛔ 期待値は変えていない。札の新しい規則そのものは verify_world_autowalk が測る。
+ *   ⛔ URL に ?questsign=0 を足さない (search を縛る節がある)。 */
+const KEY_QUEST_SIGN_OFF = 'dragonfighters.questSignOff';
+function withSignOff(seed) {
+  const s = Object.assign({}, seed || {});
+  s.session = Object.assign({}, s.session || {});
+  s.session[KEY_QUEST_SIGN_OFF] = '1';
+  return s;
+}
+
 async function measureWorld(browser, port, errs, opts) {
-  const o = opts || {};
+  const o = Object.assign({}, opts || {});
+  o.seed = withSignOff(o.seed);   /* ★[#109 項目3] 上の注記 */
   const tag = '[:' + port + ' world' + (o.tag ? ' ' + o.tag : '') + '] ';
   const page = await newPage(browser, errs, tag, o);
   await page.goto('http://localhost:' + port + WORLD_PATH + (o.query || ''), { waitUntil: 'load', timeout: 30000 });
@@ -1075,7 +1089,7 @@ async function measureSeededAsk(browser, port, errs, tav, opts) {
   const seed = { cleared: clearedUpTo(tav, o.clearedN), session: {} };
   seed.session[KEY_QUEST_DEST] = o.questDest;
   seed.session[KEY_SCENARIO] = o.questDest;
-  const page = await newPage(browser, errs, tag, { seed: seed });
+  const page = await newPage(browser, errs, tag, { seed: withSignOff(seed) });   /* ★[#109 項目3] (3d) の母集団 13 枚 */
   const blocked = [];
   await page.setRequestInterception(true);
   page.on('request', (r) => {

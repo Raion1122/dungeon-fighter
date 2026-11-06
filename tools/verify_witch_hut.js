@@ -915,11 +915,15 @@ async function runSuite(browser, port, mutKey, label) {
     await tp.close().catch(() => {});
 
     /* ══════════ world ══════════ */
-    const w0 = (await openWorld({ cleared: [] })).snap;                 /* (1c)(1e) */
-    const w1 = (await openWorld({ cleared: [MINE] })).snap;             /* (1c) */
-    const w2 = (await openWorld({ cleared: MF })).snap;                 /* (1c) */
-    const w3 = (await openWorld({ cleared: MFS })).snap;                /* (1a)(1d) */
-    const w3off = (await openWorld({ cleared: MFS, q: '?hag=0' })).snap;   /* (4b) */
+    /* ★[#109 項目3] 種まき SIGN_OFF (= ?questsign=0 の撤退)。#109 から札は「受注中の行き先と港町だけ」。
+       (1a)(1c)(1d)(1f)(4b) は「解放されると拠点 (札) として立つ / 札どうしが混まない (全札が母集団)」を測るので今日の姿の札で測る。
+       ⛔ 期待値は変えていない。札の新しい規則は verify_world_autowalk が測る。⛔ (1g) の受注の腕には撒かない (questDest で札が立つ)。 */
+    const SIGN_OFF = { 'dragonfighters.questSignOff': '1' };
+    const w0 = (await openWorld({ cleared: [], ss: SIGN_OFF })).snap;                 /* (1c)(1e) */
+    const w1 = (await openWorld({ cleared: [MINE], ss: SIGN_OFF })).snap;             /* (1c) */
+    const w2 = (await openWorld({ cleared: MF, ss: SIGN_OFF })).snap;                 /* (1c) */
+    const w3 = (await openWorld({ cleared: MFS, ss: SIGN_OFF })).snap;                /* (1a)(1d) */
+    const w3off = (await openWorld({ cleared: MFS, q: '?hag=0', ss: SIGN_OFF })).snap;   /* (4b) */
     /* (4c) 撤退 5 段 (本番の関数を呼ぶ) */
     const wr = await openWorld({ cleared: [], keep: true });
     const retired = await wr.page.evaluate(() => {
@@ -941,7 +945,7 @@ async function runSuite(browser, port, mutKey, label) {
     const signRows = [];
     for (const v of SIGN_VIEWS) {
       for (const stand of SIGN_STANDS) {
-        const ss = stand === 'title' ? {} : { 'dragonfighters.roadReturn': stand };
+        const ss = Object.assign({}, SIGN_OFF, stand === 'title' ? {} : { 'dragonfighters.roadReturn': stand });   /* ★[#109 項目3] */
         const w = await openWorld({ cleared: MFS, ss, view: v, keep: true, settle: 1500 });
         const m = await w.page.evaluate(SIGN_SNAP, WH_SITE);
         await w.page.close().catch(() => {});
@@ -953,7 +957,7 @@ async function runSuite(browser, port, mutKey, label) {
      *   押す腕は 1440 だけ・?roadevent=0&ambush=0 で title 起点 (pier) から神殿の札を押し続ける (1 回押すと 1 停留所進む)。 */
     const templeRows = [];
     for (const v of SIGN_VIEWS) {
-      const w = await openWorld({ cleared: mainIds, q: '?roadevent=0', ss: { 'dragonfighters.roadReturn': WH_SITE }, view: v, keep: true, settle: 1500 });
+      const w = await openWorld({ cleared: mainIds, q: '?roadevent=0', ss: Object.assign({}, SIGN_OFF, { 'dragonfighters.roadReturn': WH_SITE }), view: v, keep: true, settle: 1500 });
       const m = await w.page.evaluate(SIGN_SNAP, WH_SITE);
       const t0 = await w.page.evaluate(TEMPLE_SNAP, TEMPLE_SITE, WH_SITE);
       await w.page.close().catch(() => {});
@@ -962,7 +966,7 @@ async function runSuite(browser, port, mutKey, label) {
     {
       /* ★[#109 項目2] 種まき &autowalk=0 = 「押し続けると着く」は 1 回押すと 1 停留所進む (#40 の姿) が前提 (presses.length >= 2 の母集団)。
          #109 の自動歩行では 1 回で着くので、1 タップ 1 ホップへ戻して測る。⛔ 期待値は変えていない。 */
-      const w = await openWorld({ cleared: mainIds, q: WORLD_Q + '&autowalk=0', view: SIGN_VIEWS[0], keep: true, settle: 1500 });
+      const w = await openWorld({ cleared: mainIds, q: WORLD_Q + '&autowalk=0', ss: SIGN_OFF, view: SIGN_VIEWS[0], keep: true, settle: 1500 });
       const presses = [];
       let arrived = false;
       for (let i = 0; i < PRESS_MAX && !arrived; i++) {

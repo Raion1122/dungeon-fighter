@@ -500,7 +500,10 @@ async function runSuite(browser, port, mutKey, label) {
     /* ══════════ world ══════════ */
     const wp = await newPage();
     const openWorld = async (q) => {
-      await prep(wp, []);
+      /* ★[#109 項目3] 種まき questSignOff=1 (= ?questsign=0 の撤退)。#109 から札は「受注中の行き先と港町だけ」。
+         (1a)(4b) は「village_s が拠点 (worldNode-site) として立つ / ?warren=0 で中継点に戻る」を測るので今日の姿の札で測る。
+         ⛔ 期待値は変えていない。札の新しい規則は verify_world_autowalk が測る。 */
+      await prep(wp, [], { ss: { 'dragonfighters.questSignOff': '1' } });
       await wp.goto(base + 'world.html' + (q || ''), { waitUntil: 'load', timeout: 60000 });
       await wp.waitForFunction((S) => !!window.WORLD_MAP && !!document.getElementById('worldNode_' + S), { timeout: 30000 }, KW_SITE);
       await sleep(800);

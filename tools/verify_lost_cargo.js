@@ -641,9 +641,13 @@ async function runSuite(browser, port, mutKey, label) {
     await tp.close().catch(() => {});
 
     /* ══════════ world ══════════ */
-    const w0 = (await openWorld({ cleared: [] })).snap;               /* (1c)(1e)(4c) */
-    const w1 = (await openWorld({ cleared: [MINE] })).snap;           /* (1a)(1d) */
-    const w1off = (await openWorld({ cleared: [MINE], q: '?cargo=0' })).snap;   /* (4b) */
+    /* ★[#109 項目3] 種まき SIGN_OFF (= ?questsign=0 の撤退)。#109 から札は「受注中の行き先と港町だけ」。
+       (1a)(1c)(1d)(1f)(4b) は「解放されると拠点 (札) として立つ / 札どうしが混まない (全札が母集団)」を測るので今日の姿の札で測る。
+       ⛔ 期待値は変えていない。札の新しい規則は verify_world_autowalk が測る。⛔ (1g) の受注の腕には撒かない (questDest で札が立つ)。 */
+    const SIGN_OFF = { 'dragonfighters.questSignOff': '1' };
+    const w0 = (await openWorld({ cleared: [], ss: SIGN_OFF })).snap;               /* (1c)(1e)(4c) */
+    const w1 = (await openWorld({ cleared: [MINE], ss: SIGN_OFF })).snap;           /* (1a)(1d) */
+    const w1off = (await openWorld({ cleared: [MINE], q: '?cargo=0', ss: SIGN_OFF })).snap;   /* (4b) */
     /* (4c) 撤退 3 段 (本番の関数を呼ぶ。⚠ 閉じる直前のページで)。★[#105] 先頭に retireTomb() を足して 4 段・★[#106] さらに先頭に retireHag() を足して 5 段 */
     const wr = await openWorld({ cleared: [], keep: true });
     const retired = await wr.page.evaluate(() => {
@@ -665,7 +669,7 @@ async function runSuite(browser, port, mutKey, label) {
     const signRows = [];
     for (const v of SIGN_VIEWS) {
       for (const via of ['town', 'title']) {
-        const ss = via === 'town' ? { 'dragonfighters.exitVia': 'town' } : {};
+        const ss = Object.assign({}, SIGN_OFF, via === 'town' ? { 'dragonfighters.exitVia': 'town' } : {});   /* ★[#109 項目3] */
         const w = await openWorld({ cleared: [MINE], ss, view: v, keep: true });
         const m = await w.page.evaluate(SIGN_SNAP, LC_SITE);
         await w.page.close().catch(() => {});

@@ -889,10 +889,14 @@ async function runSuite(browser, port, mutKey, label) {
     await tp.close().catch(() => {});
 
     /* ══════════ world ══════════ */
-    const w4 = (await openWorld({ cleared: M4 })).snap;                       /* (1c) */
-    const w5 = (await openWorld({ cleared: M5 })).snap;                       /* (1a)(1b)(1c) */
-    const w5off = (await openWorld({ cleared: M5, q: '?giant=0' })).snap;     /* (4b) */
-    const wAll = (await openWorld({ cleared: mainIds.concat(sideIds) })).snap; /* (0b) 札の数 */
+    /* ★[#109 項目3] 種まき SIGN_OFF (= ?questsign=0 の撤退)。#109 から札は「受注中の行き先と港町だけ」。
+       (0b)(1b)(1c)(4b) は「解放されると拠点 (札) として立つ / 札の数」を測るので今日の姿の札で測る。
+       ⛔ 期待値は変えていない。札の新しい規則は verify_world_autowalk が測る。⛔ URL に足さない (q を縛る腕がある)。 */
+    const SIGN_OFF = { 'dragonfighters.questSignOff': '1' };
+    const w4 = (await openWorld({ cleared: M4, ss: SIGN_OFF })).snap;                       /* (1c) */
+    const w5 = (await openWorld({ cleared: M5, ss: SIGN_OFF })).snap;                       /* (1a)(1b)(1c) */
+    const w5off = (await openWorld({ cleared: M5, q: '?giant=0', ss: SIGN_OFF })).snap;     /* (4b) */
+    const wAll = (await openWorld({ cleared: mainIds.concat(sideIds), ss: SIGN_OFF })).snap; /* (0b) 札の数 */
     /* (4c) 撤退 6 段 (本番の関数を呼ぶ) */
     const wr = await openWorld({ cleared: [], keep: true });
     const retired = await wr.page.evaluate(() => {

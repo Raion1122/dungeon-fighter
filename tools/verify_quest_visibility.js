@@ -357,6 +357,10 @@ async function newPage(browser, tag, o) {
       sessionStorage.setItem('dragonfighters.plazaClock', '21');   /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定 */
       if (sd.vessel) localStorage.setItem('dragonfighters.activeQuest', JSON.stringify(sd.vessel));
       if (sd.questDest) sessionStorage.setItem('dragonfighters.questDest', sd.questDest);
+      /* ★[#109 項目3] 種まき questSignOff=1 (= ?questsign=0 の撤退)。#109 から札は「受注中の行き先と港町だけ」。
+         (0c)(3b)(3d) は「札 13 枚の母集団に封蝋が子として足される」を測るので、今日の姿の札で測る。
+         ⛔ 期待値 (13 枚) は変えていない。札の新しい規則は verify_world_autowalk が測る。 */
+      if (sd.signOff) sessionStorage.setItem('dragonfighters.questSignOff', '1');
       if (sd.lastResult) sessionStorage.setItem('dragonfighters.lastResult', sd.lastResult);
       if (sd.xp) localStorage.setItem('dragonfighters.xp', sd.xp);
       if (sd.gold) localStorage.setItem('dragonfighters.gold', sd.gold);
@@ -366,6 +370,7 @@ async function newPage(browser, tag, o) {
     cleared: o.cleared || null,
     vessel: o.vessel || null,
     questDest: o.questDest || null,
+    signOff: !!o.signOff,
     lastResult: o.lastResult || null,
     xp: o.xp || null, gold: o.gold || null,
   });
@@ -745,7 +750,7 @@ function runNegative(audit) {
         + '  cleared に仕込む id=' + J(CLEARED) + '  本筋=' + MAIN_N + ' 件 / side=' + SIDE_N + ' 件');
 
     /* 世界地図の 2 状態 (素 / 器あり)。(0a) はこの 2 つが **違う値**を返すこと。 */
-    const B0  = await openWorld(browser, base, '[B0 世界地図 素]',    { cleared: CLEARED });
+    const B0  = await openWorld(browser, base, '[B0 世界地図 素]',    { cleared: CLEARED, signOff: true });   /* ★[#109 項目3] 種 S */
     const B1  = await openWorld(browser, base, '[B1 世界地図 器あり]', { cleared: CLEARED, vessel: VESSEL });
     const B0c = await openWorld(browser, base, '[B0c 素 compact]',    { cleared: CLEARED, w: 390, h: 844, mobile: true });
     const B1c = await openWorld(browser, base, '[B1c 器 compact]',    { cleared: CLEARED, vessel: VESSEL, w: 390, h: 844, mobile: true });
@@ -920,7 +925,7 @@ function runNegative(audit) {
     // ══════════════════════════════════════════════════════════════════
     console.log('\n--- §3 封蝋 ---');
     const B2 = await openWorld(browser, base, '[B2 器+questDest]',
-      { cleared: CLEARED, vessel: VESSEL, questDest: SC.id });
+      { cleared: CLEARED, vessel: VESSEL, questDest: SC.id, signOff: true });   /* ★[#109 項目3] 種 S */
     const B3 = await openWorld(browser, base, '[B3 ?questwalk=0]',
       { cleared: CLEARED, vessel: VESSEL, questDest: SC.id, query: '?questwalk=0' });
 

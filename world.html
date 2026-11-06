@@ -1043,6 +1043,19 @@
       return WM.isRevealed(sc, clearedList);
     }
 
+    /* ★[#109 STEP2] 札を立てるか。⭐ 街 (SITES に居ない拠点 = 今日は phlan) は常に立てる。
+       依頼の地は「解放済み かつ 受注中の行き先」だけ。式は封蝋・入場と同じ (questDest)。
+       ⛔ isNodeRevealed / __world.revealed() の意味は変えない (解放の鎖 = verify_quest_walk が握る)。
+       ⭐ 札の無い拠点も data-node / data-kind / 44px の当たり判定は残る = 押せば歩いて行ける (入れはしない)。
+       ⚠ questSignOff は下の撤退 ?questsign=0 で決まる (var の巻き上げ。buildNodes() より前に代入済み)。 */
+    function isSignShown(id) {
+      if (!isNodeRevealed(id)) return false;
+      if (questSignOff || questWalkOff) return true;     /* 撤退 = 今日の姿 */
+      var sc = WM.scenarioOfNode(id);
+      if (!sc) return true;                              /* 街 = phlan */
+      return !!questDest && sc === questDest;
+    }
+
     /* ══ 撤退スイッチ ?walkstep=0 (#40 §7) ═══════════════════════
        ⭐ 立てると「今日の姿」= 刻み点マーカーを 1 枚も描かず、1 タップで経路全部を歩く。
        ⚠ **buildSteps() より前**に読むこと (下の buildSteps が walkStepOff を見る)。
@@ -1075,6 +1088,19 @@
     var AUTO_WALK_ON = true;
     try { AUTO_WALK_ON = sessionStorage.getItem(AUTO_WALK_OFF_KEY) !== "1"; } catch (e) {}
 
+    /* ══ 撤退スイッチ ?questsign=0 (#109 §7) ═══════════════════════
+       ⭐ 立てると「解放済みの依頼の地すべてに札」(今日の姿) へ戻る (isSignShown が true を返す)。
+       ⚠ 書き方は上の ?walkstep=0 / ?autowalk=0 と同じ (クエリ → sessionStorage へ写す → "1" を読む)。
+       ⛔ ?autowalk=0 / ?walkstep=0 / ?questwalk=0 / ?questmark=0 / ?roadevent=0 と相乗りさせない。 */
+    var QUEST_SIGN_OFF_KEY = "dragonfighters.questSignOff";
+    try {
+      if (new URLSearchParams(location.search).get("questsign") === "0") {
+        sessionStorage.setItem(QUEST_SIGN_OFF_KEY, "1");
+      }
+    } catch (e) {}
+    var questSignOff = false;
+    try { questSignOff = sessionStorage.getItem(QUEST_SIGN_OFF_KEY) === "1"; } catch (e) {}
+
     var nodeEls = {};
     function buildNodes() {
       Object.keys(NODES).forEach(function (id) {
@@ -1082,7 +1108,7 @@
         var el = document.createElement("div");
         /* ⭐ 未解放の拠点は way と同じ体裁 = 「街道の折れ目」に見えるだけ (依頼書 §6-2)。
            ⛔ data-node / data-kind と 44px 角の当たり判定は **変えない** (罠 A)。 */
-        var shown = isNodeRevealed(id);
+        var shown = isSignShown(id);           /* ★[#109] 札は受注中の行き先と街だけ */
         el.className = "worldNode worldNode-" + (n.kind === "site" && shown ? "site" : "way");
         el.id = "worldNode_" + id;
         el.setAttribute("data-node", id);

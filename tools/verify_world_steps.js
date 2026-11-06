@@ -2391,6 +2391,11 @@ const PENDINGS = [
       const p = await _newPage();
       await p.evaluateOnNewDocument((k, v) => {
         try { localStorage.setItem(k, v); } catch (e) {}
+        /* ★[#109 項目3] 種まき questSignOff=1 (= ?questsign=0 の撤退) — 札の母集団 (解放済みの拠点全部) を復元する。
+           #109 から札は「受注中の行き先と港町だけ」になり、questDest を持たない測定タブでは札が港町の 1 枚になる。
+           このドライバの札の節は「全札の幾何・枚数」を測るので、札の規則そのものは verify_world_autowalk に任せて今日の姿で測る。
+           ⛔ 期待値 (13 枚) は変えていない。⛔ ?questsign=0 を URL へ足さない (search を縛る節がある)。 */
+        try { sessionStorage.setItem('dragonfighters.questSignOff', '1'); } catch (e) {}
       }, CLEARED_KEY, JSON.stringify(CLEARED_ALL));
       return p;
     };
