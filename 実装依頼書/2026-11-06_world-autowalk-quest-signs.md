@@ -1,6 +1,6 @@
 # #109 ワールドマップ — 遠くを 1 回押せば着くまで歩く + 札は受注中の行き先と街だけ
 
-- **起草**: 2026-11-06(計画窓) / **ステータス**: **承認済**(2026-11-06 ユーザー承認)
+- **起草**: 2026-11-06(計画窓) / **ステータス**: **完了**(実装窓 2026-11-07)(2026-11-06 ユーザー承認 → 項目 1〜4 `0a1ecd6` / `7de5bf4` / `7ef5f25` / 項目 4 の受入。結果は §12)
 - **触るファイル**: `world.html` / `tools/verify_world_autowalk.js`(新規)/ 言い直しが要る既存 golden(§2-6)/ `js/changelog.js`(任意・§10)
 - ⛔ **触らないファイル**: `js/world-map.js`(NODES / EDGES / STEPS / SITES / UNLOCK は 1 バイトも変えない。`(4a)` 系が sha1 で恒等固定)・`js/road-events.js`・`index.html`・`tavern.html`
 - 並走: 2026-11-06 時点で別窓の未コミット差分は無い(`git status` クリーン・HEAD `b86e1cd`)。それでも **ファイル単位 add**・`git diff --cached <file>` を読んでから commit。
@@ -555,3 +555,128 @@ changelog: `js/changelog.js` の項目 2 の行を §10 の全文へ差し替え
   - `deadnode` … `el.setAttribute("data-kind", n.kind);` の直後に `if (n.kind === "site" && !shown) el.style.pointerEvents = "none";` を足す(札の無い拠点の当たり判定を消す)
 - ⚠ 既存 golden 11 本は種 S で「今日の姿」を測っている ⇒ **札の新しい規則(phlan + 受注先・札の無い拠点が押せる・revealed 不変)を測るのは新ドライバだけ**。対応表の候補: (3a) ← world_map (7b-dom)・heromark (3b)・steps (5c)・quest_visibility (0c) の「札の枚数」/ (3c) ← quest_walk (2d)(3d) の「押せる・入れない」/ (3d) ← quest_walk (0b)(2a)(2b) の「解放の鎖」。
 - 測れなくなった主張: なし(各節の主張は撤退の姿で今日どおり測っている)。新しい規則の下での札どうしの幾何 (7d)(7f) は、札が高々 2 枚になるので 13 枚の幾何が上界(新ドライバで測らなくてよい)。
+
+### 12-4. 受入(項目 4)
+
+日時 2026-11-06 21:40〜2026-11-07 08:30・基準 HEAD `7ef5f25`(項目 3 の最終)。ログ = `C:\Users\PC_User\.claude\dev-loop\r109\item4\`(`plain1〜3.log` = 素 3 回 / `negative.log` = 変異 8 本 / `post\summary.txt` = 非退行 32 本 / `post\tmb_attrib.txt` = 帰属の切り分け)。
+⚠ 項目 4 は worker が途中で 1 度落ちた(非退行の `verify_witch_hut` の途中)。ドライバ・素 3 回・`--negative` はそのまま引き継ぎ、非退行は `verify_witch_hut` から最後まで走らせ直した。
+
+#### (1) `tools/verify_world_autowalk.js`(新規・port 10720・619 行)
+
+- 本番の `world.html` を実 Chrome で開く。`world.html` と `js/*.js` の配信バイトは起動時に凍結する。1 腕 = 1 タブ(撤退の sessionStorage が素の腕へ漏れない)。
+- ✅ §12-2 (1) のユーザー決定どおり `__world` に窓は足していない。押し口 = `__world.goToNode`(§12-1 (2)-B)と拠点 el の実クリック(中心の `elementFromPoint` を先に採る)。観測 = 既存の `arrivalCount()` / `lastArrival()` / `heroNode()` / `isMoving()` / `askOpen()` / `revealed()` / `roadEvent()` と DOM の `.worldSign` / `.worldSeal` / `#worldEventBox`、撤退は sessionStorage(`dragonfighters.autoWalkOff` / `dragonfighters.questSignOff`)。
+- §8 からの言い直し(観測の口だけ。主張は変えていない): `signed()` → `.worldSign` の親の `data-node` / `autoWalkOn()` → sessionStorage / `walkToken()` → (1d) の振る舞いと変異 `staletoken`。
+- **(1d) は 2 腕**: ① `?roadevent=0` で歩いている途中に別の拠点を押す ② ⭐ 罠 B の本丸 = 出来事で立ち止まる → 器を開いたまま `goToNode(別の拠点)` → 新しい歩きの途中で「先へ進む」。① だけでは変異 `staletoken` は赤くならない(§12-2 (6))。
+- (0b) の種探しは **`?autowalk=0` の腕で押し直しながら** 行う(自動歩行を壊す変異の下でも空振りしない)。見つからなければ exit 3。
+- ⛔ 測っていないもの(§8 ⛔): 歩く速さ・カメラ・点ごとの一瞬の止まり・札の見た目。(2a) は「器が開いた時点と 1.2 秒後に `isMoving()` が false・同じ点・`arrivalCount` 不変」= 止まっているかどうかだけで、止まり方の見た目は測らない。(3c) の 44px は当たり判定の寸法で、見た目ではない。
+
+#### (2) 判定表(素 3 回 = 3 回とも `21/21 PASSED  FAILED 0  節 18`・各 63 秒・exit 0)
+
+| 節 | 何を測るか | 結果 |
+|---|---|---|
+| (0a) | phlan → temple の `findWalkPath` が 2 ホップ以上(11)・主人公は phlan | ✅ |
+| (0b) | 出来事が開く種がある(`?roadseed=` を 1 から探す。見つからなければ exit 3) | ✅ |
+| (0c) | `.worldSign` が 1 枚以上(phlan) | ✅ |
+| (1a) | `?roadevent=0` で temple を 1 回だけ実クリック → temple に着く・`arrivalCount` の増分 = 経路長 11・器は 1 度も開かない | ✅ |
+| (1b) ×2 | 受注先でない temple に着いても `askOpen()` false / `questDest=undead-temple` なら着いて true・途中の点では開かない | ✅ ✅ |
+| (1c) | pier → forest(経路に phlan)で `/world.html` のまま・増分 = 経路長 | ✅ |
+| (1d) ×2 | ① 歩いている途中に pier を押す → pier に着いて留まる ② 出来事で立ち止まる → 器を開いたまま別の拠点 → 新しい歩きの途中で「先へ進む」→ temple へ戻らず後から押した拠点に着く | ✅ ✅ |
+| (2a) | 出来事が開いた時点で止まっている・経路の途中の点・1.2 秒後も同じ | ✅ |
+| (2b) | 判定なしの枝 →「先へ進む」→ もう 1 回押さずに temple(増分 11) | ✅ |
+| (2c) | 1 本の歩きで同じ点で 2 回開かない(`roadEvent().fired` = 開いた回数) | ✅ |
+| (3a) ×2 | 受注なし → 札は phlan 1 枚・封蝋 0(未クリア / 全部クリアの 2 腕) | ✅ ✅ |
+| (3b) | `questDest=goblin-mine` → 札は mine と phlan の 2 枚・封蝋は mine だけ | ✅ |
+| (3c) | 札の無い解放済みの forest: `data-kind=site`・`worldNode-way`・title なし・CSS 44px(phlan と同じ実寸)→ 実クリックで歩いて着く・入場ダイアログは開かない・`world.html` のまま | ✅ |
+| (3d) | `revealed()` は 受注なし = 受注あり = `?questsign=0`(全部クリア)・未クリアはその真部分集合 | ✅ |
+| (Xa) | `?autowalk=0` → 1 回押すと `arrivalCount` が 1 だけ増えて止まる・sessionStorage `"1"`・クエリ無しの再読込でも 1 ホップ | ✅ |
+| (Xb) | `?questsign=0` → 札 = 解放済みの拠点全部・sessionStorage `"1"`・再読込でも撤退のまま | ✅ |
+| (Xc) | `?questsign=0` だけ → 自動歩行は生きている・`autoWalkOff` は立たない / `?autowalk=0` だけ → 札は phlan 1 枚・`questSignOff` は立たない | ✅ |
+| (9a) | pageerror / console error 0 件 | ✅ |
+
+判定 21 = §8 の節 17 + (9a) で 18 節。(1b)(1d)(3a) が 2 判定ずつ。
+
+#### (3) 変異表(`--negative` = 8 本すべて担当の節が赤・空振り 0・558 秒)
+
+⛔ 本番ファイルは 1 バイトも書き換えていない。配信スナップショットへ実行時に注入する。アンカーは起動時(素の走行でも)に「原本にちょうど 1 件・置換文字列が原本に無い・改行を含まない・他の `tools/*.js` に同じ文字列が無い」を検算し、崩れたら exit 3。
+
+| 変異 | 注入する欠陥 | 担当 | 実際に赤くなった節 |
+|---|---|---|---|
+| `onehop` | 自動の続きを呼ばない(#40 の姿) | (1a)(2b) | (1a)(1b)(1c)(1d)(2a)(2b)(2c)(3c)(Xc) |
+| `staletoken` | 続きでトークンを見ない(トークン検査 2 か所 + `goToPoint` の `autoResume = null`) | (1d) | **(1d)** |
+| `passenter` | 続きのホップで destId を次の 1 点へ書き換える | (1c) | (1a)(1b)(1c)(fatal)※ |
+| `noresume` | 出来事の `showResult` の onDone を null のまま | (2b) | **(2b)** |
+| `noeventstop` | 出来事が開いても止まらず歩き続ける | (2a) | **(2a)** |
+| `allsigns` | 札の条件を `isNodeRevealed` のまま | (3a)(3b) | (3a)(3b)(3c)(Xc) |
+| `nophlan` | 街も受注判定にかける | (3a)(0c) | (0c)(3a)(3b)(Xc) |
+| `deadnode` | 札の無い拠点の当たり判定を消す | (3c) | (1a)(1b)(3c) |
+
+※ `passenter` では、通りすがりの phlan で `town.html` へ飛ぶ。そのため以後の腕は、評価中にページが消えて fatal で打ち切られる(担当の (1c) はその前に赤くなっている)。巻き込み((1a) など)は、変異がページの姿を変えた結果として説明がつく(例: `deadnode` では temple の実クリックが当たらない。`allsigns` では (Xc) の「札は phlan 1 枚」が崩れる)。
+
+#### (4) 非退行 32 本(post・HEAD `7ef5f25`・直列・各ドライバの既定ポート・`timeout` で包まない・PowerShell・`post\summary.txt`)
+
+2026-11-06 22:00〜22:28(上の 8 本)/ 2026-11-07 07:13〜07:49(残り 24 本。`verify_witch_hut` は前の worker の走行が途中で落ちたので最初から走らせ直した)。
+
+| # | ドライバ | exit | 集計 | 判定 |
+|---|---|---|---|---|
+| 1 | `verify_world_map` | 0 | 57/57 | ✅ |
+| 2 | `verify_world_heromark` | 0 | 18/18 | ✅ |
+| 3 | `verify_world_steps` | 0 | 33/33 | ✅ |
+| 4 | `verify_quest_walk` | 0 | 25/25 | ✅ |
+| 5 | `verify_quest_visibility` | 0 | 39/39 | ✅ |
+| 6 | `verify_frost_hold` | 1 | 26/27 = FAILED **{(6b)}** | ✅ 基準と同じ集合(§12-1・#108 由来・#109 に帰属しない) |
+| 7 | `verify_lost_cargo` | 0 | 22/22 | ✅ |
+| 8 | `verify_silent_tomb` | 0 | 24/24 | ✅ |
+| 9 | `verify_witch_hut` | 0 | 29/29 | ✅ |
+| 10 | `verify_road_events` | 0 | 25/25 | ✅ |
+| 11 | `verify_road_boon` | 0 | 20/20 | ✅ |
+| 12 | `verify_road_ambush` | 0 | 41/41 | ✅ |
+| 13 | `verify_kobold_warren` | 0 | 21/21 | ✅ |
+| 14 | `verify_tower_mother` | 0 | 19/19 | ✅ |
+| 15 | `verify_town_exit` | 0 | 23/23 | ✅ |
+| 16 | `verify_title_screen` | 0 | 86/86 | ✅ |
+| 17 | `probe_paint_overlay` | 0 | (集計行なし。探針 = 部屋ごとの実測を出すだけ。完走) | ✅ |
+| 18 | `verify_ability_scores` | 0 | 24/24 | ✅ |
+| 19 | `verify_corner_check` | 0 | 20/20 | ✅ |
+| 20 | `verify_darkvision` | 0 | 25/25 | ✅ |
+| 21 | `verify_declared_traps` | 0 | 10/10 | ✅ |
+| 22 | `verify_eol_doorfix` | 1 | 素 25/27 = FAILED {(1a)(1b)} | ⚠ #109 に帰属しない(下の (5)-A) |
+| 23 | `verify_member_identity` | 0 | 28/28 | ✅ |
+| 24 | `verify_mercenary_roster` | 0 | 44/44 | ✅ |
+| 25 | `verify_party_four` | 0 | 17/17 | ✅ |
+| 26 | `verify_player_sheet` | 0 | 73/73 | ✅ |
+| 27 | `verify_recruit_size` | 0 | 91/91 | ✅ |
+| 28 | `verify_run_chronicle` | 0 | 74/74 | ✅ |
+| 29 | `verify_scene_bgm` | 0 | 21/21 | ✅ |
+| 30 | `verify_sheet_equip` | 0 | 21/21 | ✅ |
+| 31 | `verify_synth_bgm` | 0 | 35/35 | ✅ |
+| 32 | `verify_tower_mother_b` | 1 → 0 | 1 回目 11/22 → 再走 22/22 | ⚠ 揺れ・#109 に帰属しない(下の (5)-B) |
+
+#### (5) 赤の帰属
+
+- **A. `verify_eol_doorfix` (1a)(1b)** — 食い違いは **`dev-meetings/2026-10-28_new-locations.md` の 1 本だけ**だった(`git check-attr eol` は lf なのに、作業ツリーは CRLF。`git status` は autocrlf のため clean に見える)。このファイルは mtime が 2026-10-28 20:09、最後のコミットが `fdc863d`(#103 起草)で、`git diff --name-only 383f9d0 HEAD` に `dev-meetings/` は 0 本 ⇒ **#109 の着手前からの作業ツリーの状態**(型 3)。ゲームが読むファイルではない。⛔ #109 では直さない(起草窓の会議記録 = 持ち主が別)。直すなら作業ツリーの写しを `git checkout` で置き直すだけで済む(中身の差分は 0)⇒ 起草窓へ申し送り。
+- **B. `verify_tower_mother_b`** — 1 回目は (0b)(1a)〜(1h)(2a)(4c) の 11 節が赤だった(随伴の phase が最後まで null = 随伴が起動しないまま観測が終わった)。同じ本番ツリーで走らせ直すと **22/22**。このドライバは `index.html` の戦闘で塔の母の随伴を測り、`world.html` はアンカーの一意性の検算に読むだけ(§12-1 (4))。#109 の製品の差分は `world.html` と `js/changelog.js`(更新情報の文面)だけで、`index.html` に届く経路が無い。切り分けの走行 = `post\tmb_attrib.txt`(本番 2 回 + 隔離ワークツリー `383f9d0` 2 回。隔離ツリーは作った直後に本番と byte 比較し、#109 が変えた 16 本以外の差 1 本(上の A のファイル)を本番からコピーで揃えた): **本番(#109 込み)= 再走 3 回とも 22/22 / `383f9d0`(#109 前)= 2 回とも 22/22** ⇒ 赤は 5 回の再走で 1 度も再現しない = 揺れ(随伴が起動しなかった 1 回)。#109 の差分とは独立(型 3)。⚠ 揺れの原因は #109 の範囲外(塔の母 B の随伴の起動タイミング)= 起草窓へ申し送り。
+
+⇒ **合格**(frost_hold は {(6b)} から増えず・eol_doorfix と tower_mother_b の赤は #109 に帰属しない・他 29 本は全緑)。
+
+#### (6) 種まきで既存 golden から外した主張 → 新ドライバのどの節が拾うか(§12-3 (6) の候補を確定)
+
+既存 golden は撤退の姿(`?autowalk=0` / `questSignOff`)で、今日どおり測り続けている。下の表は「新しい姿での同じ主張」を新ドライバのどこで測っているかを示す。
+
+| 既存 golden の節(種) | 外した主張(新しい姿で) | 新ドライバの節 |
+|---|---|---|
+| `verify_world_heromark` (1c)・`verify_world_steps` (3a)(3b)(3c)(4b)(6b)・`verify_witch_hut` (1f)(種 A) | 1 回押すと何ホップ進むか | (1a)(2b)(1c)(Xc) = 1 回で着く / (Xa) = 撤退で 1 ホップ |
+| `verify_road_events` (3a)(4c)(5b)(5c)・`verify_road_ambush` (0c)(1f)(5a)(9b)(種 A) | 停留所ごとに出来事を振る・閉じたら先へ | (2a)(2b)(2c)・(1d) ② |
+| `verify_world_map` (7b-dom)・`verify_world_heromark` (1e)(3b)(4c)・`verify_world_steps` (2d)(5c)・`verify_quest_visibility` (0c)(種 S) | 札の枚数 | (3a)(0c) = 受注なしで phlan 1 枚 / (3b) = 受注先 + phlan / (Xb) = 撤退で解放済み全部 |
+| `verify_quest_visibility` (3b)(3d)(種 S) | 封蝋が札を奪わない・封蝋の付く札 | (3b) = 封蝋は受注先の札だけ |
+| `verify_quest_walk` (2d)(3d)(3e)(種 S) | 札の無い拠点も押せる・入れない | (3c) |
+| `verify_quest_walk` (0b)(2a)(2b)・`verify_frost_hold` (0b)(1b)(1c)・`verify_lost_cargo` / `verify_silent_tomb` / `verify_witch_hut` (1a)(1d)(4b)・`verify_kobold_warren` (1a)(4b)・`verify_tower_mother` (4b)(種 S) | 解放の鎖(クリアで拠点が立つ) | (3d) = `revealed()` は札の規則で変わらず・未クリアは真部分集合 |
+| `verify_world_map` (7d)(7f)・各本の (1f) の「札どうしの交わり 0」(種 S) | 札どうしの幾何 | 測らない: 新しい規則では札が高々 2 枚 = 13 枚の幾何が上界(撤退の姿で既存 golden が今日どおり測る) |
+
+- ⚠ 新ドライバに無いもの: **襲撃で world に残る枝の再開口**(`world.html` の襲撃の `RE.showResult(ev, text, resumeAutoWalk, null)`)。§8 に節が無く、確かめたのは §12-2 (4) のスモーク (F) だけ。この行を `null` へ戻す変異は、どのドライバでも赤くならない。必要なら別チケットで (2b) に襲撃の腕を足す(`?roadevent=0` を外し、`ambush` を立てた種で「見捨てる」→「先へ進む」→ 着く)。
+
+#### (7) §9 実機で見る点
+
+1. **神殿の点が湖畔の札の下**(`questDest = "witch-hut"` のとき湖畔の札だけが立ち、神殿の点の中心は湖畔の札に当たる・§12-1 (2)-D / §12-3 (2))。受注地でない神殿へ入る用は無いので、受入は変えていない。目で見て紛らわしいか。
+2. **点ごとの一瞬の止まり**(各ホップの頭で `walkPath` が `stopWalk()` する)。iPhone 縦で遠くの拠点を 1 回押し、止まらずに歩いて見えるか。⛔ 受入では測っていない。
+3. **受注していないとき港町の札だけで迷わないか**(§9)。迷うなら別チケット(§11 ⛔ 中間案は入れていない)。
+- ⚠ ローカルは http で起動する。PC は Ctrl+F5。
