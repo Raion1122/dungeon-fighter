@@ -155,4 +155,28 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+2026-11-07 実装窓(dev-loop・サブエージェント方式)。本番ファイルは 1 バイトも変えていない。changelog なし(§2-4)。未 push。
+
+### 12-1. STEP1 — `verify_frost_hold`(`be37948`)
+
+- `KEEP_BASE = { defeatEnemy: '614270e' }`。(6b) は関数ごとに `KEEP_BASE[n] || BASE_REV` の版と比べる(版ごとに `git show` 1 回・キャッシュ)。詳細表示に「関数 / 基準の版 / 長さ(基準→今)/ 同じ」の列。他 9 関数の基準は `0298eca` のまま・BASE_REV は動かしていない。
+- (0e) 装置: `614270e` が `git show` でき、その `defeatEnemy`(長さ 6596)が `markHiddenFoeSlain` を含む。
+- 素 **28/28 緑**(**(6b) が緑に戻った**)。`--negative` **17/17**(既存 15 + 新 2・担当外の赤 0・所要 約 38 分)。
+- ⚠⚠ **`basemove`(罠 A)の実測は依頼書の予想と違った**: 赤になったのは **(0b)(4b) の 2 つだけ**。予想した (6a) は緑、(1b)(1d)(3h)(6b) も緑のまま(赤にはならず**比べる意味だけが変わる**。例: (1d) は frost_peak を「既存の点」に含めてそのまま通る)。なお BASE_REV を丸ごと動かすと起動時の番人(BASE_REV に `giantRockThrow` / `frost_peak` があれば exit 3)がそれだけで止めるので、`basemove` はこの番人を通らない形で基準を差し替えて節ごとの赤を測っている。`NEG_PREDICTED` には依頼書の予想 (6a) を記録として残した(合否には使わない)。
+- `keepdrift`: `checkDungeonClear` に空行 1 行 → (6b) だけ赤(2177→2178)。
+- 装置の拡張 3 つ: `MUT_BASE`(変異ごとの基準の差し替え表)/ `blankAfter`(空行の注入。付けた変異だけ行数 +1 を許す)/ `--port-ext`(16 本目以降の変異は **10730〜**。続き番号だと 10706〜 = verify_clear_chests、10720〜 = verify_world_autowalk とぶつかる)。
+
+### 12-2. STEP2 — `verify_world_autowalk`(`bb0c879`)
+
+- 節 (0d)(2e)(2d) を足した。判定 **24/24 緑**(既存 21 + 3)。`--negative` **9/9**(`noambresume` は (2d) だけ赤・止まる点 forest__farm_n@1・arrived=false)。
+- 実測: 種 = `?roadseed=6`(1〜5 は襲撃なし)。経路 = phlan → temple の 11 ホップ。襲撃は forest__farm_n@1(3 ホップ目)で開き、その時点で `isMoving()` = false。見捨てる →「先へ進む」→ 出来事 2 回(判定なしの枝で流す)→ もう 1 回押さずに temple(arrivalCount の増分 11)。
+- `partyMembers` / `partyComposition`(4 人)は `verify_road_ambush` と同じ形で種まき。ポートは既存の 10720 を順に使う(新しい割当なし)。
+- ⚠ **依頼書の言い直し 2 点**:
+  1. §5 の `?roadevent=0` は使えない — 器 `#worldEventBox` を DOM ごと消すので**襲撃も開かない**(world.html onArriveStep の注記どおり)。街道の出来事は生かしたまま、開いたら判定なしの枝 →「先へ進む」で流す形にした。
+  2. 変異 `noambresume` のアンカー — `RE.showResult(ev, text, resumeAutoWalk, null);` と `var fight = …` の行は `verify_road_ambush.js:232` の変異 dismisswrite と一字一句同じで、起動時の重複アンカー検算(exit 3)に当たる。直前の注釈 `/* ★[#109] world に残る枝はここ 1 か所に集まる (罠 A の再開口 2/2)。` をアンカーにし `var resumeAutoWalk = null; /* mut-noambresume` を入れた(var の巻き上げで finishRoadAmbush 内だけ null = `showResult(ev, text, null, null)` と同じ効果)。
+- 既存の変異も新しい節を巻き込む(noresume → (2d)、noeventstop → (2e)(2d)、onehop → (2e)(2d))。どれも担当の節は赤。
+
+### 12-3. STEP3 — 記録
+
+- #109 依頼書 §12-5 に 1 行。README の #110 行を完了へ。
+- 残 = なし(#109 の §9 実機は引き続きユーザー確認待ち)。

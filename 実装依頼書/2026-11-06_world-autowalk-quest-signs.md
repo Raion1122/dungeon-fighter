@@ -680,3 +680,7 @@ changelog: `js/changelog.js` の項目 2 の行を §10 の全文へ差し替え
 2. **点ごとの一瞬の止まり**(各ホップの頭で `walkPath` が `stopWalk()` する)。iPhone 縦で遠くの拠点を 1 回押し、止まらずに歩いて見えるか。⛔ 受入では測っていない。
 3. **受注していないとき港町の札だけで迷わないか**(§9)。迷うなら別チケット(§11 ⛔ 中間案は入れていない)。
 - ⚠ ローカルは http で起動する。PC は Ctrl+F5。
+
+### 12-5. 後始末(#110)
+
+- ✅ **#110 で受入の穴を塞いだ**(`bb0c879`): 襲撃の見捨てる枝の再開口 `RE.showResult(ev, text, resumeAutoWalk, null)` を `verify_world_autowalk` の (0d)(2e)(2d) と変異 `noambresume` で測るようにした(24 判定・`--negative` 9/9)。あわせて frost_hold の (6b) は関数ごとの基準へ(`be37948`)。詳細は [2026-11-07_autowalk-aftercare.md](2026-11-07_autowalk-aftercare.md) §12。
