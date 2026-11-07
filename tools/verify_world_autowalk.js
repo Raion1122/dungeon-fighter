@@ -1,7 +1,7 @@
 /* verify_world_autowalk.js — #109 ワールドマップ: 1 回押せば着くまで歩く + 札は受注中の行き先と街だけ の受入
  *
  *   node tools/verify_world_autowalk.js                        ← 素の受入 (依頼書 §8 の全節)
- *   node tools/verify_world_autowalk.js --negative             ← 負のコントロール 8 本 (1 本ずつ子プロセスで順に)
+ *   node tools/verify_world_autowalk.js --negative             ← 負のコントロール 9 本 (1 本ずつ子プロセスで順に)
  *   node tools/verify_world_autowalk.js --negative --only staletoken
  *
  * 依頼書: 実装依頼書/2026-11-06_world-autowalk-quest-signs.md §8 (§12-4 に結果)。
@@ -25,6 +25,12 @@
  *  - (1d) は 2 腕: ① ?roadevent=0 で歩行中に別の拠点を押す ② 罠 B の本丸 = 出来事で立ち止まる →
  *    器を開いたまま goToNode(別の拠点) → 新しい歩きの途中で『先へ進む』(古い続きが新しい行き先を奪わない)。
  *    ⚠ ① だけだと変異 staletoken は空振りする (walkPath の pendingArrive 差し替えが古い続きを先に殺す・§12-2 (6))。
+ *
+ * ── #110 項目2 で足した襲撃の腕 (依頼書 実装依頼書/2026-11-07_autowalk-aftercare.md §5 / §8) ──────
+ *  - (0d) 襲撃が経路の途中で開く種を探す (無ければ exit 3) / (2e) 開いた時点で止まっている / (2d) 見捨てる →「先へ進む」で
+ *    もう 1 回押さずに着く。変異 noambresume が (2d) の番人。
+ *  - ⚠ 依頼書 §5 の「?roadevent=0 で襲撃だけ」は不可: ?roadevent=0 は器ごと消すので襲撃も開かない。出来事は生かして流す。
+ *  - partyMembers 4 人を sessionStorage に種まく (無いと hasRealParty が偽 = 襲撃 0)。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────
  *  - ⛔ 本番ファイルは 1 バイトも書き換えない。配信スナップショットだけを変異させる。
@@ -92,8 +98,14 @@ const MUTATIONS = {
     edits: [['world.html', '      if (!sc) return true;                              /* 街 = phlan */', '      if (!sc) return false; /* mut-nophlan */']] },
   deadnode: { expect: ['(3c)'], why: '札の無い拠点の当たり判定を消す',
     edits: [['world.html', '        el.setAttribute("data-kind", n.kind);', '        el.setAttribute("data-kind", n.kind); if (n.kind === "site" && !shown) el.style.pointerEvents = "none"; /* mut-deadnode */']] },
+  /* ★[#110] 襲撃の見捨てた枝の再開口 (world.html finishRoadAmbush の `RE.showResult(ev, text, resumeAutoWalk, null);`)。
+     ⚠ その行も `var fight = …` の行も tools/verify_road_ambush.js の変異 dismisswrite が逐語で持っている (罠E の検算で exit 3)。
+     ⇒ 直前の注釈の 1 行目をアンカーにし、finishRoadAmbush の中で resumeAutoWalk を null で覆い隠す
+       (var の巻き上げで関数内だけ = 結果は showResult(ev, text, null, null) と同じ。街道の出来事側の再開口は無傷)。 */
+  noambresume: { expect: ['(2d)'], why: '⭐ 襲撃で見捨てた枝の showResult の onDone を null のまま (#109 罠 A の再開口 2/2)',
+    edits: [['world.html', '      /* ★[#109] world に残る枝はここ 1 か所に集まる (罠 A の再開口 2/2)。', '      var resumeAutoWalk = null; /* mut-noambresume']] },
 };
-const MUT_ORDER = ['onehop', 'staletoken', 'passenter', 'noresume', 'noeventstop', 'allsigns', 'nophlan', 'deadnode'];
+const MUT_ORDER = ['onehop', 'staletoken', 'passenter', 'noresume', 'noeventstop', 'allsigns', 'nophlan', 'deadnode', 'noambresume'];
 
 /* 起動時の検算 (素の走行でも必ず) */
 {
@@ -230,6 +242,24 @@ function watchErrors(page, tag) {
 const CLEARED_ALL = ['goblin-mine', 'bandits-forest', 'lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair'];
 const TOWN = { 'dragonfighters.exitVia': 'town' };   /* 港町から出た = phlan に立つ */
 const QUIET = '?roadevent=0&ambush=0';
+/* ★[#110] 襲撃は sessionStorage の partyMembers が無いと出ない (world.html hasRealParty)。
+   種まきは tools/verify_road_ambush.js と同じ形 (partyMembers + partyComposition の 2 本・4 人)。 */
+const PARTY4 = ['warrior', 'dwarf', 'elf', 'cleric'];
+const PARTY_SS = {
+  'dragonfighters.partyMembers': JSON.stringify([
+    { classKey: 'warrior', isHero: true, name: '勇者', level: 3 },
+    { classKey: 'dwarf', name: 'グリム', level: 3 },
+    { classKey: 'elf', name: 'シルフィ', level: 3 },
+    { classKey: 'cleric', name: 'リタ', level: 3 },
+  ]),
+  'dragonfighters.partyComposition': JSON.stringify(PARTY4),
+};
+/* 開いている器が襲撃か (ページの中で RE.AMBUSH の枝の文言と突き合わせる。⛔ 文言を写経しない) */
+const boxIsAmbush = (page) => page.evaluate(() => {
+  const RE = window.ROAD_EVENTS; if (!RE || !RE.AMBUSH) return false;
+  const labels = Array.from(document.querySelectorAll('#worldEventBox .worldEventBtn')).map((b) => b.textContent);
+  return (RE.AMBUSH.choices || []).some((c) => labels.indexOf(c.label) >= 0);
+});
 
 /* 1 腕 = 1 タブ。localStorage の dragonfighters.* を消して cleared を撒き、sessionStorage を撒く (タブごとに 1 回)。 */
 async function openWorld(browser, o) {
@@ -489,6 +519,63 @@ async function watchWalk(page, dest, maxMs) {
       }
       check('(1d) ② 出来事で立ち止まり (器を開いたまま) 別の拠点を goToNode → 新しい歩きの途中で「先へ進む」→ 古い行き先 temple へは戻らず後から押した拠点に着いて留まる',
         pass, detail);
+      await p.close();
+    }
+
+    /* ══ ★[#110] (0d) 襲撃が経路の途中で開く種を探す — (0b) と同じく ?autowalk=0 の腕で押し直しながら ══
+       ⚠⚠ 依頼書 §5 の「?roadevent=0 (襲撃だけ)」は使えない: ?roadevent=0 は器 #worldEventBox を DOM から消すので
+         襲撃も開かない (world.html onArriveStep の注記「撤退 ?roadevent=0 では … 襲撃を振っても何も開かない」)。
+       ⇒ 街道の出来事は生かしたまま、途中で出来事が開いたら判定なしの枝 →「先へ進む」で流す。
+         襲撃は出来事より前に振られ (ambRoll は rnd と別の列)、拠点では出ない = 開けば必ず経路の途中。 */
+    let SEED_A = null, SEED_A_AT = null;
+    const SEED_A_TRIES = [];
+    for (let seed = 1; seed <= SEED_MAX && SEED_A === null; seed++) {
+      const p = await openWorld(browser, { qs: '?autowalk=0&roadseed=' + seed, ss: Object.assign({}, TOWN, PARTY_SS), tag: 'aseed' + seed });
+      const t0 = Date.now(); let evs = 0;
+      while (Date.now() - t0 < 90000) {
+        const s = await ST(p);
+        if (s.path !== '/world.html') break;
+        if (s.box) {
+          if (await boxIsAmbush(p)) { SEED_A = seed; SEED_A_AT = s.at; break; }
+          await sleep(600);
+          const ch = await chooseNoCheck(p);
+          if (!ch) break;
+          await sleep(400); await clickProceed(p); await sleep(250);
+          evs++;
+          continue;
+        }
+        if (s.at === 'temple' && !s.moving) break;
+        if (!s.moving) { await p.evaluate(() => __world.goToNode('temple')); await sleep(250); }
+        await sleep(100);
+      }
+      SEED_A_TRIES.push({ seed, events: evs, amb: SEED_A === seed ? SEED_A_AT : null });
+      await p.close();
+    }
+    check('(0d) [装置] 襲撃が phlan → temple の経路の途中で 1 回以上開く種がある (?roadseed=' + SEED_A + '・開く点 ' + SEED_A_AT + '・partyMembers 4 人・?autowalk=0 で押し直して探した)',
+      SEED_A !== null && SEED_A_AT !== 'temple' && PATH_T.indexOf(SEED_A_AT) >= 0, { SEED_A, SEED_A_AT, tries: SEED_A_TRIES.length });
+    if (SEED_A === null) { exit3 = '(0d) ?roadseed=1..' + SEED_MAX + ' のどれでも phlan → temple の途中で襲撃が開かない (空振り)'; throw new Error(exit3); }
+
+    /* ══ W10: ★[#110] §2 (2d)(2e) 襲撃で止まり「見つからぬよう…」→「先へ進む」で続きを歩く — 1 回だけ押す ══
+       ⛔ 戦う枝 (index.html へ去る) の中身は測らない (#51 / verify_road_ambush の持ち場)。 */
+    {
+      const p = await openWorld(browser, { qs: '?roadseed=' + SEED_A, ss: Object.assign({}, TOWN, PARTY_SS), tag: 'W10' });
+      const amb = await p.evaluate(() => (window.ROAD_EVENTS.AMBUSH.choices || []).map((c) => ({ label: c.label, check: !!c.check })));
+      const ambLabels = amb.map((c) => c.label);
+      const passBy = (amb.find((c) => !c.check) || {}).label || null;
+      const n0 = await p.evaluate(() => __world.arrivalCount());
+      await p.evaluate(() => __world.goToNode('temple'));
+      const w = await watchWalk(p, 'temple', 180000);
+      const isAmb = (o) => (o.s.btns || []).some((b) => ambLabels.indexOf(b) >= 0);
+      const ambOpens = w.opens.filter(isAmb);
+      const stops = ambOpens.map((o) => ({ at: o.s.at, mv: o.s.moving, at2: o.s2.at, mv2: o.s2.moving, n: o.s.n, n2: o.s2.n, ch: o.choice && o.choice.label }));
+      check('(2e) 襲撃が開いた時点で isMoving() = false・heroNode() は経路の途中 (temple でない・findWalkPath に載る点)・1.2 秒後も同じ点で arrivalCount 不変 (襲撃 ' + ambOpens.length + ' 回・最初の点 ' + (ambOpens[0] && ambOpens[0].s.at) + ')',
+        ambOpens.length >= 1 && ambOpens.every((o) => !o.s.moving && !o.s2.moving && o.s.at !== 'temple' && PATH_T.indexOf(o.s.at) >= 0 && o.s2.at === o.s.at && o.s2.n === o.s.n),
+        { seed: SEED_A, stops });
+      check('(2d) 襲撃 →「' + passBy + '」→「先へ進む」→ もう 1 回押さずに temple まで歩いて着く (arrivalCount の増分 = ' + LEN_T + '・world.html のまま)',
+        !!passBy && ambOpens.length >= 1 && ambOpens.every((o) => !!o.choice && o.choice.kind === 'ambush' && o.choice.label === passBy) &&
+        w.opens.every((o) => !!o.choice) && w.arrived && !w.left && w.final.at === 'temple' && w.final.n - n0 === LEN_T && w.final.path === '/world.html',
+        { arrived: w.arrived, left: w.left || null, at: w.final && w.final.at, d: w.final && w.final.n - n0, ambush: ambOpens.length, events: w.opens.length - ambOpens.length,
+          choices: w.opens.map((o) => o.choice && o.choice.kind + ':' + o.choice.label) });
       await p.close();
     }
 
