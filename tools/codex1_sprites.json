@@ -289,6 +289,14 @@
       "attack_dir": "winter-wolf/winter-wolf-walk-attack-right-6-v3-aligned/*attack*frame-*.png",
       "note": "霜の巨人の砦 (#107) の手下、冬狼 (ウィンター・ウルフ) (2026-11-04 新設・codex1 依頼文 2026-11-04_winter-wolf.md)。⚠ v3 のフォルダ (…-v3-aligned) を使う (v1 = walk の腰に黒い塊、v2 = walk と attack が別の個体)。キャンバス 768x720・白い毛 (クロマキーは白以外)。大型の四足獣なのでセル 192 (direBear / shadowBeast と同じ)。第3陣テンプレなので glob で分離する。⚠ 横長 (walk 幅 / 高さ = 1.85) なので幅で決まる: char_ratio 0.52 は右へ 8px・0.48 は 1px はみ出す ⇒ 0.47 = fit left=11 right=190 top=90 (cell=192) クリップ無し。attack_scale=auto (walk 体高 117.0 / attack 115.5 = 1.0130)。H_max(walk)=130px / scale 0.6942。check_sprite_doubling = clean / check_alpha_bg_residue = 疑い 0 件。本番の大広間の床の上で目視して白い毛の抜け・縁の残りなし (#107 項目1)。体高 90/192・体長 167/192 (walk)。displaySize 130 で画面上 高さ 61px・体長 113px (主人公 58 / orcGrunt 49)。体の実寸比 (row2・alpha>0) bodyRatioX 0.922 / bodyRatioY 0.474 / bodyOffX 0.057 / bodyOffY 0.474。"
     },
+    {
+      "key": "redDragonWyrmling", "out": "assets/redDragonWyrmling_anim.png", "format": "enemy",
+      "cell": 192, "cols": 6, "char_ratio": 0.43, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "red-dragon-wyrmling/red-dragon-wyrmling-walk-attack-right-6-aligned/*walk*frame-*.png",
+      "attack_dir": "red-dragon-wyrmling/red-dragon-wyrmling-walk-attack-right-6-aligned/*attack*frame-*.png",
+      "note": "コボルドの巣穴の隠し要素「卵の親」(#111) の若い赤竜 (レッド・ドラゴン・ワームリング) (2026-11-07 新設・codex1 依頼文 2026-11-07_red-dragon-wyrmling.md・v1)。⚠ キャンバスは 256x180 と小さい (walk 体高 H_max 81px)。四つ足 + 翼の横長なのでセル 192 (冬狼・巨人と同じ) で幅で決まる: char_ratio 0.47 は attack が右へ 8px・0.45 は 4px・0.44 は 1px はみ出す ⇒ 0.43 = fit left=24 right=191 top=95 (cell=192) クリップ無し。scale 1.0193 = ほぼ等倍 (拡大は attack で最大 6%)。第3陣テンプレなので glob で分離する。新設なので --match-current の対象は無い。attack_scale=auto (walk 体高 74.0 / attack 71.0 = 1.0423)。check_sprite_doubling = 候補 2 コマ (row2 col1-2 thin?) は口の先の火の粉 (10〜11 画素の点) で体は 1 塊 = 分身ではない / check_alpha_bg_residue = 疑い 0 件 / check_attack_scale = +0.67%。本番の祭壇の間 (room_kobold-warren_n1_map.jpg) の床の上で目視して縁の残りなし (#111 項目1)。体高 83/192・体長 152/192 (walk)。displaySize 120 で画面上 高さ 52px・体長 95px (コボルド 48 / 族長 62 / 冬狼 60x112)。体の実寸比 (row2・alpha>0) bodyRatioX 0.792 / bodyRatioY 0.432 / bodyOffX 0.151 / bodyOffY 0.516。"
+    },
 
     {
       "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",

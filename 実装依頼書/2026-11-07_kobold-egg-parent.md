@@ -391,4 +391,87 @@ py tools/add_changelog.py "<b>コボルドの巣穴に新しい秘密</b> — �
 
 ### 12-1〜12-4. 実装窓の記録(項目1〜4)
 
-(実装窓が埋める)
+### 12-1. 項目1 — 着手前の実測 + 素材の取り込み(2026-11-07・HEAD `3e07149`)
+
+⭐ 本番 3 ファイル(`index.html` / `tavern.html` / `audio.js`)は**無変更**(changelog 不要)。足したのは `tools/codex1_sprites.json`(1 行)/ `assets/redDragonWyrmling_anim.png`(新規)/ 本節。
+作業の置き場 = `~/.claude/dev-loop/r111/item1/`(`probe.js` = 実測プローブ・`sprite/` = 寸法の道具・`shots/` = 画面・`golden/` = 基準の走行ログ)。
+
+#### (1) §2 の測り直し
+
+| 主張 | 実測 |
+|---|---|
+| 基準 HEAD | `3e07149`。`git diff --quiet 62f500a HEAD -- index.html tavern.html audio.js js tools scripts world.html` = **差 0**(差は本書と README だけ)⇒ 行番号は全部そのまま |
+| §2-1 | tavern `RED_EGG_KEY` **6231**(`markRedEgg` 6234)/ 帰還の印 6297 ✅ / `boardFacts` 11572 ✅ / 巣穴の `id` 3789 ✅。index の勝利の一言 **21426**(シーム `__redEggNarrated` 21427)/ `grep redEgg index.html` = シームの 1 か所だけ ✅ |
+| §2-2 ① 握り | `verify_frost_hold.js:173` `KEEP_FNS`・`:175` `FIRE_FNS` ✅ / `verify_witch_hut.js:350` `SOURCE_FNS` ✅。`deathLine` の字幕 = index **19178-19179** ✅ / `HIDDEN_FOE_TYPES` 15333 ✅ |
+| §2-2 ② | `questFlagOn` 12491-12496 ✅(`!questFlagsPresent` で真)。`verify_kobold_warren.js` の `prep()` = **453-461** で毎ページ `localStorage.clear(); sessionStorage.clear();` ✅。プローブで実走: 印 `"1"` を種まきしたページの**後に** `prep` と同じ手順で開いたページの `localStorage.getItem("dragonfighters.redEgg") === null` ✅(漏れない) |
+| §2-2 ③ | 冷気の入口 index **38950** の字面が `verify_frost_hold.js:256-257`(変異 `breathboss` の `from`)と一致 ✅。冬狼の分岐 = 38946(注記)〜38962 |
+| §2-2 ④ | index 12649 `const t = SCENARIO_NODE_EXTRAS[_builtinScenId];` = `verify_mage_hand.js:184`(変異 `cageold`)✅ / 12710 `return base.concat(…questFlagOn(sp[3])));` = `driver_graph_p6.js:110`(変異 `noextraspawn`)✅ / `SCENARIO_NODE_EXTRAS` 12615 ✅(今のキー = `bandits-forest` / `lizard-swamp` の 2 つだけ = 実走で確認) |
+| §2-2 ⑤ | `detectEnemyFamily` **16114**(依頼書の 16115 は 1 行ずれ・中身はそのまま)/ 竜の語り 16111 ✅ |
+| §2-3 置き場所 | ⭐ 本番の `isTileWall` / `aStar` で実走(印なしの巣穴を直起動 → `enterNode("n1")`・主人公 = (19,13)): **(34,17) = 床・aStar 19 歩・直線 15.52 タイル** ✅ / 予備 (34,10) = 床・18 歩・15.30 / 祭壇の上 (36,13) = 壁・経路なし(変異 `altartile` の的になる)。n1 の実体 = kobold (33,11)(33,15)(32,13)・koboldChief (34,13) = §2-3 の表どおり。`DETECTION_RANGE` = 1200px |
+| §2-3 の周り(本番の `isTileWall`・col 28〜40) | 下の図。col 34 は row 9〜18 が全部床・col 35 から東が祭壇の壁 |
+| §2-4 SRD の写し先 | `ENEMY_TRAITS.pharaxus` 30980 ✅ / `LORE_SKILL_OF` の `pharaxus: "arcana"` 31030 ✅ / `LORE_CR` 31060 ✅ / `enemy.cry.kobold` 13990 ✅ |
+| §2-5 | `__coldBreathProbe` 37091 ✅ / `hydraFireBreath` 36897・`applyFireBreathToAlly` 37056。`breathElement` を持つのは冬狼の `"cold"` 1 か所(10962)✅ |
+| §2-6 | `maybeGrantScrollDrop` 15344・`hidden` 15347-15348 ✅ / `clearChestRelicP` 44141 ✅ |
+| §2-7 語りの音声 id | `initScenarioNarration` 45091。音声 id = `"dungeon_intro_" + scenarioId + "_" + 行の添字`。⭐ **巣穴には音声が 1 本も無い**: `assets/voice/manifest.json` と `assets/voice/dungeon/` に `dungeon_intro_kobold-warren_*` は 0 件(音声があるのは本筋 6 本 + prologue だけ)⇒ **§2-7 の `splice(3, 0, …)` のままでよい**(添字がずれても鳴る音が無い)。`SCENARIO_NARRATIONS["kobold-warren"]` 16347・4 行 ✅ |
+| §4 `_builtinScenId` | 宣言 3901 ✅。直起動の巣穴で **`_builtinScenId === "kobold-warren"`・`scenarioId === "kobold-warren"`** ✅(実走) |
+| 表に無い発見 | ⚠ `srdEnemyUsesFire`(index 24084-24089)は「`breathElement === "cold"` でなく `breathDice` を持つ」敵を炎の使い手と数える ⇒ 親竜は**自動で炎の使い手**(火の耐性の品の判断が親竜に効く)。#107 の冬狼の除外 1 行がそのまま正しく働く = 項目2 で触らない |
+
+```
+本番の isTileWall (n1・col 28〜40 / row 8〜19。# = 壁)
+     col 28 ........ 40
+ 8   ....##...####
+ 9   ........#####
+10   .......######      ← (34,10) = 予備案 (col 34 = 左から 7 字目)
+11   .......######
+12   .......######
+13   .......####.#      ← 族長 (34,13)
+14   .......######
+15   .......######
+16   .......######
+17   .......######      ← ⭐ 親竜 (34,17)
+18   ........#####
+19   #...#########
+```
+
+#### (2) シート 1 枚(取り込み済み)
+
+| 項目 | 若い赤竜 `redDragonWyrmling` |
+|---|---|
+| 素材 | codex1 `red-dragon-wyrmling/red-dragon-wyrmling-walk-attack-right-6-aligned/`(v1・**256x180** x 12)。bbox(alpha>0)walk 高さ 69〜81・幅 147〜151 / attack 高さ 80〜81・幅 145〜146 |
+| 台帳 | `tools/codex1_sprites.json` の `redDragonWyrmling` 行(冬狼の行の直後・glob で walk / attack を分離・`scale_from: walk`・`attack_scale: auto` = **1.0423**) |
+| セル | **192**(冬狼・巨人と同じ = 1152x960・6 列 x 5 行) |
+| `char_ratio` | **0.43**(横長なので幅で決まる)。0.47 は attack が右へ 8px・0.45 は 4px・0.44 は 1px はみ出す ⇒ 0.43 = fit left=24 right=191 top=95 クリップ無し |
+| ⚠ 拡大か | **ほぼ等倍**: H_max(walk) 81px → scale **1.0193**(walk)/ attack は 1.0193 x 1.0423 = 1.062。セルへ詰める段では 2〜6% の拡大だけ。画面へは displaySize 120 / 192 = 0.625 倍で縮めて描く(素材 → 画面 = 0.64 倍)= **ぼやけない**(拡大図 `shots/wyrm_ds120_zoom3.png` で縁も鱗も締まっている) |
+| 出力 | `assets/redDragonWyrmling_anim.png` **1152x960 RGBA**(md5 `709c8167f15e0fd0f458734b9268aa51`)。台帳から別所へ再パック(`--out-dir`)して md5 一致 = 再現性 OK。行 0/1/4 = walk 1 コマ目の写し・行 2 = walk・行 3 = attack(冬狼と同じ形式) |
+| 分身 | `check_sprite_doubling.py assets/redDragonWyrmling_anim.png` = 候補 2 コマ(row2 col1 `clusters=2 2nd=18 thin?` / col2 `2nd=10 thin?`)⇒ 4 近傍・8 近傍で数え直すと体は **1 塊**(7046 / 6844 画素)、残りは 10〜11 画素の点 2 つ = 口の先の**火の粉**(3 倍で目視 `sprite/r2c1_x3.png`)= **分身ではない** |
+| 背景残り | `check_alpha_bg_residue.py` = 全 649 セル・疑い **0** |
+| 攻撃の大きさ | `check_attack_scale.py` = `redDragonWyrmling` walk 74.5 / attack 75.0 = **+0.67% OK** |
+
+#### (3) `displaySize` と体の箱
+
+| 項目 | 値 |
+|---|---|
+| 体の実寸比(row2・alpha>0・#107 と同じ式。冬狼 / 巨人 / shadowBeast の定義値を同じ式で再現できることを確かめた) | bbox L29 T99 R180 B181 / 192 ⇒ **`bodyRatioX: 0.792, bodyRatioY: 0.432, bodyOffX: 0.151, bodyOffY: 0.516`** |
+| ⭐ `displaySize` | **120**(画面上 **高さ 52px・体長 95px**)。比べ = コボルド 48 x 43 / 族長 62 x 42 / 冬狼 60 x 112 / 主人公 58 / ファラクサス 191 x 294。族長より背は低いが体長は倍 = 四つ足の若い竜。当たり判定 `getEnemyHitbox` = inset 22 → 76px 角 |
+| 体の箱 × 壁(本番の `unitBodyTiles` / `isBodyClear` / `unitWallBox` を仮の def で実走) | (34,17): ds 100 = 1 マス / **110・120 = (34,17)(34,18) の 2 マス・両方床・`isBodyClear` 真**・壁の箱の 4 隅も床 / ⚠ **130 = 3 列 x 2 行に広がり (35,17) が祭壇の壁 = 食い込む**。境目 = `0.792 x S / 2 < 48` ⇒ **S ≤ 121** なら 1 列に収まる。(34,10) も同じ(130 で (35,10)(35,11) が壁)⇒ **第 1 案 (34,17) のまま・予備案は使わない** |
+| 目視(本番の祭壇の間・ページのメモリで `ENEMY_TYPES` に仮の def を足して (34,17) に置き、主人公を (30,15) へ寄せて撮影) | `shots/wyrm_ds120_crop.png`(⭐ 決めた値)/ `wyrm_ds130_crop.png`(比べ)/ `wyrm_ds120_zoom3.png`(3 倍)/ `sheet_rows23_on_floor.png`(walk・attack 12 コマを n1 の床の絵の上に)/ `cmp_pharaxus_wyrm.png`(ファラクサスと 1 コマずつ並べ)。所見 = 赤土の床の上で輪郭の暗い縁が効いて読める・縁の膜 / 切れ端なし・ぼやけなし。族長とコボルドの横に置くと**一回り大きい獣**に見え、祭壇の南の端の前に収まる。ファラクサス(黒い棘・広げた翼・暗い腹)に対し、こちらは明るい赤・橙の腹・たたんだ翼・大きな頭と短い象牙色の角 = **別の個体(子ども)に見える** |
+
+- 名前札は体の上 ≈ 50px に浮く(体がセルの下半分に描かれているため・冬狼と同じ)。気になれば §9 の実機で。
+- `meleeRange` / `hitRange` / 拍子 / `speed` は項目2(冬狼 170 / 250 / 0.9 が出発点の候補。体長 95px は冬狼 112 より短い)。
+
+#### (4) 既存 golden の基準(HEAD `3e07149` = index 等は `62f500a` と同一・素の 1 回ずつ・3 本並列 x 3 列)
+
+| ドライバ | 既定 port | 結果 | 所要 |
+|---|---|---|---|
+| `verify_kobold_warren.js` | 10642 | **21/21 PASSED** exit 0 | 115 秒 |
+| `verify_frost_hold.js` | 10690(+ext 10730) | **28/28 PASSED** exit 0 | 136 秒 |
+| `verify_witch_hut.js` | 10677 | **29/29 PASSED** exit 0 | 509 秒 |
+| `verify_clear_chests.js` | 10706 | **21/21 PASSED** exit 0 | 12 秒 |
+| `driver_graph_p6.js` | 8992 | **250/250 PASS** exit 0 | 46 秒 |
+| `verify_mage_hand.js` | 10514 | **32/32 PASSED** exit 0 | 148 秒 |
+| `verify_counterspell.js` | 10635 | **25/25 PASSED** exit 0 | 56 秒 |
+| `verify_run_chronicle.js` | 8897 | **74 PASSED / 0 FAILED** exit 0 | 219 秒 |
+| `driver_cast_circle.js` | 8823 | **56/56 PASS** exit 0 | 5 秒 |
+
+- ⭐ **9 本全部緑・赤 0**(着手前から赤いものは無い)。ログ = `~/.claude/dev-loop/r111/item1/golden/*.log`・`summary.txt`。⚠ 素の走行だけ(`--negative` は測っていない = 項目4 で要るなら別に測る)。
+- 走行中の作業ツリーは `assets/redDragonWyrmling_anim.png` と台帳 1 行が足されただけ(どのドライバも参照しない)。
