@@ -10962,6 +10962,34 @@
         breathDice: "4d8", breathDC: 12, breathBlast: 3, breathElement: "cold",   /* ★[#107] 冷気の息 (coldBreath)。⛔ 冬狼以外に付けない */
         xp: 350,
       },
+      /* ★[#111] 若い赤竜 (5e SRD Red Dragon Wyrmling・Medium Dragon・CR 4)。コボルドの巣穴の隠し要素「卵の親」。
+       *   赤い卵の印 (localStorage dragonfighters.redEgg === "1") があるときだけ祭壇の間 n1 の (34,17) に居る (EGG_PARENT_ON)。
+       * ⭐ 火の息 = 「ボスでない敵の息」の火の分岐 (冷気の分岐の直後の別の if)。本体は hydraFireBreath を呼ぶだけ。Recharge 5-6。
+       * ⛔ isBoss を付けない (ボスは族長のまま)・breathChance を付けない・噛みつきの 1d6 の火の上乗せは作らない (依頼書 #111 §11)。
+       * ⛔ detectEnemyFamily の家系の表に足さない (pharaxus の「最後の戦い」の語りを引かない = 依頼書 #111 §2-2 ⑤)。
+       * ⚠ displaySize は 121 以下 (130 で体の箱が祭壇の壁 (35,17) に食い込む = 依頼書 #111 §12-1 (3))。
+       *   間合いは体長 95px (冬狼 113px の 0.84 倍) から冬狼 170/250 を一段詰め、オーク/リザード戦士の 160/240 の帯へ。
+       *   速さは SRD の歩行 30ft (飛行は作らない) = skeleton / greenHag の 0.8 (冬狼 50ft = 0.9 より遅い)。 */
+      redDragonWyrmling: {
+        name: "若い赤竜(レッド・ドラゴン・ワームリング)",
+        flavor: "祭壇の卵を温めていた赤い竜の子。小さくとも炎の息を吐く",
+        sprite: "assets/redDragonWyrmling_anim.png?v=1",
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 120,    // ★[#111] 画面上 高さ ≈ 52px / 体長 ≈ 95px (依頼書 #111 §12-1 (3))。⚠ 当たり判定に直結・121 以下厳守
+        // ★体の実寸比 (依頼書 #111 §12-1 (3)・row2=移動中の行の 6 コマの alpha bbox)
+        bodyRatioX: 0.792, bodyRatioY: 0.432, bodyOffX: 0.151, bodyOffY: 0.516,
+        hp: 75, speed: 0.8,  // 歩行 30ft (飛行は作らない)
+        hasAttackAnim: true,
+        meleeRange: 160, hitRange: 240,
+        attackDuration: 28, attackHitFrame: 14, attackCooldown: 50,
+        str: 4, dex: 0, atkBonus: 6, ac: 17,
+        dmgDice: "1d10", dmgBonus: 4, critRange: 20, critMult: 2,   // 噛みつき (SRD の Bite。⛔ +1d6 fire は作らない)
+        range: "melee",
+        breathDice: "7d6", breathDC: 13, breathBlast: 3, breathElement: "fire",   /* ★[#111] 火の息 (Fire Breath・Recharge 5-6)。⛔ 円錐にしない */
+        deathLine: "…卵を…返せ……",
+        xp: 600,             // 同じ CR4 のカエルムと同じ (SRD の 1100 そのままではない)
+      },
       skeleton: {
         name: "スケルトン",
         flavor: "墓から甦りし骨の兵士",
@@ -12612,6 +12640,16 @@
      * ⚠ フラグを持たない隠し要素 (砦の守護者 / 神殿のカエルム) は素の enemySlots に書く。
      *   ここに載るのは「森の残影の獣」と「沼のハイドラ」の 2 つだけ。
      * ⚠ RUN が null の経路 (既存の単一マップ / ?graph=0) からは 1 度も読まれない。 */
+    /* ★[#111] コボルドの巣穴の隠し要素「卵の親」。赤い卵を持ち帰った印 (tavern.html の markRedEgg) があるときだけ、
+     *   祭壇の間 n1 に若い赤竜が居る。⭐ 門は localStorage の印をページの読み込みで 1 回読む
+     *   (⛔ questFlagOn の 4 要素目にしない = 直起動で全開になり、巣穴の検証全部に竜が湧く。依頼書 #111 §2-2 ②)。
+     *   撤退 ?eggparent=0 (このページだけで読む)。 */
+    const EGG_PARENT_ON = (() => {
+      try {
+        if (new URLSearchParams(location.search).get("eggparent") === "0") return false;
+        return localStorage.getItem("dragonfighters.redEgg") === "1";
+      } catch (e) { return false; }
+    })();
     const SCENARIO_NODE_EXTRAS = {
       /* ★[#16] 森を 1 ノードへ畳んだので、残影の獣のアンカーは n6 (苔むした檻の前) から
        *   n7 (盗賊団のアジト = 唯一のノード) へ移る。⚠ 座標も一緒に移すこと:
@@ -12643,6 +12681,8 @@
       "lizard-swamp": SWAMP_CRYPT_OFF
         ? { n6: { spawns: [["hydra", 36, 13, "s3_hydra_intel"]] } }
         : { n6: { spawns: [["hydra", 38, 14, "s3_hydra_intel"]] } },
+      /* ★[#111] 卵の親。印が無い回は空 = n1 の顔ぶれは #103 のまま。座標は依頼書 #111 §2-3 (絵ローカル (17,11))。 */
+      "kobold-warren": EGG_PARENT_ON ? { n1: { spawns: [["redDragonWyrmling", 34, 17]] } } : {},
     };
     function nodeExtrasFor(nodeId) {
       if (!RUN || !_builtinScenId) return null;
@@ -13988,6 +14028,7 @@
       "enemy.cry.goblinChariot":  ["ガラガラガラッ!", "どけどけェーッ!"],
       "enemy.cry.hobgoblin":      ["ゴブッ! 隊列を組めェ!", "押し潰せェ!"],
       "enemy.cry.kobold":         ["キャンキャン!", "クゥーン…キャンッ!", "キャウッ!"],
+      "enemy.cry.redDragonWyrmling": ["グルルル……!", "キシャアアッ!"],   // ★[#111] 若い赤竜 (卵の親)
       "enemy.cry.bandit":         ["金を置いていきなァ!", "命が惜しけりゃなァ!"],
       "enemy.cry.banditArcher":   ["動くんじゃねえ!", "射抜いてやらァ!"],
       "enemy.cry.banditMage":     ["燃えちまいな!", "小癪な…!"],
@@ -15330,7 +15371,7 @@
     /* ★[#108] 隠し要素を倒した回か (クリア時の宝箱の伝承の品の当選率を上げる = clearChestRelicP)。
      *   ⚠ maybeGrantScrollDrop の hidden 判定とは別の一覧 (あちらにゴブリン戦車を足すと巻物のドロップが変わる = §11)。
      *   ラン = ページ 1 枚なので宣言で false。startGame でも false に戻す。立てるのは撃破の集約点 (markHiddenFoeSlain) だけ。 */
-    const HIDDEN_FOE_TYPES = ["goblinChariot", "shadowBeast", "stoneGolem", "caelum", "mimic"];
+    const HIDDEN_FOE_TYPES = ["goblinChariot", "shadowBeast", "stoneGolem", "caelum", "mimic", "redDragonWyrmling"];   // ★[#111] 卵の親
     let runHiddenFoeSlain = false;
     function isHiddenFoe(enemy) {
       if (!enemy) return false;
@@ -15345,7 +15386,8 @@
       if (!enemy || !enemy.def) return;
       const def = enemy.def;
       const hidden = !!def.multiHead || enemy.type === "stoneGolem" || enemy.type === "shadowBeast" ||
-                     enemy.type === "caelum" || enemy.type === "mimic" || !!def.isNpcSpirit;
+                     enemy.type === "caelum" || enemy.type === "mimic" || !!def.isNpcSpirit ||
+                     enemy.type === "redDragonWyrmling";   // ★[#111] 卵の親 (他の隠し要素と同じ確定ドロップ)
       if (hidden) { addScroll(pickScrollId({ common: 0, uncommon: 30, rare: 70 })); return; }
       if (def.isBoss || def.boss) { addScroll(pickScrollId({ common: 15, uncommon: 50, rare: 35 })); }
     }
@@ -16379,6 +16421,9 @@
         "さあ、雪の峠へ踏み込め。",
       ],
     };
+    /* ★[#111] 卵の親が居る回だけ、巣穴の開幕の語りの 3 行目と 4 行目の間に 1 行 (EGG_PARENT_ON = 赤い卵の印・撤退 ?eggparent=0)。
+     *   ⚠ 巣穴の語りには音声 id (dungeon_intro_kobold-warren_*) が 1 本も無い = 添字がずれても鳴る音は無い (依頼書 #111 §12-1 (1))。 */
+    if (EGG_PARENT_ON) SCENARIO_NARRATIONS["kobold-warren"].splice(3, 0, "巣穴の奥から、コボルドのものではない低い唸りが響いた。卵を奪われた何かが、祭壇で君たちを待っている。");
 
     let narrationSkipRequested = false;
     let narrationPlaying = false;
@@ -19312,6 +19357,19 @@
       trapTypeForNode: function () { return trapTypeForNode(); },
       traps: function () { return traps.map(t => ({ tx: t.tx, ty: t.ty, type: t.type, found: t.found, triggered: t.triggered })); },
       nodeId: function () { try { return currentNodeId; } catch (e) { return null; } },
+      /* ★[#111] 卵の親 (読み取り専用)。on = 門 EGG_PARENT_ON / extras = 台帳の巣穴の行の写し / wyrms = 今の盤面の若い赤竜。 */
+      eggParent: {
+        on: EGG_PARENT_ON,
+        extras: function () { return JSON.parse(JSON.stringify(SCENARIO_NODE_EXTRAS["kobold-warren"] || null)); },
+        narration: function () { return SCENARIO_NARRATIONS["kobold-warren"].slice(); },
+        wyrms: function () {
+          return enemies.map((e, i) => ({ i: i, type: e.type, alive: e.alive, hp: e.hp,
+                                           tx: Math.floor((e.x + e.def.displaySize / 2) / TILE_SIZE),
+                                           ty: Math.floor((e.y + e.def.displaySize / 2) / TILE_SIZE) }))
+                        .filter(o => o.type === "redDragonWyrmling");
+        },
+        breathProbe: function () { return (window.__fireBreathProbe || []).slice(); },
+      },
     };
     /* ★[#104] 検証シーム (消えた積み荷)。⛔ 状態の置き場にしない (読むための窓)。__koboldWarrenTV と同じ形。 */
     window.buildLostCargoRun = buildLostCargoRun;
@@ -30984,6 +31042,7 @@
       tombArmor:      { sleepImmune: true },                                     // ★[#105] 墓所の動く鎧 = animatedArmor と同じ構造体
       frostGiant:     { immune: ["cold"] },                                      // ★[#107] Frost Giant (SRD の Damage Immunities)
       winterWolf:     { immune: ["cold"] },                                      // ★[#107] Winter Wolf (SRD の Damage Immunities)
+      redDragonWyrmling: { immune: ["fire"] },                                   // ★[#111] Red Dragon Wyrmling (SRD の Damage Immunities)
     };
     /* 属性の倍率。0 = 効かない / 0.5 = 効きにくい / 1 = 等倍。element は "fire" | "cold" | "lightning"。 */
     function enemyElementMult(e, element) {
@@ -31032,6 +31091,7 @@
       wyvern: "arcana", wyvernBoss: "arcana",   // ★[#82] 5e SRD の Wyvern は竜 (creature_type: Dragon) ⇒ 魔法学
       tombArmor: "arcana", tombGargoyle: "arcana",   // ★[#105] 墓所専用の動く鎧 / ガーゴイル (元の 2 種と同じ)
       greenHag: "arcana",   // ★[#106] 霧の魔女 (SRD の Green Hag = Fey。妖精は次元界の住人 = 魔法学・依頼書 #106 §12-1 (1))
+      redDragonWyrmling: "arcana",   // ★[#111] 若い赤竜 (SRD の Dragon = pharaxus と同じ魔法学)
       frostGiant: "history",   // ★[#107] 霜の巨人 (SRD の Frost Giant = Giant。氏族と掟を持つ人型の巨人 = 歴史・既存の分岐へ)。冬狼 (Monstrosity) は自然 = 載せない
     };
     /* 呪文 → 体質の表と同じ属性語。⚠ 演出の dfPlayCast の element ('ice' 等) を読まない (依頼書 §2-2 罠 3)。 */
@@ -31067,6 +31127,7 @@
       tombArmor: 1, tombGargoyle: 2,   // ★[#105] 元の animatedArmor / gargoyle と同じ SRD の CR
       greenHag: 3,       // ★[#106] SRD raw/srd/monsters/green-hag.md の CR 3 (ボス補正は HP だけ)
       frostGiant: 8, winterWolf: 3,   // ★[#107] SRD raw/srd/monsters/frost-giant.md の CR 8 / winter-wolf.md の CR 3 (ボス補正なし)
+      redDragonWyrmling: 4,   // ★[#111] SRD raw/srd/monsters/red-dragon-wyrmling.md の CR 4 (ボス補正なし)
     };
     function loreCrText(type) {   // 0.125 → "1/8"。表に無ければ "" (= 出さない)
       const cr = LORE_CR[type];
@@ -37089,6 +37150,7 @@
      * ⚠ 乱数: d6 と DEX セーヴとダメージのダイスは**冬狼の手番の中だけ**で振る (冬狼が居ない盤面の乱数列は 1 ビットも動かない)。
      * 検証用 probe = window.__coldBreathProbe (site: "recharge" / "breath" / "bite")。⛔ ゲームの判定には使わない。 */
     window.__coldBreathProbe = window.__coldBreathProbe || [];
+    window.__fireBreathProbe = window.__fireBreathProbe || [];   // ★[#111] 若い赤竜の火の息の記録 (検証の窓。⛔ ゲームの判定には使わない)
     const COLD_BREATH_REACH = 2;   // 3x3 の中心タイルは狼の中心タイルから最大 2 マス (Chebyshev) = 遠い縁が 3 マス = 15ft
     function coldBreathCenter(enemyIdx) {
       const enemy = enemies[enemyIdx];
@@ -38960,6 +39022,25 @@
         } else {
           window.__coldBreathProbe.push({ site: "bite", reason: "spent", enemyIdx: idx, turn: enemy.__wolfTurn });
         }
+      }
+      // ── ★[#111] ボスでない敵の火の息 (若い赤竜・Recharge 5-6) ──
+      // ⭐ 冷気の分岐 (直前の if) の行は verify_frost_hold の錨 = 広げずに別の if で足す (依頼書 #111 §2-2 ③)。
+      // ⭐ 息の本体は hydraFireBreath を呼ぶだけ (⛔ 中身を変えない = verify_frost_hold (3h))。d6 は親竜の手番の中だけで振る。
+      if (!def.isBoss && def.breathDice && def.breathElement === "fire") {
+        enemy.__wyrmTurn = (enemy.__wyrmTurn || 0) + 1;
+        if (enemy.__fireBreathSpent) {
+          const r = rollDiceDD(1, 6).total;
+          const back = r >= 5;
+          if (back) enemy.__fireBreathSpent = false;
+          window.__fireBreathProbe.push({ site: "recharge", enemyIdx: idx, turn: enemy.__wyrmTurn, d6: r, ready: back });
+        }
+        if (!enemy.__fireBreathSpent) {
+          enemy.__fireBreathSpent = true;
+          window.__fireBreathProbe.push({ site: "breath", enemyIdx: idx, turn: enemy.__wyrmTurn });
+          await hydraFireBreath(idx);
+          return;                                  // このターンは息で消費 (噛まない)
+        }
+        window.__fireBreathProbe.push({ site: "bite", reason: "spent", enemyIdx: idx, turn: enemy.__wyrmTurn });
       }
 
       // ハイドラ: 沼の引き込み発動時、このターンの初撃を smash 相当 (強打) にする

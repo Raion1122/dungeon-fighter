@@ -475,3 +475,72 @@ py tools/add_changelog.py "<b>コボルドの巣穴に新しい秘密</b> — �
 
 - ⭐ **9 本全部緑・赤 0**(着手前から赤いものは無い)。ログ = `~/.claude/dev-loop/r111/item1/golden/*.log`・`summary.txt`。⚠ 素の走行だけ(`--negative` は測っていない = 項目4 で要るなら別に測る)。
 - 走行中の作業ツリーは `assets/redDragonWyrmling_anim.png` と台帳 1 行が足されただけ(どのドライバも参照しない)。
+
+### 12-2. 項目2 — 本体(2026-11-07・基準 HEAD `74b39d3`)
+
+作業の置き場 = `~/.claude/dev-loop/r111/item2/`(`smoke.js` / `smoke2.js` = 煙検査・`fncheck.js` = 握られた関数の恒等・`golden/` = 非退行の走行ログ)。
+
+#### (1) 足した場所(編集後の `index.html` の行)
+
+| § | 何 | 行 |
+|---|---|---|
+| ① | `ENEMY_TYPES.redDragonWyrmling`(冬狼の直後) | 10973 |
+| ④ | 門 `EGG_PARENT_ON`(`SCENARIO_NODE_EXTRAS` の直前)/ 台帳キー `"kobold-warren"`(末尾・4 要素目なし) | 12647 / 12685 |
+| ③ | `enemy.cry.redDragonWyrmling` | 14031 |
+| ⑤ | `HIDDEN_FOE_TYPES` 末尾 / `maybeGrantScrollDrop` の `hidden` の最後の項 | 15374 / 15390 |
+| ⑦ | 開幕の語り `splice(3, 0, …)`(`SCENARIO_NARRATIONS` の宣言の直後) | 16426 |
+| ⑧ | `__koboldWarrenTV.eggParent`(`on` / `extras()` / `narration()` / `wyrms()` / `breathProbe()`) | 19361 |
+| ② | `ENEMY_TRAITS` / `LORE_SKILL_OF` / `LORE_CR` | 31045 / 31094 / 31130 |
+| ⑥ | `window.__fireBreathProbe` の宣言 / 火の分岐(冷気の分岐 39012 の閉じ括弧の直後) | 37153 / 39029 |
+
+#### (2) 決めた値と根拠
+
+- `meleeRange: 160` / `hitRange: 240`: 体長 95px は冬狼 113px の 0.84 倍 ⇒ 冬狼の 170 / 250 を一段詰め、同じ体格帯の近接(オーク・オークグラント・リザード戦士の 160 / 240、`orcBerserker` 170 / 250)の帯に置いた
+- `speed: 0.8`: SRD の歩行 30ft(飛行は作らない)。30ft の既存敵 = skeleton / greenHag の 0.8。冬狼(50ft)0.9 より遅い
+- 拍子 `attackDuration 28 / attackHitFrame 14 / attackCooldown 50` = 冬狼と同じ(同じ 6+6 コマのシート形式)
+- `displaySize 120`・`bodyRatio*` = §12-1 (3) のまま
+
+#### (3) 煙検査(直起動・ヘッドレス・port 10761 / 10762)
+
+| 腕 | 結果 |
+|---|---|
+| (a) 印 `"1"` | `on: true`・開幕の語り **5 行**(4 行目が新しい 1 行)・n1 台帳 = コボルド 3 + 族長 + `redDragonWyrmling,34,17`・実体 kobold 3 / koboldChief 1 / redDragonWyrmling 1(タイル (34,17)・HP 75)・n0 は今のまま(kobold 5)・pageerror 0 |
+| (b) 印なし | `on: false`・語り 4 行・n1 = kobold 3 / koboldChief 1・親竜 0・pageerror 0 |
+| (c) 印 `"1"` + `?eggparent=0` | (b) と同じ |
+| (参考) 印 `"0"` | (b) と同じ |
+| 撃破(本番の `defeatEnemy`) | 字幕「「…卵を…返せ……」 — 若い赤竜(レッド・ドラゴン・ワームリング)」・`isHiddenFoe` 真・`runHiddenFoeSlain` false → true・`clearChestRelicP()` 0.04 → **0.20**・`ENEMY_TRAITS` immune fire・`LORE_CR` 4・`LORE_SKILL_OF` arcana・`detectEnemyFamily([親竜])` = **`"generic"`** |
+| 自動戦闘 xp 20000(`?autoplay=15`) | n1 で交戦・probe = breath(1 手番目)→ recharge d6=4 → bite → d6=5 → breath → 6 → breath → 5 → breath → 6 → breath。**全滅**(親竜の残り HP 5)。pageerror 0 |
+| 自動戦闘 xp 45000 | probe = breath → d6=2 bite → d6=2 bite。**クリア**(228 秒)・親竜は倒れた・勝利の一言「祭壇の上に、赤い卵が 1 つ残されていた。…」・`__redEggNarrated` 真・`runHiddenFoeSlain` 真・`deathLine` の字幕あり。pageerror 0 |
+
+- ⚠ 息の語りは `hydraFireBreath` の単頭の文「赤竜が大きく息を吸い込む。…業火が洞窟全体を…」がそのまま出る(巣穴 = 洞窟なので筋は通る。中身は変えない約束)
+- ⚠ xp 20000 の 4 人が全滅した = ⑤ 強さの判断材料(項目3 で数える。値は変えていない)
+
+#### (4) 握られた関数と錨(`fncheck.js`・`git show 62f500a:index.html` と行末を揃えて関数の字面を切り出し比較)
+
+`defeatEnemy` 6591 / `checkDungeonClear` 2172 / `runEncounter` 21901 / `hydraFireBreath` 7466 / `applyFireBreathToAlly` 1003 字 = **全部 SAME**。
+錨 3 行(`const t = SCENARIO_NODE_EXTRAS[_builtinScenId];` / `return base.concat(…questFlagOn(sp[3])));` / 冷気の入口)= 基準・今とも **ちょうど 1 行** ⇒ FNCHECK OK。
+
+#### (5) 非退行(素の 1 回ずつ)
+
+| ドライバ | 項目1 の基準 | 本体の後 |
+|---|---|---|
+| `verify_kobold_warren.js` | 21/21 | **21/21 PASSED** exit 0 |
+| `driver_graph_p6.js` | 250/250 | **250/250 PASS** exit 0 |
+| `verify_mage_hand.js` | 32/32 | **32/32 PASSED** exit 0 |
+| `verify_witch_hut.js` | 29/29 | **29/29 PASSED** exit 0 |
+| `verify_frost_hold.js` | 28/28 | ⚠ **27/28** exit 1 = (3h) |
+
+⚠⚠ **予告(「印を種まきしない限り変わらない」)が外れた**: 赤の理由は**乱数でも顔ぶれでもなく、ドライバの「敵の型の全数表」**。
+`ENEMY_TYPES` に型が 1 つ増えること自体を、閉じた世界の表で縛っている assert がある(#107 のときも同じ形で各ドライバに冬狼 / 巨人の行を足して言い直している)。
+
+| ドライバ | 赤 | 中身(実測の出力) |
+|---|---|---|
+| `verify_frost_hold.js` (3h) | 1 | 「breathDice を持つボスでない敵 = `winterWolf:cold` だけ」が `[redDragonWyrmling:fire, winterWolf:cold]` に。⭐ (3h) の他の結び(火の 2 関数のソース同一・ボス 3 体の `breathElement` なし・巨人を写したボスで冷気の分岐 0・戦闘の巨人の手番で冷気 0)は全部通っている |
+| `verify_enemy_traits.js` (0b)(0c) | 2 | 表のキー 11 → 12・ドライバ独立の SRD 表に `redDragonWyrmling` が無い |
+| `verify_lore_check.js` (0b)(0c)(0d)(1h) | 4 | ドライバの技能表 / CR 表に `redDragonWyrmling` が無い(61 → 62 キー)。(1h) の走査で親竜の札 CR4 が「出さない」側と食い違う |
+| `driver_wallbox.js` (1a-装置) | 1 | 「`bodyRatio` を持つ型がちょうど 16」→ 17 |
+| (参考)`verify_enemy_name_label.js` | 0 | 30/30 緑 |
+| (参考)`driver_speech_v2.js` (A1) | 1 | 鳴き声の無い型の列挙 = koboldChief / plaguePriest / mummy / greenHag / frostGiant / winterWolf / swampNovice / wyvern / wyvernBoss = **着手前から赤**(親竜は鳴き声を足したので列挙に出ない)= 本件と無関係 |
+
+⇒ どれも「新しい敵の型を足したら、ドライバ側の独立表へ 1 行足す」型の言い直しで、§8 の golden の母集団(9 本)が**拾っていなかった**。
+⛔ 項目2 では期待値を書き換えていない。言い直し(4 本)は項目3/4 の判断へ渡す(§8「言い直しが要った既存 golden」の枠)。
