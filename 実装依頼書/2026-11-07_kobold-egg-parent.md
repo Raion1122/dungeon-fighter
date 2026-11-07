@@ -1,6 +1,6 @@
 # #111 コボルドの巣穴の隠し要素「卵の親」— 赤い卵を持ち帰った後、祭壇に若い赤竜が居る
 
-- **起草**: 2026-11-07(起草窓) / **ステータス**: **承認済**(2026-11-07 ユーザー承認)
+- **起草**: 2026-11-07(起草窓) / **ステータス**: **✅ 完了**(2026-11-07 実装窓・項目1〜4・未 push)。残 = ⑤ 強さのユーザー判断・§9 実機
 - **着手**: ✅ 素材そろい(2026-11-07 納品・受け取り検算合格 = §2-9 の表)。実装開始はユーザーの指示を待つ
 - **基準 HEAD**: `62f500a`(#110 項目3・push 済)。並走窓なし(`git status` クリーン)
 - **触るファイル**: `index.html`(本体)/ `js/changelog.js`(1 行)/ `tools/codex1_sprites.json`(台帳 1 行)/ `assets/redDragonWyrmling_anim.png`(新規)/
@@ -638,3 +638,55 @@ py tools/add_changelog.py "<b>コボルドの巣穴に新しい秘密</b> — �
 - 族長は印あり Lv2 でも 8 / 10 回で倒れている(全滅 9 回のうち族長が残ったのは 2 回)= 詰まりはほぼ親竜だけ(Lv2 は親竜の HP 75 を削り切れず、親竜の平均 4.7 手番の間に 2〜4 回吐かれる)。
 - 印なし Lv2 は 10 / 10・倒れた人 0・残り HP 94% = 着手前の巣穴と同じ手応え(顔ぶれ・乱数は (1a)(6c) で `62f500a` と同じ)。
 - **推奨**(判断はユーザー): 印が付くのは「巣穴を 1 度クリアした後」なので、2 回目以降は Lv3〜4 で訪れる想定なら Lv4 で 7 / 10 は「隠しの強敵」として妥当な帯。Lv2 のまま再訪すると 1 / 10(主人公が息で倒れる)= 推奨 Lv の表示が 2 のままだと初見で落ちる。案: (a) 値は SRD のまま・何もしない(隠し要素なので強くてよい)/ (b) 印がある回だけ酒場の札の推奨 Lv を上げる(`tavern.html` を触る = §冒頭の「触らないファイル」に当たる = 別チケット)/ (c) 親竜を弱める(HP か息のダイス)。⛔ 本項目では値を変えていない。
+
+### 12-4. 項目4 — 全数表 4 本の言い直し + 既存 golden の非退行 + 記録(2026-11-07・基準 HEAD `a277b90`)
+
+⭐ 本番ファイル(`index.html` / `tavern.html` / `audio.js` / `js/*`)は**1 バイトも触っていない**(changelog 不要)。作業の置き場 = `~/.claude/dev-loop/r111/item4/`(`chain.sh` = 直列の走行・`golden/*.log` と `summary.txt`)。
+
+#### (1) 言い直した全数表 4 本(⛔ 判定は緩めていない・親竜を除外していない。値はボールトの SRD `red-dragon-wyrmling.md` から書いた = 本番の `ENEMY_TYPES` から写していない)
+
+| ドライバ | 節 | 言い直し | 素 | `--negative` |
+|---|---|---|---|---|
+| `verify_frost_hold.js` | (3h) | `NONBOSS_BREATH = ['redDragonWyrmling:fire', 'winterWolf:cold']` を足し「ボスでない息持ち = 冬狼 1 体」→「2 体(冷気は冬狼だけ)」。ボス 3 体・火の 2 関数のソース・写したボスの節は不変 | **28/28** | **17/17 OK**(2267 秒・担当外の赤 0。(3h) を担当する nobreath / breathboss / firebreathedit も赤のまま) |
+| `verify_enemy_traits.js` | (0b)(0c) | ドライバ独立の SRD 表へ `redDragonWyrmling: { el: { fire: 0 } }`(Damage Immunities: fire・眠りの免疫なし)/ 表のキー 11 → **12** | **15/15** | **7/7 OK**(31 秒) |
+| `verify_lore_check.js` | (0b)(0c)(0d)(1h) | `DRV_SKILL.redDragonWyrmling = 'arcana'`(creature_type: Dragon = #82 のワイバーンと同じ規則)/ `DRV_SLUG` に `red-dragon-wyrmling`(cr 4.0 をドライバが md から読む)/ `N_TYPES` 61 → **62**・`N_SKILL` 49 → **50**・`N_CRKEYS` 43 → **44**(`N_NATURE` 12・`N_NOCR` 18 は不変) | **26/26** | **12/12 OK**(36 秒) |
+| `driver_wallbox.js` | (1a-装置) | `N_RATIO` 16 → **17**(比率あり・displaySize 120 < 176 ⇒ `N_LARGE` 15 は不変)。変異は内蔵の (6-*) 5 節 = 全部 PASS | **28/28** | (内蔵の (6-*) が素の中で緑) |
+
+- 各箇所に `★[#111 2026-11-07]` の注釈で理由を 1 行。
+
+#### (2) ⚠ 予告外: `verify_frost_hold` が起動時に exit 3(項目3 の `verify_egg_parent.js` が原因・ドライバだけの不具合)
+
+- 1 回目の素の走行で `[vet] ⛔ 変異 breathboss のアンカーが他ドライバのソースに出てくる (罠E): verify_egg_parent.js` = **0 秒で exit 3**。
+  項目3 は `coldwiden` の変異の錨を 2 行アンカーにして重なりを避けたが、(6b) で**比べるだけ**の `ANCHOR_LINES` に冷気の入口の行を字面のまま持っていた ⇒ frost_hold の罠E の自己検査(`e.from.trim()` が他の `tools/*.js` に出ないこと)に当たった。
+  ⚠ 項目2/3 の非退行は項目3 で `verify_egg_parent.js` を足す前の走行だった = ここで初めて出た。
+- 直し(`verify_egg_parent.js` のみ): `ANCHOR_LINES` の 3 行目を `'…breathElement === ' + '"cold") {'` と字面を 2 つに割って持つ(値は同じ・`★[#111 項目4]` の注釈)。比べるだけで変異の錨ではないので罠E の意図(同じ行を 2 本のドライバが書き換えない)は崩れない。
+  他の 2 行(`SCENARIO_NODE_EXTRAS[_builtinScenId]` / `questFlagOn(sp[3])`)を持つ `verify_mage_hand` / `driver_graph_p6` は他ドライバを走査しない(素で緑)。
+- 直した後: frost_hold **28/28** / egg_parent 素 **26/26** / egg_parent `--negative --only coldwiden` = 担当 (2c)(4a)(4b)(4c)(6b) = 赤 (2c)(4a)(4b)(4c)(6b)・注入行 10 回・**OK**(197 秒)。
+
+#### (3) 既存 golden の非退行(素の 1 回ずつ・3 本並列 + frost_hold 単独)
+
+| ドライバ | 項目1 の基準 | 項目4 | 所要 |
+|---|---|---|---|
+| `verify_kobold_warren.js` | 21/21 | **21/21 PASSED** exit 0 | 106 秒 |
+| `verify_frost_hold.js` | 28/28 | **28/28 PASSED** exit 0((2) の直しの後) | 126 秒 |
+| `verify_witch_hut.js` | 29/29 | **29/29 PASSED** exit 0 | 482 秒 |
+| `verify_clear_chests.js` | 21/21 | **21/21 PASSED** exit 0 | 9 秒 |
+| `driver_graph_p6.js` | 250/250 | **250/250 PASS** exit 0 | 42 秒 |
+| `verify_mage_hand.js` | 32/32 | **32/32 PASSED** exit 0 | 140 秒 |
+| `verify_counterspell.js` | 25/25 | **25/25 PASSED** exit 0 | 53 秒 |
+| `verify_run_chronicle.js` | 74 PASSED | **74 PASSED / 0 FAILED** exit 0 | 183 秒 |
+| `driver_cast_circle.js` | 56/56 | **56/56 PASS** exit 0 | 5 秒 |
+| `verify_enemy_traits.js`(言い直し) | 項目2 で赤 2 | **15/15 PASSED** exit 0 | 6 秒 |
+| `verify_lore_check.js`(言い直し) | 項目2 で赤 4 | **26/26 PASSED** exit 0 | 4 秒 |
+| `driver_wallbox.js`(言い直し) | 項目2 で赤 1 | **28/28 PASS** exit 0 | 7 秒 |
+| `verify_egg_parent.js`(本件の受入) | 26/26(項目3) | **26/26 PASSED** exit 0 | 107 秒 |
+
+- ⇒ 基準と本数はすべて同じ・赤 0。
+- 既存の赤(範囲外・直さない): `driver_speech_v2.js` (A1) = 鳴き声の無い型の列挙(koboldChief / plaguePriest / mummy / greenHag / frostGiant / winterWolf / swampNovice / wyvern / wyvernBoss)= **着手前から赤**。親竜は `enemy.cry.redDragonWyrmling` を足したので列挙に出ない = 本件と無関係。
+
+#### (4) 記録
+
+- `CLAUDE.md` の「本筋外の行き先」に ★#111 の 1 文(門は localStorage を読み込み時に 1 回・握られた関数は `deathLine` / `HIDDEN_FOE_TYPES` / 別の if で避ける・全数表 4 本の言い直し)。
+- `実装依頼書/_TEMPLATE_new_location.md` §7 に ★[#111] の 1 項(敵の型を足すだけでも全数表 4 本が赤 = 名指しの母集団が拾わない)。
+- `実装依頼書/README.md` の #111 行を完了へ。
+- ⑤ 強さ = **ユーザー判断待ち**(印あり Lv2 1/10・Lv4 7/10・印なし Lv2 10/10。案 a 何もしない / b 印の回だけ推奨 Lv を上げる = `tavern.html` の別チケット / c 弱める)。§9 実機は残り。

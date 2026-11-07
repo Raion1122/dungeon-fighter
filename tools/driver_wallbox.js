@@ -54,7 +54,8 @@ const N_LARGE = 12 + 2 + 1;
 /* ★[#107 2026-11-06] 霜の巨人 frostGiant (displaySize 184・比率あり) を足して 15 体。冬狼 winterWolf は比率 (bodyRatioX/Y) を持つが displaySize 130 < 176 で
  *   「大型」(シートを測る母集団 = displaySize >= 176) には入らない ⇒ 2 つの数が初めて分かれた:
  *   N_LARGE = 大型 (§2a/§2b/§5a/§6 = displaySize >= 176 の def) / N_RATIO = 比率を持つ def の本数 (§1a)。⛔ どちらも緩めない (≥ にしない)。 */
-const N_RATIO = 12 + 2 + 2;
+/* ★[#111 2026-11-07] 若い赤竜 redDragonWyrmling は比率 (bodyRatioX/Y) を持つが displaySize 120 < 176 ⇒ N_RATIO だけ +1 (N_LARGE は 15 のまま)。 */
+const N_RATIO = 12 + 2 + 2 + 1;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (配信をメモリ上で差し替える)

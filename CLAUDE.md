@@ -78,6 +78,7 @@ C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\wiki\dungeon-fighters\
     (🔍探索 / ⚔️戦闘 / 💤休憩 の 3 状態)
 - **本筋外の行き先**(#82 塔の母・#103 コボルドの巣穴・#104 消えた積み荷・#105 沈黙の墓所・#106 霧の中の魔女の小屋・#107 霜の巨人の砦)… 新しい行き先を 1 か所足す手順の型は
   `実装依頼書/_TEMPLATE_new_location.md`(足す口の全数・格子の検算・罠の 3 つの落とし穴・言い直しが要る golden の表・★#107 中継点が無いときに点と道を足す §10)
+  ★#111 **既存の行き先に隠し要素を足す型**(コボルドの巣穴の「卵の親」): 門は localStorage の印を index が読み込み時に 1 回だけ読む(`questFlagOn` にしない = 直起動で全開になる)/ 他の受入が握る関数(`defeatEnemy` / `runEncounter` / `hydraFireBreath` 等)は触らず、`deathLine`・`HIDDEN_FOE_TYPES`・別の if で避ける / 敵の型を足すと全数表を持つドライバ 4 本(`verify_enemy_traits` / `verify_lore_check` / `driver_wallbox` / 息持ちなら `verify_frost_hold` (3h))の言い直しが要る(テンプレ §7)
 
 ## 実装が必要な機能(未実装)
 

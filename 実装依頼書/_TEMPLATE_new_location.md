@@ -160,6 +160,7 @@
   ⇒ 項目1 の掃引に **全ノードの停留所の点(解放済み・未解放の両方。進行の世界を 2〜3 通り)** を入れ、札の矩形と交わる点を一覧にしてから `signDx` を決める。
 - ★[#107] 表に足す本: `driver_wallbox` は**比率を持つ def の本数**(`N_RATIO`・(1a))と **displaySize ≥ 176 の大型の本数**(`N_LARGE`・(2a)(2b)(5a)(6-oldbox))を握る。新しい敵の def に `bodyRatioX/Y` を付けたら N_RATIO、displaySize 176 以上なら N_LARGE を足す(#107 で初めて 2 つが分かれた = 冬狼は比率ありだが 130)/ `verify_town_changelog` (3a) の酒場の箱の高さは文面で動く(上限は CSS の頭打ち 20 + 38vh = 362 で見る)/ 前の行き先の受入の `nosite` は撤退の段が 1 段増えると (4c) も赤 = 担当表に足す(#107 = `verify_witch_hut`)。
 - ★[#107] ⚠ HP を引く点・`MSG_DEFEAT` の参照・ENEMY_TYPES の数は、**強さの見直し(項目3d など)の後の本番で数え直す**(項目2 の予告値を写経しない)。
+- ★[#111] **新しい敵の型を 1 つ足すだけ**(隠し要素など・行き先は足さない)でも、敵の型を閉じた全数表で縛る 4 本が赤になる(#111 項目2 で予告外・§8 の名指しの母集団が拾わなかった)。いずれもドライバ独立の表へ SRD の md を見て 1 行足して言い直す(本番の `ENEMY_TYPES` から写さない): `verify_enemy_traits` (0b)(0c)(体質の表のキー数・SRD の免疫)/ `verify_lore_check` (0b)(0c)(0d)(1h)(`DRV_SKILL` / `DRV_SLUG` / `N_*`)/ `driver_wallbox` (1a-装置)(`N_RATIO`・displaySize ≥ 176 なら `N_LARGE` も)/ `verify_frost_hold` (3h)(息持ちを足したときだけ = ボスでない息持ちの集合 `NONBOSS_BREATH`)。⚠ `driver_speech_v2` (A1)(鳴き声の無い型の列挙)は #111 時点で着手前から赤 = 新しい型に `enemy.cry.<型>` を足せば列挙に出ない。
 - 着手前から赤の本(#103 時点: `driver_mapeditor_painting` §1 1d2 / `verify_codex_map_skill` (3a) stag-tavern)は範囲外として触らない。#104 / #105 時点も同じ 2 本(1d2 の差は 2 = labels 23 / サイズ 21)。
 - 名指しの母集団 = `grep -l -E "<前の行き先 id>|SITES|boardFacts|nextLocked" tools/verify_*.js tools/driver_*.js` + `verify_lore_check` + `driver_graph_p6`。全数は項目4 の走査で拾う。
 

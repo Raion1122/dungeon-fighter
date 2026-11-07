@@ -143,7 +143,9 @@ const KEEP_FNS = ['defeatEnemy', 'checkDungeonClear', 'runEncounter', 'hydraFire
 const ANCHOR_LINES = [
   '      const t = SCENARIO_NODE_EXTRAS[_builtinScenId];',
   '      return base.concat(ex.spawns.filter(sp => questFlagOn(sp[3])));',
-  '      if (!def.isBoss && def.breathDice && def.breathElement === "cold") {',
+  /* ★[#111 項目4] 冷気の入口は verify_frost_hold の変異 breathboss の錨 = 同じ字面がここに在ると、あちらの罠E の自己検査 (他の tools/*.js に錨の字面が出ない) が起動時に exit 3 になる。
+     ここは比べるだけ (変異の錨ではない) なので、値は同じまま字面を 2 つに割って持つ。 */
+  '      if (!def.isBoss && def.breathDice && def.breathElement === ' + '"cold") {',
 ];
 
 /* ══════════════════════════════════════════════════════════════════════════════

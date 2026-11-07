@@ -118,6 +118,8 @@ DRV_SKILL.greenHag = 'arcana';
 /* ★[#107 2026-11-05] 霜の巨人の砦: 霜の巨人 = SRD frost-giant.md の creature_type: Giant ⇒ 歴史 (巨人の古い王国の伝承・依頼書 #107 §12-2 の LORE history)。
    冬狼 = SRD winter-wolf.md の creature_type: Monstrosity ⇒ 伝承の対象外 (ミノタウロス・キマイラ・グリフォンと同じ = 自然の獣)。 */
 DRV_SKILL.frostGiant = 'history';
+/* ★[#111 2026-11-07] コボルドの巣穴の隠し要素「卵の親」: 若い赤竜 = SRD red-dragon-wyrmling.md の creature_type: Dragon ⇒ 魔法学 (#82 のワイバーンと同じ規則)。 */
+DRV_SKILL.redDragonWyrmling = 'arcana';
 const DRV_NATURE = ['rat', 'plagueFrog', 'ruinSpider', 'direBear', 'chimera', 'griffon', 'umber_hulk', 'minotaur', 'shadowBeast', 'mimic', 'caravanWagon', 'winterWolf'];
 const DRV_ELEMENT = { 'fire-bolt': 'fire', 'fireball': 'fire', 'burning-hands': 'fire', 'lightning-bolt': 'lightning',
   'lightning-arrow': 'lightning', 'cone-of-cold': 'cold', 'ice-storm': 'cold' };
@@ -137,6 +139,7 @@ const DRV_SLUG = {
   mummy: 'mummy', tombArmor: 'animated-armor', tombGargoyle: 'gargoyle',   /* ★[#105 2026-10-30] 規則 ① (mummy.md cr: 3.0 / animated-armor.md 1.0 / gargoyle.md 2.0) */
   greenHag: 'green-hag',                    /* ★[#106 2026-11-02] 規則 ① (green-hag.md cr: 3.0) */
   frostGiant: 'frost-giant', winterWolf: 'winter-wolf',   /* ★[#107 2026-11-05] 規則 ① (frost-giant.md cr: 8.0 / winter-wolf.md cr: 3.0) */
+  redDragonWyrmling: 'red-dragon-wyrmling',   /* ★[#111 2026-11-07] 規則 ① (red-dragon-wyrmling.md cr: 4.0) */
 };
 /* ★[#82 2026-10-03] 本数の期待値 = 着手時 (#76) の数 + 塔の母のワイバーン 2 キー。⛔ 緩めない (≥ にしない)。
    ★[#103 2026-10-28] + コボルドの族長 koboldChief 1 キー (技能あり = history / 脅威度は出さない = 規則 ③)。
@@ -148,8 +151,10 @@ const DRV_SLUG = {
    ★[#106 2026-11-02] + グリーン・ハグ greenHag 1 キー (技能あり = arcana / 脅威度を出す = 規則 ① green-hag の CR 3)。
    数え直し (2026-11-02・HEAD 516da05 のページの ENEMY_TYPES) = 59 キー (技能あり 48 / 対象外 11・cr 41 / 出さない 18 = 依頼書 #106 §12-1 (1))。
    ★[#107 2026-11-05] + 霜の巨人 frostGiant (技能あり = history / 脅威度を出す = 規則 ① frost-giant の CR 8)・冬狼 winterWolf (対象外 / 脅威度を出す = 規則 ① winter-wolf の CR 3) の 2 キー。
-   数え直し (2026-11-05・HEAD b59766e のページの ENEMY_TYPES) = 61 キー (技能あり 49 / 対象外 12・cr 43 / 出さない 18)。 */
-const N_TYPES = 51 + 2 + 1 + 1 + 3 + 1 + 2, N_SKILL = 40 + 2 + 1 + 1 + 3 + 1 + 1, N_NATURE = 11 + 1, N_CRKEYS = 34 + 2 + 1 + 3 + 1 + 2, N_NOCR = 17 + 1;
+   数え直し (2026-11-05・HEAD b59766e のページの ENEMY_TYPES) = 61 キー (技能あり 49 / 対象外 12・cr 43 / 出さない 18)。
+   ★[#111 2026-11-07] + 若い赤竜 redDragonWyrmling 1 キー (技能あり = arcana / 脅威度を出す = 規則 ① red-dragon-wyrmling の CR 4)。
+   数え直し (2026-11-07・HEAD a277b90 のページの ENEMY_TYPES) = 62 キー (技能あり 50 / 対象外 12・cr 44 / 出さない 18)。 */
+const N_TYPES = 51 + 2 + 1 + 1 + 3 + 1 + 2 + 1, N_SKILL = 40 + 2 + 1 + 1 + 3 + 1 + 1 + 1, N_NATURE = 11 + 1, N_CRKEYS = 34 + 2 + 1 + 3 + 1 + 2 + 1, N_NOCR = 17 + 1;
 /* 規則 ③ = 表に載せない (脅威度を出さない) 18 キー (★[#103] koboldChief = SRD に族長は無い) */
 const DRV_NO_CR = ['goblinShaman', 'goblinBrute', 'goblinKing', 'goblinChariot', 'orcShaman', 'orcBerserker', 'garrock', 'banditMage',
   'lizardPriest', 'swampNovice', 'lizardChieftain', 'stoneLegionary', 'sovereignEye', 'shadowBeast', 'direBear', 'umber_hulk', 'caravanWagon',

@@ -131,6 +131,8 @@ const GIANT = 'frostGiant', WOLF = 'winterWolf';
 const ORCS = ['orcGrunt', 'orcArcher'];
 const HOLD_TYPES = ORCS.concat([WOLF, GIANT]);   // 霜の巨人の砦の台帳に載ってよい鍵 (依頼書 §4)
 const FIRE_BOSSES = ['chimera', 'hydra', 'pharaxus'];   // 依頼書 §2-5: breathDice を持つ既存の 3 体 (全部ボス・炎)
+/* ★[#111 2026-11-07] ボスでない息持ち = 冬狼 (cold) + コボルドの巣穴の隠し要素の若い赤竜 (SRD red-dragon-wyrmling.md の Fire Breath = fire)。キー順に並べる。 */
+const NONBOSS_BREATH = ['redDragonWyrmling:fire', WOLF + ':cold'];
 const N0_TRAP = 'avalanche', N1_TRAP = 'iceFloor';
 const ROCK = { n: 4, sides: 10, bonus: 6 }, BREATH = { n: 4, sides: 8, dc: 12 };   // SRD (依頼書 §2-8)
 /* ⚠ 巨人の近接と冬狼の頭数は SRD からユーザー判断で弱めた (2026-11-05・依頼書 §12-3「⑤ 強さの見直し」の X3)。
@@ -1410,10 +1412,10 @@ async function runSuite(browser, port, mutKey, label) {
     const fireRows = FIRE_FNS.map((n) => { const a = fnSource(BSET.index, n), b = fnSource(curIndex, n); return { n, base: a ? a.length : null, cur: b ? b.length : null, same: !!a && a === b }; });
     const btypes = N0.breathTypes || [];
     const BO = DR.boss || {};
-    R.check('(3h)', '⭐ 火のブレスの非退行: ' + FIRE_FNS.join(' / ') + ' のソースが ' + BSET.rev + ' と同じ・breathDice を持つボス = ' + FIRE_BOSSES.join(' / ') + ' (breathElement なし)・冷気の息を持つのは ' + WOLF + ' (ボスでない) だけ・① 巨人の def を写して breathDice / breathElement "cold" を持たせても enemyAttackTurn で冷気の息の分岐を通らない (probe 0・__wolfTurn なし)・② 戦闘の巨人の手番で冷気の probe 0',
+    R.check('(3h)', '⭐ 火のブレスの非退行: ' + FIRE_FNS.join(' / ') + ' のソースが ' + BSET.rev + ' と同じ・breathDice を持つボス = ' + FIRE_BOSSES.join(' / ') + ' (breathElement なし)・ボスでない息持ちは ' + NONBOSS_BREATH.join(' / ') + ' の 2 体 (冷気は ' + WOLF + ' だけ)・① 巨人の def を写して breathDice / breathElement "cold" を持たせても enemyAttackTurn で冷気の息の分岐を通らない (probe 0・__wolfTurn なし)・② 戦闘の巨人の手番で冷気の probe 0',
       fireRows.every((r) => r.same && r.cur > 200)
         && J(btypes.filter((x) => x.boss).map((x) => x.k)) === J(FIRE_BOSSES) && btypes.filter((x) => x.boss).every((x) => x.el === null)
-        && J(btypes.filter((x) => !x.boss).map((x) => x.k + ':' + x.el)) === J([WOLF + ':cold'])
+        && J(btypes.filter((x) => !x.boss).map((x) => x.k + ':' + x.el)) === J(NONBOSS_BREATH)   /* ★[#111] 冷気は冬狼だけのまま・火の非ボスが 1 体増えた */
         && !!BO.isBoss && !BO.err && (BO.coldAdd || ['?']).length === 0 && BO.wolfTurn === null && BO.fire === 0
         && gTurns.length >= 1 && gTurns.every((t) => t.cbN === 0),
       { src: fireRows, breathTypes: btypes, bossClone: BO, battleGiantCold: gTurns.map((t) => t.cbN) });
