@@ -4,7 +4,7 @@
  *   (依頼書 実装依頼書/2026-11-04_frost-hold.md §8 = 受入条件の唯一の正。型 = tools/verify_witch_hut.js)
  * ════════════════════════════════════════════════════════════════════════════════
  *   node tools/verify_frost_hold.js                          # 素
- *   node tools/verify_frost_hold.js --negative               # 先に素の基準 → 変異 15 本 (port 10691〜10705)
+ *   node tools/verify_frost_hold.js --negative               # 先に素の基準 → 変異 17 本 (port 10691〜10705 + 10730〜10731)
  *   node tools/verify_frost_hold.js --negative --only rockall,nocooldown
  *   node tools/verify_frost_hold.js --mutate keepsteps       # 変異 1 本を載せて手回し (担当表を実走で決める用)
  *   node tools/verify_frost_hold.js --verbose                # 緑の節の詳細も全部出す
@@ -47,12 +47,17 @@
  *     息が着弾する (反射でもない) こと。
  *   - (6b) を足した: 触らない約束の関数 (依頼書 §11) のソースが BASE_REV と同じ。
  *   - 負のコントロール = 依頼書の 15 本 (ポート 10691〜10705)。
+ *   - ★[#110] (6b) は関数ごとの基準 (KEEP_BASE[n] || BASE_REV)。defeatEnemy だけ #108 項目3 の 614270e (markHiddenFoeSlain を 1 行足した)。
+ *     (0e) を足した (KEEP_BASE の版の実在と defeatEnemy の markHiddenFoeSlain)。変異 basemove (罠 A: BASE_REV ごと 614270e へ・
+ *     配信は印だけでドライバの基準を MUT_BASE で差し替える) / keepdrift (checkDungeonClear に空行 1 行 = blankAfter・行数 +1) を足した
+ *     (17 本。16 本目からのポートは --port-ext 既定 10730〜)。
  *
  * ■ 測っているもの (依頼書 §8 の番号)
  *   §0 (0a) [装置] __frostHoldTV (4 型) / buildFrostHoldRun / coldBreath / giantRockThrow / probe 3 本が見え、2 ノード (n0 start / n1 boss)
  *           の台帳と実体の敵が 0 体でない (n0 = オーク・n1 = 巨人 1 + 冬狼 1 = X3。SRD の 2 頭から減らした・依頼書 §12-3 ⑤)
  *      (0b) [装置] 点・道・札の数 = 配信バイトの NODES / EDGES / 拠点の数 (vm) = tavern の WORLD_MAP = world.html の DOM
  *      (0c) [装置] 全ページで pageerror 0 件
+ *      (0e) [装置] KEEP_BASE の各版が git show でき、defeatEnemy の版の defeatEnemy が markHiddenFoeSlain を含む (#110)
  *   §1 (1a) NODES.frost_peak が site・EDGES に temple–frost_peak が 1 本で frost_peak の道はそれだけ・SITES / UNLOCK が tavern の scenarios と一致
  *      (1b) world.html の DOM: frost_peak の点・点線 <line> = EDGES.length・data-edge temple__frost_peak・刻み点 = BASE_REV の数
  *      (1c) 神殿のクリア前は札が出ない / クリア後に出る (isRevealed)・開始直後と神殿の前の卓は ?giant=0 と同じ
@@ -74,7 +79,7 @@
  *      (4b) ?giant=0 (tavern / world.html の DOM・数は BASE_REV と同じ・刻み点に frost_peak が無い)
  *      (4c) 撤退 6 段の地図の sha1 (既定 + 6 段 = 7 値)
  *   §6 (6a) 既存シナリオの spawnTraps (座標・種類・乱数の呼び出し回数・次の乱数) が BASE_REV と同じ
- *      (6b) 触らない約束の関数のソースが BASE_REV と同じ
+ *      (6b) 触らない約束の関数のソースがそれぞれの基準の版 (KEEP_BASE[n] || BASE_REV) と同じ (#110)
  *   ⛔ 測らないこと (依頼書 §8): 巨人・冬狼の HP / 攻撃の値の良し悪し・岩の弾の見た目の細部。⑤ 強さは記録のみ。
  *
  * ■ ⚠ 計測機構
@@ -90,7 +95,8 @@
  *   - ⛔ timeout コマンドで包まない。⛔ 8765 (試遊サーバ) に触らない。
  *   - 判定行は `  ✓ (1a) …` / `  ✗ (1a) …`、総括行は `  N/N PASSED   FAILED 0   PENDING 0`。
  *
- * ■ ポート = **10690** (素) / 変異 **10691〜10705** (15 本・MUTATIONS の並び順)。次の新規ドライバ base = 10706。
+ * ■ ポート = **10690** (素) / 変異 **10691〜10705** (15 本・MUTATIONS の並び順) + #110 の 2 本 **10730〜10731** (--port-ext)。
+ *   (10706〜 = verify_clear_chests・10720〜 = verify_world_autowalk)
  */
 'use strict';
 
@@ -134,6 +140,12 @@ const GIANT_X3 = { hp: 104, dmgDice: '2d12', dmgBonus: 6, critMult: 2, attacksPe
 const HALL_WOLVES = 1;
 const SHORTCUT_TO = 'dragon';        // 変異 shortcut の 2 本目の道の先 (vm の実測で既存の最短経路を 2 組変える)
 const BASE_REV = '0298eca';          // #107 の着手前 (素材の受け取り。index / tavern / world / js は 241c718 と差 0)
+/* ★[#110] 意図して変えた関数は、その変更を入れたコミットを基準にする。
+   ⭐ 足すときは「どのチケットのどのコミットで何を足したか」を必ず書く。
+   ⛔ BASE_REV を丸ごと動かさない (罠 A: (6a)(1b)(1d)(4b)(0b) などの基準でもある。変異 basemove で装置に内蔵)。
+   ⛔ (6b) から関数を外して通さない (番人が 1 人減る)。 */
+const KEEP_BASE = { defeatEnemy: '614270e' };   // #108 項目3: markHiddenFoeSlain を 1 行足した
+const BASE_MOVE_REV = '614270e';     // 変異 basemove (罠 A) で BASE_REV の代わりに使う版
 /* (4c) 撤退の各段の地図の sha1 (先頭 16)。
  *   既定 = 項目2 (0fe80e2) の後の既定の地図 (依頼書 §12-2 (3) の実測)。1 段目 (retireGiant 後) = 241c718 (#106 完了) の既定。
  *   2〜6 段目 = verify_witch_hut (4c) の固定値。 */
@@ -170,9 +182,20 @@ const SERVED = [F_INDEX, F_TAVERN, F_WORLD, F_MAPDEF, F_WMAP];
 const PRISTINE = {};
 for (const f of SERVED) PRISTINE[f] = fs.readFileSync(path.join(ROOT, f), 'utf8');
 function vetFail(msg) { console.error('[vet] ⛔ ' + msg); process.exit(3); }
+/* git show は版 × ファイルごとに 1 回だけ (キャッシュ)。失敗は null (KEEP_BASE の版は (0e) で赤にする) */
+const _gitCache = {};
+const gitShowAt = (rev, f) => {
+  const ck = rev + ':' + f;
+  if (Object.prototype.hasOwnProperty.call(_gitCache, ck)) return _gitCache[ck];
+  let s = null;
+  try { s = execFileSync('git', ['-C', ROOT, 'show', ck], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }); }
+  catch (e) { s = null; }
+  return (_gitCache[ck] = s);
+};
 const gitShow = (f) => {
-  try { return execFileSync('git', ['-C', ROOT, 'show', BASE_REV + ':' + f], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }); }
-  catch (e) { console.error('[vet] git show ' + BASE_REV + ':' + f + ' に失敗: ' + e.message); process.exit(2); }
+  const s = gitShowAt(BASE_REV, f);
+  if (s === null) { console.error('[vet] git show ' + BASE_REV + ':' + f + ' に失敗'); process.exit(2); }
+  return s;
 };
 const BASE_INDEX = gitShow(F_INDEX);
 const BASE_WMAP = gitShow(F_WMAP);
@@ -250,7 +273,16 @@ const MUTATIONS = {
   /* frost_peak に 2 本目の道 (袋小路でなくなる = 既存の点どうしの最短経路が変わる) */
   shortcut: [
     { file: F_WMAP, from: A_EDGE, to: A_EDGE + ', (' + HIT('shortcut') + ', ["frost_peak", "' + SHORTCUT_TO + '"])   /* ★変異shortcut */' }],
+  /* ★[#110] 罠 A: KEEP_BASE を使わず BASE_REV ごと BASE_MOVE_REV へ動かす (配信は印だけ。基準の差し替えは baseSetOf が担う) */
+  basemove: [
+    { file: F_INDEX, from: A_SEAM, to: A_SEAM + ' ' + HIT('basemove') + ';   /* ★変異basemove (基準を ' + BASE_MOVE_REV + ' へ) */' }],
+  /* ★[#110] defeatEnemy 以外の触らない約束の関数に空行を 1 行足す (blankAfter = アンカー行の直後へ空行。行数 +1) */
+  keepdrift: [
+    { file: F_INDEX, from: '    function checkDungeonClear() {', blankAfter: true },
+    { file: F_INDEX, from: A_SEAM, to: A_SEAM + ' ' + HIT('keepdrift') + ';   /* ★変異keepdrift */' }],
 };
+/* 変異 → 基準の差し替え (本番ファイルではなくドライバ自身の基準を動かす変異)。⛔ ここに無い変異は BASE_REV + KEEP_BASE */
+const MUT_BASE = { basemove: { rev: BASE_MOVE_REV, keepBase: {} } };
 /* 変異 → 必ず赤くなる節 (担当)。⚠⚠⚠ 机上で書かない。--mutate <key> で 1 本ずつ実走し、実際に赤くなった集合で決めた
  *   (項目3・2026-11-04 = r107/item3/mut/*.log。4 本ずつ並走 + ⑤ の 2 本と同時に走らせた負荷の下)。予想との差の理由:
  *   - keepsteps: 座標を予備案へずらすと刻み点が 1 個生える ⇒ 刻み点の数 (1b)・findWalkPath の最後の 2 手 (1d)・既定の地図の sha1 (4c) も赤。
@@ -278,20 +310,30 @@ const NEG_EXPECT = {
   nocoldimmune:   ['(3d)'],
   noretire:       ['(1c)', '(4b)'],
   shortcut:       ['(0b)', '(1a)', '(1b)', '(1d)', '(4c)'],
+  /* ★[#110] 実走 (--mutate basemove・2026-11-07): 赤 = (0b)(4b) だけ。点と道の数の基準が 15/15 になり「BASE より 1 つ多い」(0b) と
+     「撤退で BASE の数へ戻る」(4b) が崩れる。⚠ (6a)(1d)(1b)(3h)(6b) は緑のまま = 意味だけ変わる (例: (1d) は frost_peak まで
+     「既存の点」に吸い込んで素通り)。⚠ 起動時の番人 (BASE_REV に giantRockThrow / frost_peak が在れば exit 3) も罠 A を捕まえる。 */
+  basemove:       ['(0b)', '(4b)'],
+  keepdrift:      ['(6b)'],
 };
 /* 変異 → 乱数の引きしだいで赤くなり得る節 (緑でも赤でも可) */
 const NEG_MAYBE = {
   keepsteps: [], keepedge: [], noedge: [], unlockfree: [], rockall: [], rocknear: [], nocooldown: [], nobreath: [], alwaysbreath: [],
-  breathfull: [], breathboss: [], firebreathedit: [], nocoldimmune: [], noretire: [], shortcut: [],
+  breathfull: [], breathboss: [], firebreathedit: [], nocoldimmune: [], noretire: [], shortcut: [], basemove: [], keepdrift: [],
 };
 /* 依頼書 §8 の予想 (記録。⛔ 合否には使わない = 担当は実走で決める) */
 const NEG_PREDICTED = {
   keepsteps: ['(4b)'], keepedge: ['(4b)'], noedge: ['(1a)', '(1b)'], unlockfree: ['(1c)'], rockall: ['(3b)'], rocknear: ['(3a)'],
   nocooldown: ['(3b)'], nobreath: ['(3e)'], alwaysbreath: ['(3f)'], breathfull: ['(3e)'], breathboss: ['(3h)'], firebreathedit: ['(3h)'],
   nocoldimmune: ['(3d)'], noretire: ['(4b)'], shortcut: ['(1d)'],
+  basemove: ['(6a)'], keepdrift: ['(6b)'],   // #110 依頼書 §8 (basemove は「(6a) など他の節」)
 };
 const MUT_ORDER = Object.keys(MUTATIONS);
-if (MUT_ORDER.length > 15) vetFail('変異は 15 本まで (ポート 10691〜10705)');
+/* ポート: 先頭 15 本 = PORT+1〜PORT+15 (10691〜10705)。16 本目から = PORT_EXT〜 (10706〜 は verify_clear_chests・10720〜 は
+   verify_world_autowalk の割当なので、#110 で足した 2 本は 10730〜10731) */
+const PORT_EXT = parseInt(arg('port-ext', '10730'), 10);
+const mutPort = (key) => { const i = MUT_ORDER.indexOf(key); return i < 15 ? PORT + 1 + i : PORT_EXT + (i - 15); };
+if (MUT_ORDER.length > 17) vetFail('変異は 17 本まで (ポート 10691〜10705 + 10730〜10731)');
 if (MUT_ORDER.some((k) => !NEG_EXPECT[k] || !NEG_MAYBE[k] || !NEG_PREDICTED[k])) vetFail('NEG_EXPECT / NEG_MAYBE / NEG_PREDICTED と MUTATIONS が揃っていない');
 for (const k of MUT_ORDER) {
   if (!NEG_EXPECT[k].length) vetFail('変異 ' + k + ' に必ず赤の節が無い');
@@ -320,22 +362,33 @@ function servedFile(file, key) {
   const ck = key + '|' + file;
   if (_mutCache[ck] !== undefined) return _mutCache[ck];
   let s = PRISTINE[file];
+  let dLines = 0;   // blankAfter の本数 (= 足す空行の数)。他の変異は行数不変
   for (const e of MUTATIONS[key]) {
     if (e.file !== file) continue;
     const want = e.n || 1;
     const tot = SERVED.reduce((n, f) => n + countOf(PRISTINE[f], e.from), 0);
     const c = countOf(PRISTINE[file], e.from);
     if (c !== want || tot !== want) vetFail('変異 ' + key + ' の注入点が ' + want + ' 箇所ではない (' + file + ' に ' + c + ' 件・配信 5 ファイル合算 ' + tot + ' 件): ' + e.from.slice(0, 160));
+    if (e.blankAfter) {
+      /* ★[#110] アンカー行 (行全体) の直後へ空行を 1 行。改行コードは原本のその行に合わせる */
+      const m = new RegExp('(^|\\n)' + e.from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\r?\\n)').exec(PRISTINE[file]);
+      if (!m) vetFail('変異 ' + key + ' の blankAfter のアンカーが行全体で見つからない');
+      if (/[\r\n]/.test(e.from)) vetFail('変異 ' + key + ' が改行を含む');
+      const eol = m[2];
+      s = s.split(e.from + eol).join(e.from + eol + eol);
+      dLines += want;
+      continue;
+    }
     if (countOf(PRISTINE[file], e.to) !== 0) vetFail('変異 ' + key + ' の注入文字列が原本に既に在る');
     if (/[\r\n]/.test(e.from + e.to)) vetFail('変異 ' + key + ' が改行を含む');
     s = s.split(e.from).join(e.to);
   }
-  if (s.split('\n').length !== PRISTINE[file].split('\n').length) vetFail('変異 ' + key + ' が ' + file + ' の行数を変えた');
+  if (s.split('\n').length !== PRISTINE[file].split('\n').length + dLines) vetFail('変異 ' + key + ' が ' + file + ' の行数を変えた (想定 +' + dLines + ')');
   _mutCache[ck] = s;
   return s;
 }
 for (const k of MUT_ORDER) {
-  if (!MUTATIONS[k].some((e) => e.to.indexOf('__MUTHIT__' + k) >= 0)) vetFail('変異 ' + k + ' に実行の印が無い');
+  if (!MUTATIONS[k].some((e) => (e.to || '').indexOf('__MUTHIT__' + k) >= 0)) vetFail('変異 ' + k + ' に実行の印が無い');
   if (SERVED.every((f) => servedFile(f, k) === PRISTINE[f])) vetFail('変異 ' + k + ' が何も変えていない');
 }
 /* (1a) の材料: 配信バイトの「id → place」の並び (⚠ 本番のコメントが「id の直後に置く」と約束している) */
@@ -371,8 +424,34 @@ function fnSource(src, name) {
   }
   return null;
 }
+/* ★[#110] 基準の組 (変異ごと)。素と普通の変異 = BASE_REV + 関数ごとの KEEP_BASE。basemove (MUT_BASE) = 別の版へ丸ごと。
+   ⚠ 起動時の「BASE_REV に霜の巨人が在れば止める」番人は BASE_REV だけに掛かる (basemove は節の赤を実測するためここで止めない) */
+const _baseSets = {};
+function baseSetOf(mutKey) {
+  const mb = (mutKey && MUT_BASE[mutKey]) || null;
+  const ck = mb ? mutKey : '';
+  if (_baseSets[ck]) return _baseSets[ck];
+  const rev = mb ? mb.rev : BASE_REV;
+  const keepBase = mb ? mb.keepBase : KEEP_BASE;
+  const index = rev === BASE_REV ? BASE_INDEX : gitShowAt(rev, F_INDEX);
+  const wmap = rev === BASE_REV ? BASE_WMAP : gitShowAt(rev, F_WMAP);
+  if (index === null || wmap === null) vetFail('基準の版 ' + rev + ' を git show できない');
+  const counts = rev === BASE_REV ? BASE_COUNTS : wmapCounts(wmap);
+  if (!counts) vetFail('基準の版 ' + rev + ' の js/world-map.js を vm で読めない');
+  const keepRev = (n) => keepBase[n] || rev;
+  const keepIndex = (n) => { const r = keepRev(n); return r === rev ? index : gitShowAt(r, F_INDEX); };
+  return (_baseSets[ck] = { rev, index, wmap, counts, keepBase, keepRev, keepIndex });
+}
+/* (0e) KEEP_BASE の各版が実在し (git show 成功)、その版から関数を切り出せ、defeatEnemy の版は markHiddenFoeSlain を含む */
+function keepBaseFacts() {
+  return Object.keys(KEEP_BASE).map((n) => {
+    const s = gitShowAt(KEEP_BASE[n], F_INDEX), f = s === null ? null : fnSource(s, n);
+    return { n, rev: KEEP_BASE[n], shown: s !== null, inKeep: KEEP_FNS.indexOf(n) >= 0, len: f ? f.length : null, mark: !!f && f.indexOf('markHiddenFoeSlain') >= 0 };
+  });
+}
 console.log('[vet] 装置: 変異 ' + MUT_ORDER.length + ' 本の注入点はすべて原本で所定の数 (配信 5 ファイル合算)・行数不変・他ドライバとアンカーの重なり 0'
   + ' / 基準 = git ' + BASE_REV + ' (index.html ' + BASE_INDEX.length + ' 文字・js/world-map.js 点 ' + BASE_COUNTS.nodes + ' 道 ' + BASE_COUNTS.edges + ' 刻み点 ' + BASE_COUNTS.steps + ')'
+  + ' / 関数ごとの基準 KEEP_BASE = ' + J(KEEP_BASE)
   + ' / 配信バイトの place = "' + PLACE_OF(PRISTINE[F_TAVERN]) + '"');
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -400,7 +479,8 @@ const SERVERS = [];
 function startServer(port, mutKey) {
   const frozen = {};
   for (const f of SERVED) frozen[f] = Buffer.from(servedFile(f, mutKey), 'utf8');
-  const baseBuf = { [F_INDEX]: Buffer.from(BASE_INDEX, 'utf8'), [F_WMAP]: Buffer.from(BASE_WMAP, 'utf8') };
+  const BS = baseSetOf(mutKey);   // ★[#110] basemove だけ別の版
+  const baseBuf = { [F_INDEX]: Buffer.from(BS.index, 'utf8'), [F_WMAP]: Buffer.from(BS.wmap, 'utf8') };
   return new Promise((resolve, reject) => {
     const srv = http.createServer((req, res) => {
       try {
@@ -434,7 +514,7 @@ function stopServer(srv) {
 /* ══════════════════════════════════════════════════════════════════════════════
  * 結果
  * ══════════════════════════════════════════════════════════════════════════════ */
-const ALL_IDS = ['(0a)', '(0b)', '(0c)', '(1a)', '(1b)', '(1c)', '(1d)', '(1e)', '(1f)', '(2a)', '(2b)', '(2c)', '(2d)',
+const ALL_IDS = ['(0a)', '(0b)', '(0c)', '(0e)', '(1a)', '(1b)', '(1c)', '(1d)', '(1e)', '(1f)', '(2a)', '(2b)', '(2c)', '(2d)',
   '(3a)', '(3b)', '(3c)', '(3d)', '(3e)', '(3f)', '(3g)', '(3h)', '(3i)', '(4a)', '(4b)', '(4c)', '(6a)', '(6b)'];
 function mkResults() {
   const R = [];
@@ -743,6 +823,7 @@ const DIRECT = async (C) => {
 
 async function runSuite(browser, port, mutKey, label) {
   const R = mkResults();
+  const BSET = baseSetOf(mutKey);   // ★[#110] 基準の組 (basemove だけ別の版)
   const ctx = { booted: 0, errs: [], hits: {} };
   const base = 'http://127.0.0.1:' + port + '/';
   const pages = [];
@@ -914,7 +995,7 @@ async function runSuite(browser, port, mutKey, label) {
       return o;
     }).catch(() => null);
     await wr.page.close().catch(() => {});
-    /* (1d) 経路の非退行: 同じページに BASE_REV と今の js/world-map.js を順に載せる */
+    /* (1d) 経路の非退行: 同じページに BSET.rev と今の js/world-map.js を順に載せる */
     const PATHS = await stage('paths', async () => {
       const pg = await newPage();
       await pg.goto(base + '__blank.html', { waitUntil: 'load', timeout: 30000 });
@@ -970,8 +1051,8 @@ async function runSuite(browser, port, mutKey, label) {
     const a1 = A1(t5, w5);
     R.check('(1a)', 'NODES.' + FH_SITE + ' が拠点「' + PLACE + '」(配信バイトの id → place)・EDGES の ' + FH_SITE + ' の道は ' + TEMPLE_SITE + '–' + FH_SITE + ' の 1 本だけ (袋小路)・tavern の霜の巨人の砦 (side・locked・unlockAfter) と同じページの SITES / UNLOCK、world.html の SITES / UNLOCK が一致',
       a1.ok, a1);
-    const domOk = (w) => !!w && /\bworldNode-site\b/.test(w.cls || '') && w.lines === (w.n && w.n.edges) && w.edgeLine === true && w.fpLines === 1 && w.steps === BASE_COUNTS.steps && w.stepsFP.length === 0;
-    R.check('(1b)', 'world.html の DOM: ' + FH_SITE + ' の点 (拠点)・点線 <line> = EDGES.length 本・data-edge "' + TEMPLE_SITE + '__' + FH_SITE + '" が 1 本・刻み点 = ' + BASE_REV + ' と同じ ' + BASE_COUNTS.steps + ' 個 (' + FH_SITE + ' の刻み点 0)',
+    const domOk = (w) => !!w && /\bworldNode-site\b/.test(w.cls || '') && w.lines === (w.n && w.n.edges) && w.edgeLine === true && w.fpLines === 1 && w.steps === BSET.counts.steps && w.stepsFP.length === 0;
+    R.check('(1b)', 'world.html の DOM: ' + FH_SITE + ' の点 (拠点)・点線 <line> = EDGES.length 本・data-edge "' + TEMPLE_SITE + '__' + FH_SITE + '" が 1 本・刻み点 = ' + BSET.rev + ' と同じ ' + BSET.counts.steps + ' 個 (' + FH_SITE + ' の刻み点 0)',
       domOk(w5), { cls: w5.cls, lines: w5.lines, n: w5.n, edgeLine: w5.edgeLine, fpLines: w5.fpLines, steps: w5.steps, stepsFP: w5.stepsFP });
     const srt = (a) => J((a || []).slice().sort());
     const sameUnl = (a, b) => !!a.facts && !!b.facts && srt(a.facts.unlocked) === srt(b.facts.unlocked) && (a.facts.unlocked || []).indexOf(FH) < 0;
@@ -983,8 +1064,8 @@ async function runSuite(browser, port, mutKey, label) {
         u5: [t5u, t5ou], w4: { sign: w4.sign, revealed: w4.revealed, node: !!w4.node }, w5: { sign: w5.sign, revealed: w5.revealed } });
     const P = PATHS || {};
     const wfp = P.walkFP || [];
-    R.check('(1d)', '⭐ 経路の非退行: ' + BASE_REV + ' の js/world-map.js と並べて既存 ' + (P.ids || '?') + ' 点の全組 (' + (P.pairs || '?') + ' 組) の findPath / findWalkPath が同じ・findWalkPath("' + PORT_TOWN + '","' + FH_SITE + '") は ' + TEMPLE_SITE + ' を通って着く',
-      !!PATHS && P.ids === BASE_COUNTS.nodes && P.pairs === P.ids * (P.ids - 1) && P.diff.length === 0 && P.diffW.length === 0 && P.sameObj === true
+    R.check('(1d)', '⭐ 経路の非退行: ' + BSET.rev + ' の js/world-map.js と並べて既存 ' + (P.ids || '?') + ' 点の全組 (' + (P.pairs || '?') + ' 組) の findPath / findWalkPath が同じ・findWalkPath("' + PORT_TOWN + '","' + FH_SITE + '") は ' + TEMPLE_SITE + ' を通って着く',
+      !!PATHS && P.ids === BSET.counts.nodes && P.pairs === P.ids * (P.ids - 1) && P.diff.length === 0 && P.diffW.length === 0 && P.sameObj === true
         && Array.isArray(wfp) && wfp[wfp.length - 1] === FH_SITE && wfp[wfp.length - 2] === TEMPLE_SITE,
       { ids: P.ids, pairs: P.pairs, diff: (P.diff || []).slice(0, 10), diffW: (P.diffW || []).slice(0, 10), walk: wfp, path: P.pathFP, fpEdges: P.fpEdges, stage: STAGE_ERRS.filter((s) => /^paths/.test(s)) });
     const WK = (WALK && WALK.walk) || {};
@@ -999,25 +1080,25 @@ async function runSuite(browser, port, mutKey, label) {
       { frontier: t6f.frontier, unlocked: t6f.unlocked, main: t0.main, side: sideIds, lv: fhOf(t0) && fhOf(t0).lv });
     /* (4b) */
     const offTav = !fhOf(t5off) && !(t5off.sites && t5off.sites[FH]) && !(t5off.unlock && t5off.unlock[FH]) && t5off.node === null
-      && !!t5off.n && t5off.n.nodes === BASE_COUNTS.nodes && t5off.n.edges === BASE_COUNTS.edges && t5off.n.steps === BASE_COUNTS.steps
+      && !!t5off.n && t5off.n.nodes === BSET.counts.nodes && t5off.n.edges === BSET.counts.edges && t5off.n.steps === BSET.counts.steps
       && (t5off.stepIdsFP || []).length === 0 && t5u.length === t5ou.length + 1 && t5ou.indexOf(FH) < 0;
-    const offWorld = !!w5off && w5off.cls === null && w5off.node === null && w5off.lines === BASE_COUNTS.edges && w5off.fpLines === 0 && w5off.edgeLine === false
-      && w5off.steps === BASE_COUNTS.steps && w5off.stepsFP.length === 0 && !!w5off.n && w5off.n.nodes === BASE_COUNTS.nodes && w5off.n.edges === BASE_COUNTS.edges
-      && w5off.n.steps === BASE_COUNTS.steps && !(w5off.sites && w5off.sites[FH]);
-    R.check('(4b)', '?giant=0: tavern の配列・SITES・UNLOCK から消え・点 ' + BASE_COUNTS.nodes + '・道 ' + BASE_COUNTS.edges + '・刻み点 ' + BASE_COUNTS.steps + ' (= ' + BASE_REV + ' の js/world-map.js) に戻り・刻み点の id に ' + FH_SITE + ' が無い / world.html の DOM から点・線・札が消え・刻み点マーカーに ' + FH_SITE + ' が無い・解放済みは ON − 1',
+    const offWorld = !!w5off && w5off.cls === null && w5off.node === null && w5off.lines === BSET.counts.edges && w5off.fpLines === 0 && w5off.edgeLine === false
+      && w5off.steps === BSET.counts.steps && w5off.stepsFP.length === 0 && !!w5off.n && w5off.n.nodes === BSET.counts.nodes && w5off.n.edges === BSET.counts.edges
+      && w5off.n.steps === BSET.counts.steps && !(w5off.sites && w5off.sites[FH]);
+    R.check('(4b)', '?giant=0: tavern の配列・SITES・UNLOCK から消え・点 ' + BSET.counts.nodes + '・道 ' + BSET.counts.edges + '・刻み点 ' + BSET.counts.steps + ' (= ' + BSET.rev + ' の js/world-map.js) に戻り・刻み点の id に ' + FH_SITE + ' が無い / world.html の DOM から点・線・札が消え・刻み点マーカーに ' + FH_SITE + ' が無い・解放済みは ON − 1',
       offTav && offWorld,
       { offTav, offWorld, tav: { has: !!fhOf(t5off), node: t5off.node, n: t5off.n, stepIdsFP: t5off.stepIdsFP, u: [t5u.length, t5ou.length] },
-        world: { cls: w5off.cls, node: w5off.node, lines: w5off.lines, fpLines: w5off.fpLines, steps: w5off.steps, stepsFP: w5off.stepsFP, n: w5off.n }, base: BASE_COUNTS });
+        world: { cls: w5off.cls, node: w5off.node, lines: w5off.lines, fpLines: w5off.fpLines, steps: w5off.steps, stepsFP: w5off.stepsFP, n: w5off.n }, base: BSET.counts });
     const rs = retired ? { on: sha16(retired.on), giant: sha16(retired.giant), hag: sha16(retired.hag), tomb: sha16(retired.tomb), cargo: sha16(retired.cargo), warren: sha16(retired.warren), tower: sha16(retired.tower) } : null;
     const shaWant = [SHA_ON, SHA_AFTER_GIANT, SHA_AFTER_HAG, SHA_AFTER_TOMB, SHA_AFTER_CARGO, SHA_AFTER_WARREN, SHA_AFTER_TOWER];
     R.check('(4c)', '既定 → retireGiant() → retireHag() → retireTomb() → retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 = ' + shaWant.join(' / ') + ' (1 段目 = 241c718 の既定)',
       !!rs && rs.on === SHA_ON && rs.giant === SHA_AFTER_GIANT && rs.hag === SHA_AFTER_HAG && rs.tomb === SHA_AFTER_TOMB && rs.cargo === SHA_AFTER_CARGO && rs.warren === SHA_AFTER_WARREN && rs.tower === SHA_AFTER_TOWER,
       { sha: rs, sitesOn: retired && Object.keys(retired.on.sites).length });
-    R.check('(0b)', '[装置] 点・道・拠点の数 = 配信バイトの js/world-map.js (vm で読んだ値: 点 ' + (VMC && VMC.nodes) + '・道 ' + (VMC && VMC.edges) + '・拠点 ' + (VMC && VMC.sites) + ') = tavern の WORLD_MAP = world.html の WORLD_MAP / DOM (点・点線・全部クリアの札)・' + BASE_REV + ' より点と道が 1 つずつ多い',
+    R.check('(0b)', '[装置] 点・道・拠点の数 = 配信バイトの js/world-map.js (vm で読んだ値: 点 ' + (VMC && VMC.nodes) + '・道 ' + (VMC && VMC.edges) + '・拠点 ' + (VMC && VMC.sites) + ') = tavern の WORLD_MAP = world.html の WORLD_MAP / DOM (点・点線・全部クリアの札)・' + BSET.rev + ' より点と道が 1 つずつ多い',
       !!VMC && !!t5.n && t5.n.nodes === VMC.nodes && t5.n.edges === VMC.edges && t5.n.steps === VMC.steps
         && !!w5.n && w5.n.nodes === VMC.nodes && w5.n.edges === VMC.edges && w5.domNodes === VMC.nodes && w5.lines === VMC.edges
-        && wAll.signs === VMC.sites && VMC.nodes === BASE_COUNTS.nodes + 1 && VMC.edges === BASE_COUNTS.edges + 1 && VMC.sites === BASE_COUNTS.sites + 1,
-      { vm: VMC && { nodes: VMC.nodes, edges: VMC.edges, steps: VMC.steps, sites: VMC.sites }, base: { nodes: BASE_COUNTS.nodes, edges: BASE_COUNTS.edges, sites: BASE_COUNTS.sites },
+        && wAll.signs === VMC.sites && VMC.nodes === BSET.counts.nodes + 1 && VMC.edges === BSET.counts.edges + 1 && VMC.sites === BSET.counts.sites + 1,
+      { vm: VMC && { nodes: VMC.nodes, edges: VMC.edges, steps: VMC.steps, sites: VMC.sites }, base: { nodes: BSET.counts.nodes, edges: BSET.counts.edges, sites: BSET.counts.sites },
         tav: t5.n, world: { n: w5.n, domNodes: w5.domNodes, lines: w5.lines, signsAll: wAll.signs } });
 
     /* ══════════ index: 開幕の語り (?autoplay=1 のページで #dmBody に実際に出た文) ══════════ */
@@ -1119,7 +1200,7 @@ async function runSuite(browser, port, mutKey, label) {
     const B = await stage('battle', () => battle(ip, BATTLE_TURNS), { started: false, S: { giant: [], wolf: [], other: {} } });
     await ip.close().catch(() => {});
 
-    /* ══════════ (6a) + (4a) 既存シナリオ: BASE_REV と現在を同じ種で ══════════ */
+    /* ══════════ (6a) + (4a) 既存シナリオ: BSET.rev と現在を同じ種で ══════════ */
     const sp = await newPage();
     const SPAWN = async (SEED) => {
       const o = {};
@@ -1326,10 +1407,10 @@ async function runSuite(browser, port, mutKey, label) {
       EM.ret === false && !EM.err && EM.calls === 0 && (EM.add || []).length === 1 && EM.add[0].site === 'bite' && EM.add[0].reason === 'empty' && EM.add[0].clamped === true
         && EM.spentAfter === false && EM.hpDrop === 0, EM);
     const curIndex = servedFile(F_INDEX, mutKey);
-    const fireRows = FIRE_FNS.map((n) => { const a = fnSource(BASE_INDEX, n), b = fnSource(curIndex, n); return { n, base: a ? a.length : null, cur: b ? b.length : null, same: !!a && a === b }; });
+    const fireRows = FIRE_FNS.map((n) => { const a = fnSource(BSET.index, n), b = fnSource(curIndex, n); return { n, base: a ? a.length : null, cur: b ? b.length : null, same: !!a && a === b }; });
     const btypes = N0.breathTypes || [];
     const BO = DR.boss || {};
-    R.check('(3h)', '⭐ 火のブレスの非退行: ' + FIRE_FNS.join(' / ') + ' のソースが ' + BASE_REV + ' と同じ・breathDice を持つボス = ' + FIRE_BOSSES.join(' / ') + ' (breathElement なし)・冷気の息を持つのは ' + WOLF + ' (ボスでない) だけ・① 巨人の def を写して breathDice / breathElement "cold" を持たせても enemyAttackTurn で冷気の息の分岐を通らない (probe 0・__wolfTurn なし)・② 戦闘の巨人の手番で冷気の probe 0',
+    R.check('(3h)', '⭐ 火のブレスの非退行: ' + FIRE_FNS.join(' / ') + ' のソースが ' + BSET.rev + ' と同じ・breathDice を持つボス = ' + FIRE_BOSSES.join(' / ') + ' (breathElement なし)・冷気の息を持つのは ' + WOLF + ' (ボスでない) だけ・① 巨人の def を写して breathDice / breathElement "cold" を持たせても enemyAttackTurn で冷気の息の分岐を通らない (probe 0・__wolfTurn なし)・② 戦闘の巨人の手番で冷気の probe 0',
       fireRows.every((r) => r.same && r.cur > 200)
         && J(btypes.filter((x) => x.boss).map((x) => x.k)) === J(FIRE_BOSSES) && btypes.filter((x) => x.boss).every((x) => x.el === null)
         && J(btypes.filter((x) => !x.boss).map((x) => x.k + ':' + x.el)) === J([WOLF + ':cold'])
@@ -1347,20 +1428,32 @@ async function runSuite(browser, port, mutKey, label) {
     const dragonSaid = (H.said || []).filter((t) => /赤い竜/.test(t));
     const existOk = ten.length > 0 && ten.some((x) => (x.base.said || []).length > 0)
       && ten.every((x) => J(x.base.said) === J(x.cur.said) && (x.cur.said || []).every((t) => t !== avText && t !== iceText));
-    R.check('(4a)', '開幕の語り 4 行が #dmBody に出る・大広間の語りは n1 で 1 回だけ (入場の時点では 0・赤い竜の一言・2.5 秒待っても 1 回・戦闘の後も 1 回)・既存 ' + ten.length + ' シナリオの罠の語りは ' + BASE_REV + ' と同じ',
+    R.check('(4a)', '開幕の語り 4 行が #dmBody に出る・大広間の語りは n1 で 1 回だけ (入場の時点では 0・赤い竜の一言・2.5 秒待っても 1 回・戦闘の後も 1 回)・既存 ' + ten.length + ' シナリオの罠の語りは ' + BSET.rev + ' と同じ',
       !!NARR && NARR.scen === FH && seenAll && H.hallAtEntry === 0 && (H.hall || []).length === 1 && H.hall[0].node === 'n1' && H.narrated === true
         && dragonSaid.length === 1 && !!B && B.hall === 1 && existOk,
       { narr: NARR && { scen: NARR.scen, paras: paras.length, seen: (NARR.seen || []).length, all: seenAll }, hall: H.hall, hallMs: H.hallMs, dragon: dragonSaid, afterBattle: B && B.hall,
         exist: ten.map((x) => ({ sid: x.sid, same: J(x.base.said) === J(x.cur.said) })) });
     /* ── §6 ── */
     const tenRows = ten.map((x) => ({ sid: x.sid, traps: x.cur.traps.length, same: J(x.base.traps) === J(x.cur.traps), calls: [x.base.calls, x.cur.calls], next: x.base.next === x.cur.next }));
-    R.check('(6a)', '既存 ' + ten.length + ' シナリオ (' + BASE_REV + ' の SCENARIOS) で、同じ種の乱数のもと spawnTraps の罠 (座標・種類)・乱数の呼び出し回数・次の乱数が ' + BASE_REV + ' と同じ',
+    R.check('(6a)', '既存 ' + ten.length + ' シナリオ (' + BSET.rev + ' の SCENARIOS) で、同じ種の乱数のもと spawnTraps の罠 (座標・種類)・乱数の呼び出し回数・次の乱数が ' + BSET.rev + ' と同じ',
       ten.length === 11 && EXIST.indexOf(FH) < 0 && ten.some((x) => x.cur.traps.length > 0)
         && ten.every((x) => J(x.base.traps) === J(x.cur.traps) && x.base.calls === x.cur.calls && x.base.next === x.cur.next),
       { exist: EXIST, rows: tenRows });
-    const keepRows = KEEP_FNS.map((n) => { const a = fnSource(BASE_INDEX, n), b = fnSource(curIndex, n); return { n, base: a ? a.length : null, cur: b ? b.length : null, same: !!a && a === b }; });
-    R.check('(6b)', '触らない約束の関数 (' + KEEP_FNS.join(' / ') + ') のソースが ' + BASE_REV + ' と同じ',
-      keepRows.every((r) => r.same && r.cur > 100), keepRows);
+    /* ★[#110] (6b) は関数ごとの基準の版 (KEEP_BASE[n] || BSET.rev) と比べる。版ごとの index.html は gitShowAt のキャッシュで 1 回だけ */
+    const keepRows = KEEP_FNS.map((n) => {
+      const rev = BSET.keepRev(n), src = BSET.keepIndex(n);
+      const a = src === null ? null : fnSource(src, n), b = fnSource(curIndex, n);
+      return { n, rev, base: a ? a.length : null, cur: b ? b.length : null, same: !!a && a === b };
+    });
+    R.check('(6b)', '触らない約束の関数 (' + KEEP_FNS.join(' / ') + ') のソースがそれぞれの基準の版と同じ (既定 ' + BSET.rev
+      + (Object.keys(BSET.keepBase).length ? '・' + Object.keys(BSET.keepBase).map((n) => n + ' だけ ' + BSET.keepBase[n]).join('・') : '') + ')',
+      keepRows.every((r) => r.same && r.cur > 100),
+      '関数 / 基準の版 / 長さ (基準→今) / 同じ: ' + keepRows.map((r) => r.n + ' / ' + r.rev + ' / ' + r.base + '→' + r.cur + ' / ' + (r.same ? '同' : '✗違')).join(' ; '));
+    const kb = keepBaseFacts();
+    R.check('(0e)', '[装置] KEEP_BASE の各版が実在し (git show 成功)・その版から関数を切り出せ・KEEP_FNS に居る・defeatEnemy の版 ('
+      + (KEEP_BASE.defeatEnemy || '?') + ') の defeatEnemy が markHiddenFoeSlain を含む',
+      kb.length > 0 && kb.every((r) => r.shown && r.inKeep && r.len > 100) && kb.some((r) => r.n === 'defeatEnemy' && r.mark),
+      kb);
     /* ══════════ (0c) ══════════ */
     R.check('(0c)', '[装置] 全ページで pageerror 0 件 (段の例外は記録だけ: 例外の出た段の節が赤になる)', ctx.booted > 0 && ctx.errs.length === 0,
       '起動 ' + ctx.booted + ' 回 / pageerror ' + J(ctx.errs.slice(0, 3)) + ' / 段の例外 ' + J(STAGE_ERRS) + ' / 直接呼びの例外 ' + J((D || {}).err || null));
@@ -1407,7 +1500,7 @@ async function runSuite(browser, port, mutKey, label) {
       } else {
         const report = [];
         for (const key of order) {
-          const port = PORT + 1 + MUT_ORDER.indexOf(key);
+          const port = mutPort(key);
           const R = await run(port, key, '[変異 ' + key + ']');
           summarize(R, '[変異 ' + key + ']');
           const red = R.filter((r) => !r.ok).map((r) => r.id);
@@ -1432,7 +1525,7 @@ async function runSuite(browser, port, mutKey, label) {
         else console.error('[vet] --negative NG: ' + report.filter((r) => !r.ok).map((r) => r.key).join(','));
       }
     } else if (MUTATE) {
-      const port = PORT + 1 + MUT_ORDER.indexOf(MUTATE);
+      const port = mutPort(MUTATE);
       const R = await run(port, MUTATE, '[変異 ' + MUTATE + ' (手回し)]');
       summarize(R, '[変異 ' + MUTATE + ']');
       console.log('[vet] 赤くなった = ' + (R.filter((r) => !r.ok).map((r) => r.id).join(',') || '(なし)') + ' / 注入行の実行 ' + (R.hits[MUTATE] || 0) + ' 回');
