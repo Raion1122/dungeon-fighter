@@ -746,10 +746,10 @@ async function runSuite(browser, port) {
 
   /* ── §5 頭の交代と拾得 ── */
   await sect(['(5a)'], async () => {
-    /* ⭐ applyLeaderStats は最大 HP を CLASS_DEFS の素の値へ作り直す (Lv の分は載らない = #113 より前からの挙動)。
-       ⇒「hpBonus が乗ったまま」は、同じ種で品なしで昇格したときとの差で測る */
+    /* ⭐ applyLeaderStats は最大 HP を CLASS_DEFS の素の値へ作り直すので、主人公の昇格では本人の maxHp を引き継ぐ。
+       ⇒ Lv4 の種で「昇格の前後で最大 HP が同じ」(Lv の分が残る) と「品なしの昇格との差が +8」(hpBonus が残る) の両方を測る */
     const promote = async (extra) => {
-      const p = await open(I, '', seed('mage', MAGE_PARTY, Object.assign({ [K.ids]: J([H, RP]), [K.st]: state({ warrior: [RP, 'none'] }) }, extra)));
+      const p = await open(I, '', seed('mage', MAGE_PARTY, Object.assign({ 'dragonfighters.xp': '6000', [K.ids]: J([H, RP]), [K.st]: state({ warrior: [RP, 'none'] }) }, extra)));
       const v0 = await p.evaluate(READ);
       const r = await p.evaluate(() => { hp = 0; return onHeadDowned('test'); });
       await sleep(200);
@@ -760,9 +760,10 @@ async function runSuite(browser, port) {
     };
     const a = await promote({ [K.e1]: H });
     const z = await promote({});
-    R.check('(5a)', '主人公が頭へ昇格 → 本人の品のまま (死んだ頭の品を継がない)・hpBonus が乗ったまま (品なしの昇格より maxHp +8)',
+    R.check('(5a)', '主人公が頭へ昇格 → 本人の品のまま (死んだ頭の品を継がない)・hpBonus が乗ったまま (品なしの昇格より maxHp +8)・Lv の分も残る (昇格の前後で maxHp が同じ)',
       a.v0.heroIsHead === false && a.v0.head[0] === RP && a.r === true && a.v1.heroIsHead === true && a.v1.head[0] === H && a.v1.heroAcc[0] === H && a.v1.bonus === HP_BONUS
-        && z.r === true && z.v1.head[0] === 'none' && a.v1.maxHp - z.v1.maxHp === HP_BONUS && a.v1.hp <= a.v1.maxHp && a.e1 === H,
+        && z.r === true && z.v1.head[0] === 'none' && a.v1.maxHp - z.v1.maxHp === HP_BONUS && a.v1.hp <= a.v1.maxHp && a.e1 === H
+        && a.v0.heroMaxHp > 18 + HP_BONUS - 1 && a.v1.maxHp === a.v0.heroMaxHp && z.v1.maxHp === z.v0.heroMaxHp,
       { a: { v0head: a.v0.head, heroMaxHp: a.v0.heroMaxHp, v1: a.v1, e1: a.e1 }, z: { v1: z.v1 } });
   });
   await sect(['(5b)', '(5c)'], async () => {

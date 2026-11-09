@@ -22054,11 +22054,12 @@
       const nh = allies[ni];
       leaderClassKey = nh.classKey;
       applyLeaderStats(leaderClassKey);                 // playerStats/maxHp 再構築 (hp は満タンになる)
+      if (nh.isHero && nh.maxHp > 0) maxHp = nh.maxHp;  // ★主人公は Lv と装身具の分を含む本人の最大 HP を引き継ぐ (applyLeaderStats は素の値へ戻す)
       hp = Math.max(1, Math.min(maxHp, nh.hp || 1));    // ★現在 hp を復元
       if (ACC_EQUIP_ON && Array.isArray(nh.accessoryIndices)) {   // ★#113 新しい頭は自分の品を持って頭になる
         currentAccessoryIndices = nh.accessoryIndices.slice();
         const pb = getAccessoryHpBonus("player");                  // applyLeaderStats が作り直した最大 HP へ足し直す
-        if (pb > 0) { maxHp += pb; hp = Math.max(1, Math.min(maxHp, nh.hp || 1)); }
+        if (pb > 0 && !nh.isHero) { maxHp += pb; hp = Math.max(1, Math.min(maxHp, nh.hp || 1)); }
       }
       equippedSkills = Array.isArray(nh.equippedSkills) ? nh.equippedSkills.slice() : equippedSkills;
       currentSpellSlots = { ...(nh.spellSlots || {}) };
