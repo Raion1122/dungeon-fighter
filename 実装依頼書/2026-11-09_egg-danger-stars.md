@@ -289,4 +289,52 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 着手前の実測(項目 1)
+
+**測定条件**: 2026-11-09 17:41〜17:47、HEAD `782c12c`、ツリー clean。`index.html` は `56ac565` と差分なし。`tavern.html` は CRLF 12240 / LF 12240 / 単独 CR 0(`py` のバイト計数)。本書は LF。
+
+**行番号**: §2 に書かれた行は全部そのまま。ずれは 0 件。設計を変える必要のある崩れは無い。
+
+**§2 の記述に足す訂正**(いずれも結論は変わらない):
+
+| 節 | 本書の記述 | 実測 | 影響 |
+|---|---|---|---|
+| §2-6 | `DFSaveSlots` / `SaveSlots.` は 0 件 | 字面は 0 件だが、**実際の API 名は `DFSlots`**(`:2950` で読み込み)。酒場で呼ぶのは `snapshot`(`:6311` / `:8778` / `:12225`)と `wipeLive`(`:8934`、直後に `location.replace` で読み直し)だけ。`switchTo` / `newGame` は `title.html` だけ | 「読み込み時に 1 回読めば足りる」は成り立つ |
+| §2-1 | `recommendedLevel` を読むのは `questLevelOf` だけ | 実際の読みは `:8722-8723`(`:8720-8721` の `__generated.questLevel` が先)。呼び手は `:8751` `fixCompanionLevelsEarly` と `:8794` 出発時。`:10834` / `:11292` は生成クエストへの**書き込み**。`:8895` `departAutoDebug` は `questLevelOf` を通らず主人公 Lv を渡す | 読み口は 1 つのまま。自動デバッグ巡回の帯には効かない |
+| §2-6 | `tools/verify_plaza_map.js:762-764` が本文を比べる | 762-764 は #103 の差し引きの表。比較は `:773-774`(5a)で、範囲は `(function initTavernMap() {` から次の `\n  })();` まで | `initTavernMap` の外に足す本案は当たらない |
+| §2-6 | `redEgg` の字面を持つ 3 本以外は印を種まきしない | **`lastResult` のクリアでも印は立つ**(字面の `redEgg` は要らない)。巣穴のクリアを明示で置くのは `verify_kobold_warren.js:797` で、これは 3 本の中。`verify_egg_parent` / `verify_kobold_warren` / `verify_plaza_map` / `verify_quest_draw` に `difficulty` / `recommendedLevel` / `metaDiff` / `.tavernSignDesc` を読む箇所は 0 件 | 非退行の見込みは変わらない。残り 4 本は項目 4 の実走で確かめる |
+
+**§8 の前提(実ページで確認・`~/.claude/dev-loop/r112/item1/probe_seams.js`)**: `scenarios` / `openDialog` / `assignCompanionLevels` / `questLevelOf` / `QuestGen` / `RED_EGG_KEY` はページから直接呼べる。`__TAVERN_TV.redEgg` は関数。
+
+| 腕(本体を足す前) | `redEgg().mark` | 札 | `#metaDiff` | `questLevelOf(sc,2)` | 仲間(`Math.random`=0) |
+|---|---|---|---|---|---|
+| 印なし | false | 廃坑 + 巣穴 `★` | `★` | 2 | 主人公 Lv4 → 2 / Lv2 → 2 / 名簿の顔 Lv3 → 3 |
+| 印あり(種まき) | true | 同上 | `★` | 2 | 同上 |
+| `lastResult` クリア | true(1 回目で立つ) | 同上 | `★` | 2 | 同上 |
+| `lastResult` 敗走(`defeated`) | false | 同上 | `★` | 2 | 同上 |
+| `?warren=0` + 印あり | true | 廃坑 + 森(`— 未解放 —`) | —(巣穴なし) | — | — |
+
+いずれも `pageerror` 0 件。`scenarios` は 12 件(`?warren=0` は 11 件)。`BOARD_SIZE = 2`(`:11570`)。
+
+**項目 3 への注意**:
+
+- 札の並びは毎回変わる(`drawBoard` が席をランダムに割る)。`#questTable_kobold-warren` を id で引く
+- (0a) の正規表現は `difficulty: "` で取る。`:3832` / `:3856` のコメントに `difficulty "★★"` の字面がある
+- `:3794` の値の後ろにコメントが続く
+
+**golden 8 本の基準**(素で 1 回ずつ。2 レーンの逐次実行、競合ポートなし。ログ = `~/.claude/dev-loop/r112/item1/golden/`):
+
+| ドライバ | 既定ポート | 基準 | exit | 秒 |
+|---|---|---|---|---|
+| `verify_egg_parent` | 10740 | 26/26 | 0 | 102 |
+| `verify_kobold_warren` | 10642 | 21/21 | 0 | 106 |
+| `verify_quest_draw` | 10527 | 18/18 | 0 | 35 |
+| `verify_tavern_map` | 9200 | 47/47 | 0 | 23 |
+| `verify_plaza_map` | 10637 | 43/43 | 0 | 102 |
+| `verify_member_identity` | 10401 | 28/28 | 0 | 139 |
+| `verify_mercenary_roster` | 8931 | 44/44 | 0 | 19 |
+| `verify_recruit_size` | 8897 | 91/91 | 0 | 32 |
+
+- 着手前から赤いものは無い
+- 走らせた時刻帯は昼(17:42〜17:47、闇市の 20:00〜24:59 の外)。CLAUDE.md #102 のとおり。項目 4 も 20:00 より前に走らせる。夜になったら結果を基準と並べず、時刻を記録して翌日の昼に走らせ直す
+- 総括行の書式はドライバごとに違う。`PASS` で拾う(`verify_recruit_size` は `結果: N/M PASS`、`verify_mercenary_roster` は `N PASSED / 0 FAILED`)
