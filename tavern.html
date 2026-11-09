@@ -6302,6 +6302,21 @@
       }
     } catch (e) { /* ignore */ }
   })();
+  /* ★[#112] 赤い卵を持ち帰った後の巣穴には親竜が出る (#111) ⇒ 札の ★ と仲間の帯を上げる。
+     ⚠⚠ 置き場所は consumeResult() より **後** でなければならない。持ち帰った回の印は consumeResult() の
+       markRedEgg() で初めて立つので、配列の直後に置くと最初の 1 回だけ ★ のまま札が出る (依頼書 §2-5)。
+     ⭐ 推奨 Lv は 5 (4 では qGetTier が tier1 のままで仲間の帯が動かない。依頼書 §2-4)。
+     ⚠ ?warren=0 のときは配列に巣穴が居ない ⇒ sc が無ければ何もしない。 */
+  (function eggDangerOnWarren() {
+    try {
+      if (new URLSearchParams(location.search).get("eggdanger") === "0") return;
+      if (localStorage.getItem(RED_EGG_KEY) !== "1") return;
+    } catch (e) { return; }
+    var sc = scenarios.find(function (s) { return s.id === "kobold-warren"; });
+    if (!sc) return;
+    sc.difficulty = "★★";
+    sc.recommendedLevel = 5;
+  })();
   // ── セーブスロット: ダンジョンから戻った直後の状態を、スロット一覧の要約へ反映する ──
   //   ⚠ ライブ (dragonfighters.*) が常に真の実体なので、ここで焼き忘れても **進行は消えない**。
   //     ずれるのは「他スロットへ移った時に一覧へ出る要約 (meta)」だけ。

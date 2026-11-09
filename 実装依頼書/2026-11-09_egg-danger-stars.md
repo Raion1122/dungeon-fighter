@@ -338,3 +338,22 @@
 - 着手前から赤いものは無い
 - 走らせた時刻帯は昼(17:42〜17:47、闇市の 20:00〜24:59 の外)。CLAUDE.md #102 のとおり。項目 4 も 20:00 より前に走らせる。夜になったら結果を基準と並べず、時刻を記録して翌日の昼に走らせ直す
 - 総括行の書式はドライバごとに違う。`PASS` で拾う(`verify_recruit_size` は `結果: N/M PASS`、`verify_mercenary_roster` は `N PASSED / 0 FAILED`)
+
+### 12-2. 本体(項目 2)
+
+**足した行**: `tavern.html:6305-6319`(+15 行・-0 行)。`consumeResult()` の閉じ `})();`(`:6304`)の直後。コメント 5 行(`:6305-6309`)+ 即実行の関数 10 行(`:6310-6319`、宣言は `:6310` の `eggDangerOnWarren`)。本文は §4 のコードブロックをそのまま機械で写した。`js/changelog.js` は §10 の 1 行を足し、目印の間は 4 件のまま。
+
+**改行**: `tavern.html` は CRLF 12255 / LF 12255 / 単独 CR 0(`py` のバイト計数。着手前 12240 + 15)。`git diff --numstat` は `15 0 tavern.html` / `1 1 js/changelog.js`。
+
+**煙検査**(使い捨て `~/.claude/dev-loop/r112/item2/smoke.js`。実 Chrome・port 10761・`plazaClock=21` を種まき): 6/6、`pageerror` は全腕 0 件。
+
+| 腕 | `redEgg().mark` | 札 | `#metaDiff` | `questLevelOf(sc,2)` |
+|---|---|---|---|---|
+| (a) 印なし | false | `★` | `★` | 2 |
+| (b) 印 `"1"` | true | `★★` | `★★` | 5 |
+| (c) 印なし + `lastResult` クリアの 1 回目(§2-5) | true | `★★` | `★★` | 5 |
+| (d) `lastResult` 敗走(`defeated`) | false | `★` | `★` | 2 |
+| (e) `?eggdanger=0` + 印 | true | `★` | `★` | 2 |
+| (f) `?warren=0` + 印 | true | 巣穴の札なし | — | —(`scenarios` 11 件) |
+
+受入ドライバ(§8)と変異は項目 3 で作る。
