@@ -485,3 +485,72 @@ py tools/add_changelog.py "<b>魔法の装身具をシートと出発画面で�
 | `tools/verify_save_slots.js` | 30/30 | 5 秒 |
 | `tools/driver_equip_compact_ios.js` | 31/31 | 16 秒 |
 | `tools/verify_plaza_curio.js` | 28/28 | 34 秒 |
+
+### 12-1. 項目1 — 着手前の実測(2026-11-10 06:58〜07:06・HEAD `9cb2c90`)
+
+起草時 HEAD `3700c2d` との差は依頼書の追加だけで、`index.html` / `tavern.html` は同じ。測定は scratchpad のプローブとメモリ上の注入で行い、本番ファイルは触っていない。**§2 の前提は崩れておらず、§4〜§6 の設計はそのまま成立する。**
+
+**§2-1 の行番号**: 下の 2 点を除き全行が一致。
+
+| 依頼書の値 | 実物 | 影響 |
+|---|---|---|
+| `index.html:16678` `getUnitAccessoryIndices` | 宣言は **`:16677`**(`:16678` は本体の 1 行目) | なし |
+| `js/player-sheet.js:1232-1283` | スロットの描画は **`:1232-1276`**(`:1280` 以降は別区画) | なし |
+
+**§2-2 の 4 ケース**(実ブラウザ・pageerror 0): すべて再現。
+
+| ケース | heroIsHead | 先頭 (`currentAccessoryIndices`) | 主人公本人の枠 | ダメージ修正 本人 / 先頭 |
+|---|---|---|---|---|
+| A 戦士 | true | ガントレット + リング(本人) | — | — / 2 |
+| B 魔法使い | false | ガントレット + リング(戦士の NPC) | `none, none` | 0 / 2 |
+| C 魔法使い + `allies.mage` | false | ガントレット + リング(戦士の NPC) | `ring-fire-resist` | 0 / 2 |
+| D 盗賊 2 + 主人公の魔法使い + NPC の魔法使い | false | ガントレット + リング(盗賊の NPC) | `ring-fire-resist`(NPC の魔法使いにも同じ品) | 0 / 2 |
+
+C の先頭は起草時がドワーフ、今回は戦士。`buildParty` の編成が毎回変わるためで、結論は同じ。
+
+**§2-3 の品数**(実行時): 24(実質 23)/ `relic` 12 / `classReq` 1(`amulet-silver-tongue:mage`)/ `hpBonus` 3(`amulet-health:8` / `relic-lizard-swamp:6` / `relic-lost-cargo:4`)。index の全 id が `ACCESSORIES_TV` にある(欠け 0)。
+
+**§2-4〜§2-11**: すべてコードで確認。
+
+- §2-4: `applyAccessoryHpBonus` は `:39883`。§2-5: `tryPromoteNewHead` は装身具に触らない。§2-6: 保存は `:19118` → `:19146-19147` と `:44451-44454` の 2 か所。§2-7: `findAccessoryRecipient` は `:26467` で頭が最優先。§2-8: `:19127` のコメントと `stock` の多重集合を確認。
+- §2-9: `js/player-sheet.js` の装備区画と `equipTap` に `kind` の分岐は無い。
+- §2-10: `tavernstale` のアンカーは `tavern.html:10450` の 1 件。`CANEDIT_LINE` は `index.html:21757`、`h.dmgBonus = ...` は `:21820`。`verify_sheet_equip.js` の起動時検算で変異 10 本の注入点がすべて 1 箇所。
+- §2-11: `check_changelog.py:32` で一致。
+
+**§4〜§6 が依存する識別子**: すべて実在。⚠ `pmRepaint` だけは関数宣言でなく、`pmRenderDrawer` 内の局所 `const`(`tavern.html:9704`)。§6 の挿入位置(`:9762` の前)からは見える。新しく足す名前(`ACC_EQUIP_ON` / `seatHeroAccessories` / `setHeroAccessoryTV` / `pmDrawerAcc_` ほか)は `index.html` / `tavern.html` / `js/player-sheet.js` で 0 件。
+
+**`seatHeroAccessories` の TDZ**: 問題なし。宣言は `leaderClassKey` `:8048` / `heroIsHead` `:8051` / `heroRef` `:8052` / `currentAccessoryIndices` `:15003`、代入は `:39731`(heroIsHead)/ `:39734`(leaderClassKey)/ `:39783`(heroRef)で、すべて置き場所(`:39861` の直後)より前。§4 の定数と IIFE を配信時にメモリ上で注入して実走した結果は次のとおり(pageerror 0)。
+
+| 場合 | 結果 |
+|---|---|
+| 素(`amulet-health`・戦士の NPC が先頭・主人公の魔法使い) | 先頭 NPC の `maxHp` 68 / 主人公 30 |
+| 注入(同じ種) | 先頭 NPC 60 / **主人公 38**(+8 が本人に乗る) |
+| 注入(ケース D の種) | 主人公 = ガントレット + リング(ダメージ修正 2)/ 先頭の盗賊 = `belt-giant-strength` |
+| 注入(ケース A の種・主人公が頭) | 素と同じ(恒等) |
+
+**golden 8 本**(素で実走・07:05 終了 = 朝。闇市の開く 20:00〜24:59 の外)。数は §12-0 と全行一致。ログは `C:\Users\PC_User\.claude\dev-loop\r113\item1\`。
+
+| ドライバ | 結果 | 所要 | 開始 |
+|---|---|---|---|
+| `tools/verify_sheet_equip.js` | 21/21 PENDING 0 | 165 秒 | 06:58:53 |
+| `tools/verify_pm_drawer_fit.js` | 75/79 FAILED 0 PENDING 4 | 32 秒 | 07:01:38 |
+| `tools/verify_prep_retire.js` | 30/30 PENDING 0 | 64 秒 | 07:02:10 |
+| `tools/verify_player_sheet.js` | 73/73 PENDING 0 | 57 秒 | 07:03:14 |
+| `tools/verify_clear_chests.js` | 21/21 | 9 秒 | 07:04:11 |
+| `tools/verify_save_slots.js` | 30/30 | 5 秒 | 07:04:20 |
+| `tools/driver_equip_compact_ios.js` | 31/31 | 16 秒 | 07:04:25 |
+| `tools/verify_plaza_curio.js` | 28/28 | 35 秒 | 07:04:42 |
+
+`verify_pm_drawer_fit.js` の PENDING 4 件は (3b-v1) / (3c-v1) / (2b-v4) / (2c-v4)。いずれもドライバ自身が測定不能・対象外と宣言しているもの。
+
+**項目2 への注意**(設計は変えない。実装時に踏みやすい点)
+
+1. §2-1 の表に無い口が 3 つある。いずれも変更は不要。
+   - `index.html:19067-19100` の `shadow-amulet` の付与は、プレイヤーが相手を選ぶ `showCharChoice`。主人公の仲間枠を選べば §4 の保存で本人の品になる。
+   - `index.html:26620` / `:44292` は `findAccessoryRecipient` の戻り値の受け手で、`kind: "ally"` の枝がある。§4 の `{ kind: "ally", ally: heroRef, slot }` はそのまま通る。
+   - `tavern.html:5612` の `__equipTV.setHeroAcc` は検証用の窓で、`selection` へ直書きする。§6 の「唯一の口」の例外だが、プレイヤーの経路ではない。
+2. `ACC_EQUIP_ON_TV` の位置は §6 に指定が無い。`cycleAccessoryTV`(`tavern.html:7240`)より前、たとえば `accColorClassTV`(`:7201`)の直前に置くと TDZ を考えなくて済む。
+3. §2-7 の「編成に居ない職のキーが残る」は、`snap.allies` が保存のたびに作り直されるので**次の保存までの話**。(4c) は酒場で、前回の編成のキーが残っている状態を種にして測る。潜行中の `dfNpcWearers` は今の編成しか見ないので、§5 の判定に影響しない。
+4. `heroAccessoryUnit` の `!heroRef` の枝は、ゲーム内では「主人公が頭でないのに `heroRef` が無い」形では踏まない。`onHeadDowned`(`:22006`)が主人公の頭の死をゲームオーバーにするので、主人公の品が NPC の品で上書きされる経路は無い。
+5. `ACCESSORIES_TV` の `shadow-amulet` だけ `effect` が無い。§6 の `note` は空になるが、`rowEl` / 候補の描画は空の note を許す(`op.note` の判定あり)。
+6. 3 行を前提にする assert は、8 本のソースの静的な確認では見つからなかった(`verify_sheet_equip.js` の `KINDS` は 3 種を名指しで読む)。§8 のとおり、確定は項目4 の実走で行う。
