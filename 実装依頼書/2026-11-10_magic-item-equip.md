@@ -554,3 +554,50 @@ C の先頭は起草時がドワーフ、今回は戦士。`buildParty` の編�
 4. `heroAccessoryUnit` の `!heroRef` の枝は、ゲーム内では「主人公が頭でないのに `heroRef` が無い」形では踏まない。`onHeadDowned`(`:22006`)が主人公の頭の死をゲームオーバーにするので、主人公の品が NPC の品で上書きされる経路は無い。
 5. `ACCESSORIES_TV` の `shadow-amulet` だけ `effect` が無い。§6 の `note` は空になるが、`rowEl` / 候補の描画は空の note を許す(`op.note` の判定あり)。
 6. 3 行を前提にする assert は、8 本のソースの静的な確認では見つからなかった(`verify_sheet_equip.js` の `KINDS` は 3 種を名指しで読む)。§8 のとおり、確定は項目4 の実走で行う。
+
+### 12-2. 項目2 — 本体(2026-11-10・HEAD `11e0dec` から)
+
+§4〜§7 と §10 をコードどおりに実装した。**設計の変更は無い。** 改行は `index.html` CRLF 45348 / LF 45348、`tavern.html` CRLF 12386 / LF 12386(LF の混入なし)。
+
+**実装の要点**
+
+- `index.html`: `ACC_EQUIP_ON`(`SHEET_EQUIP_ON` の直後)/ `heroAccessoryUnit` と `heroAccessoryIndices` / 保存(`snap.player`・`a.isHero` を飛ばす・先頭 NPC を職業キーへ)/ 勝利時の直書き / 頭の交代 / 拾得 / `seatHeroAccessories`(`applyInitialLevels` の前 = `applyAccessoryHpBonus` より前)/ シートの 2 行 / `__sheetEquip.heroAcc`。
+- `dfSheetEquip` の装身具の分岐は `if (!ce.ok) return ce;` の直後。
+- `tavern.html`: `ACC_EQUIP_ON_TV`(`accColorClassTV` の直前)/ `setHeroAccessoryTV` / 札の巡回 / シートの 2 行 / 引き出しの `#pmDrawerAcc_0` `#pmDrawerAcc_1`(条件は `m.isHero`)。
+- 描き直し 4 行は `dfSheetRepaintAllTV()` へ移した。`    if (pmDrawerIdx >= 0) pmRenderDrawer(pmDrawerIdx);` は 1 件のまま。
+- `js/player-sheet.js` は無変更。
+
+**依頼書に書かれていなかったので決めた点**(いずれも §5・§6 の規則の範囲内)
+
+| 点 | 決めたこと | 理由 |
+|---|---|---|
+| 関数の分け方 | `dfAccCandidates` / `dfSheetAccSlots` / `dfSheetEquipAcc` / `dfAccWearerName`、酒場は `tvHeroAccCandidates` / `tvAccWearerNote` / `tvAccOptionNote` / `dfSheetAccSlotsTV` / `dfSheetEquipAccTV` | 候補の規則を、画面と付け替え関数で同じ関数にして食い違いを防ぐ |
+| 酒場の「(〇〇が着用中)」 | `pmOrdered` の同職 NPC の名前、無ければ職名(`CURIO_CLASS_LABEL_TV`) | `accessoryState` には職業キーしか無く、§5 の `npcName` が引けない。マッチング前は名前が無い |
+| 引き出しの「(他に所持なし)」 | 候補が 0 件なら、「外す」の行があっても出す | §6 の「候補が無ければ」の字句どおり |
+| `dfSheetSlots` の 2 行 | 既存の `.map(...)` に `.concat(...)` で足す | 既存の 3 行の組み立てを触らない |
+
+**検証**(スクリプトとログは `C:\Users\PC_User\.claude\dev-loop\r113\item2\`。リポジトリには入れていない)
+
+| 検査 | 結果 |
+|---|---|
+| 煙検査 `smoke_item2.js`(実ブラウザ・390x844 タッチ) | **21/21**、pageerror 0 |
+| `node tools/verify_sheet_equip.js`(素) | **21/21 PENDING 0**、163 秒、`[vet]` 変異 10 本の注入点がすべて原本でちょうど 1 箇所 |
+
+煙検査の実測値(魔法使いの主人公 + 戦士の NPC が先頭)。
+
+| 確かめたこと | 値 |
+|---|---|
+| ガントレット | `getAccessoryDmgBonus(heroRef)` 2 / 先頭 NPC 0 |
+| 戦士の主人公 | `heroIsHead` true、頭に付く |
+| `amulet-health` を種で着ける | 主人公 `maxHp` 30 → 38、先頭 NPC 60 のまま |
+| ダンジョンのシート | 5 行、実タップで着脱、`equipAccessory1` とシートの表示が同じ品 |
+| 潜行中に `amulet-health` を着ける / 外す | `maxHp` 30 → 38、`hp` は 30 のまま / `maxHp` 30 へ戻る |
+| 戦闘中の直接 `equip`、未所持の品 | どちらも `{ok:false}` |
+| 先頭 NPC が着けている品 | 「(N0が着用中)」付きで候補に出て、選ぶと主人公へ移る |
+| 酒場のシートと引き出し | 5 行で着脱、一覧が DOM にあり押すと変わる、NPC 3 人(主人公と同職を含む)のカードに一覧なし |
+| 酒場で NPC の品を移す | 「(戦士が着用中)」付きで候補に出て、`accessoryState.allies.warrior` から消える |
+| `?accequip=0` | 両ページ 3 行、一覧なし、品は従来どおり先頭 NPC に付く、キーが sessionStorage に書かれる |
+
+`verify_sheet_equip.js` は 5 行化で赤くならなかった(`KINDS` が 3 種を名指しで読むため)。
+
+⚠ 煙検査の範囲外: 頭の交代(§8 (5a))と拾得(5b)(5c)、勝利経路の保存 (3f)、`git show 3700c2d:index.html` との恒等 (6a) は実走していない。項目3 の受入で測る。

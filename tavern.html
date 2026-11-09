@@ -7197,6 +7197,13 @@
     const q = scenarios.find(s => s && s.id === acc.relic);
     return (q && q.title) || "";
   }
+  /* ★#113 撤退 ?accequip=0。出発前にキーを書くので、酒場に付ければ遷移先の index まで届く */
+  const ACC_EQUIP_ON_TV = (function () {
+    try {
+      if (/[?&]accequip=0(&|$)/.test(location.search)) sessionStorage.setItem("dragonfighters.accEquipOff", "1");
+      return sessionStorage.getItem("dragonfighters.accEquipOff") !== "1";
+    } catch (e) { return !/[?&]accequip=0(&|$)/.test(location.search); }
+  })();
   /* ★[#108] 装身具の名前の色: 伝承の品 = 紫 (rarity-epic) / ゲート付き (マジックアイテム) = 青 (rarity-rare) / それ以外の品 = 従来の item-special */
   function accColorClassTV(acc) {
     if (!acc || acc.id === "none") return "";
@@ -7233,6 +7240,52 @@
   function heroAccessoryIds() {
     return [selection.equipAccessory1 || "none", selection.equipAccessory2 || "none"];
   }
+  /* ★#113 主人公の装身具を変える唯一の口 */
+  function tvAccStock() {
+    try { const r = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]"); return Array.isArray(r) ? r : []; }
+    catch (e) { return []; }
+  }
+  function tvNpcWearers(id) {
+    const out = [];
+    try {
+      const s = JSON.parse(localStorage.getItem("dragonfighters.accessoryState") || "null");
+      const al = (s && s.allies) || {};
+      Object.keys(al).forEach((k) => (Array.isArray(al[k]) ? al[k] : []).forEach((v, i) => { if (v === id) out.push({ classKey: k, slot: i }); }));
+    } catch (e) {}
+    return out;
+  }
+  function setHeroAccessoryTV(slotIdx, id) {
+    const ids = heroAccessoryIds();
+    if (id !== "none") {
+      if (id === ids[slotIdx === 0 ? 1 : 0]) return false;
+      if (!unlockedAccessoriesTV().some(a => a.id === id)) return false;     // 所持 + 職業の検査
+      const w = tvNpcWearers(id);
+      if (tvAccStock().filter(x => x === id).length - w.length < 1 && w.length) {   // 余りが無いときだけ NPC から外す
+        try {
+          const s = JSON.parse(localStorage.getItem("dragonfighters.accessoryState") || "null");
+          s.allies[w[0].classKey][w[0].slot] = "none";
+          localStorage.setItem("dragonfighters.accessoryState", JSON.stringify(s));
+        } catch (e) {}
+      }
+    }
+    if (slotIdx === 0) selection.equipAccessory1 = id; else selection.equipAccessory2 = id;
+    saveSelections();
+    return true;
+  }
+  /* 候補 = 所持 + 職業で装備可 + 自分の両枠に入っていない。シートと引き出しの共通 */
+  function tvHeroAccCandidates() {
+    const ids = heroAccessoryIds();
+    return unlockedAccessoriesTV().filter(a => a.id !== "none" && a.id !== ids[0] && a.id !== ids[1]);
+  }
+  function tvAccWearerNote(id) {
+    const w = tvNpcWearers(id)[0];
+    if (!w) return "";
+    const m = (pmOrdered || []).find(x => x && !x.isHero && x.classKey === w.classKey && x.name);
+    return "(" + ((m && m.name) || CURIO_CLASS_LABEL_TV[w.classKey] || w.classKey) + "が着用中)";
+  }
+  function tvAccOptionNote(def) {
+    return [def.effect, tvAccWearerNote(def.id)].filter(Boolean).join(" ");
+  }
   // スロットのアクセサリーを次候補へ巡回 (もう片方が使用中の非none id は除外 = 同一不可)
   /* ⚠ #55: repaint を受け取るようにした (既定は従来どおり準備画面の再描画)。
      引き出しの装備段から押されたときに renderCharLoadout だけを呼ぶと、
@@ -7244,6 +7297,7 @@
     if (cand.length <= 1) return;                          // なし以外に候補がなければ何もしない
     const cur = cand.findIndex(a => a.id === ids[slotIdx]);
     const next = cand[((cur < 0 ? 0 : cur) + 1) % cand.length];
+    if (ACC_EQUIP_ON_TV) { setHeroAccessoryTV(slotIdx, next.id); (repaint || renderCharLoadout)(); return; }   // ★#113
     if (slotIdx === 0) selection.equipAccessory1 = next.id;
     else               selection.equipAccessory2 = next.id;
     saveSelections();
@@ -9759,6 +9813,53 @@
         renderEquipSlot(listEl, k.pool, k.kind, k.cur, { charKey: classKey, repaint: pmRepaint, shieldLocked });
         renderBagSlot(bagList, bagSec, classKey, k.bag, k.pool, pmRepaint);
       }
+      /* ★#113 装身具の一覧。⛔ 条件は m.isHero (主人公と同職の NPC のカードに出さない) */
+      if (ACC_EQUIP_ON_TV && m.isHero) {
+        [0, 1].forEach(function (s) {
+          const grp = document.createElement("div");
+          grp.className = "equipGroup";
+          const lab = document.createElement("div");
+          lab.className = "equipLabel";
+          lab.textContent = "装身具" + (s + 1);
+          const col = document.createElement("div");
+          col.className = "equipListCol";
+          const listEl = document.createElement("div");
+          listEl.className = "equipList";
+          listEl.id = "pmDrawerAcc_" + s;
+          const addRow = function (id, name, spec, colorCls) {
+            const item = document.createElement("div");
+            item.className = "equipItem";
+            const nm = document.createElement("span");
+            nm.className = "eName" + (colorCls ? " " + colorCls : "");
+            nm.textContent = name;
+            const sp = document.createElement("span");
+            sp.className = "eSpec";
+            sp.textContent = spec || "";
+            item.appendChild(nm);
+            item.appendChild(sp);
+            item.addEventListener("click", function () {
+              setHeroAccessoryTV(s, id);
+              pmRepaint();
+              try { if (window.DFSheet && window.DFSheet.isOpen && window.DFSheet.isOpen()) window.DFSheet.render(); } catch (e) {}
+            });
+            listEl.appendChild(item);
+          };
+          if (heroAccessoryIds()[s] !== "none") addRow("none", "外す", "");
+          const cands = tvHeroAccCandidates();
+          cands.forEach(function (a) { addRow(a.id, a.name, tvAccOptionNote(a), accColorClassTV(a)); });
+          if (!cands.length) {
+            const empty = document.createElement("div");
+            empty.className = "equipItem locked";
+            empty.style.cssText = "opacity:0.5;font-style:italic;font-size:11px;";
+            empty.innerHTML = `<span class="eName">（他に所持なし）</span>`;
+            listEl.appendChild(empty);
+          }
+          col.appendChild(listEl);
+          grp.appendChild(lab);
+          grp.appendChild(col);
+          fold.body.appendChild(grp);
+        });
+      }
       drawer.appendChild(fold.sec);
     }
     if (m.isHero) {
@@ -10435,22 +10536,52 @@
         locked: lk,
         lockReason: lk ? "両手武器を持っているので盾は使えない" : null,
       };
+    }).concat(ACC_EQUIP_ON_TV ? dfSheetAccSlotsTV() : []);
+  }
+  /* ★#113 シートの装身具 2 行。idx は ACCESSORIES_TV の添字 */
+  const DF_ACC_SLOT_TV = { accessory1: 0, accessory2: 1 };
+  function dfSheetAccSlotsTV() {
+    const ids = heroAccessoryIds();
+    return Object.keys(DF_ACC_SLOT_TV).map(function (kind) {
+      const s = DF_ACC_SLOT_TV[kind], def = accDefTV(ids[s]);
+      const options = tvHeroAccCandidates().map(function (a) {
+        return { idx: ACCESSORIES_TV.indexOf(a), name: a.name, note: tvAccOptionNote(a) };
+      });
+      if (def.id !== "none") options.unshift({ idx: 0, name: "外す", note: "" });
+      return {
+        kind: kind, label: "装身具" + (s + 1),
+        current: { idx: ACCESSORIES_TV.indexOf(def), name: def.name, note: def.effect || "" },
+        options: options, locked: false, lockReason: null,
+      };
     });
+  }
+  /* 開いている画面へ反映: マッチング画面の引き出し + カード / 準備画面 (?prepskip=0 の旧導線) */
+  function dfSheetRepaintAllTV() {
+    if (pmDrawerIdx >= 0) pmRenderDrawer(pmDrawerIdx);
+    if (pmCols.length) pmRefreshCards();
+    if (prepEl && prepEl.style.display !== "none" && prepEl.style.display !== "") renderCharLoadout();
+    try { if (window.DFSheet && window.DFSheet.isOpen && window.DFSheet.isOpen()) window.DFSheet.render(); } catch (e) {}
+  }
+  function dfSheetEquipAccTV(kind, idx) {
+    const slot = DF_ACC_SLOT_TV[kind], def = ACCESSORIES_TV[idx];
+    if (!def) return { ok: false, reason: "持っていない品は装備できない" };
+    if (def.id === heroAccessoryIds()[slot]) return { ok: false, reason: "既に装備している" };
+    if (def.id !== "none" && !tvHeroAccCandidates().includes(def)) return { ok: false, reason: "持っていない品は装備できない" };
+    if (!setHeroAccessoryTV(slot, def.id)) return { ok: false, reason: "持っていない品は装備できない" };
+    dfSheetRepaintAllTV();
+    return { ok: true };
   }
   // 付け替え。⭐ 画面だけでなく **この関数の中でも** 所持を守る (持っていない段は拒否)
   function dfSheetEquipTV(kind, idx) {
     idx = idx | 0;
+    if (ACC_EQUIP_ON_TV && Object.prototype.hasOwnProperty.call(DF_ACC_SLOT_TV, kind)) return dfSheetEquipAccTV(kind, idx);   // ★#113
     const c = dfSheetPoolTV();
     if (!c || !DF_SLOT_KEY[kind]) return { ok: false, reason: "主人公の装備が見つからない" };
     if (idx === (getEquipSelection(c.cls)[kind] | 0)) return { ok: false, reason: "既に装備している" };
     if (!dfSheetOwnedOptionsTV(kind).includes(idx)) return { ok: false, reason: "持っていない品は装備できない" };
     if (!dfEquip(c.cls, kind, idx)) return { ok: false, reason: "両手武器を持っているので盾は使えない" };
     saveSelections();
-    // 開いている画面へ反映: マッチング画面の引き出し + カード / 準備画面 (?prepskip=0 の旧導線)
-    if (pmDrawerIdx >= 0) pmRenderDrawer(pmDrawerIdx);
-    if (pmCols.length) pmRefreshCards();
-    if (prepEl && prepEl.style.display !== "none" && prepEl.style.display !== "") renderCharLoadout();
-    try { if (window.DFSheet && window.DFSheet.isOpen && window.DFSheet.isOpen()) window.DFSheet.render(); } catch (e) {}
+    dfSheetRepaintAllTV();
     return { ok: true };
   }
   try {

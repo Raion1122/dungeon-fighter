@@ -8054,6 +8054,13 @@
        帰還時の装備の保存 (罠 B の手当て)・シートの「攻撃」欄の武器名/AC の出所 を従来へ戻す。
        ⚠ ページ単位で完結 (?heromark=0 と同じ作法)。ボタン / 題名の表記は戻さない。 */
     const SHEET_EQUIP_ON = !/[?&]sheetequip=0(&|$)/.test(location.search);
+    /* ★#113 撤退 ?accequip=0。index は酒場からの遷移で開くのでクエリが届かない ⇒ sessionStorage へ写す (tavern と同じキー) */
+    const ACC_EQUIP_ON = (function () {
+      try {
+        if (/[?&]accequip=0(&|$)/.test(location.search)) sessionStorage.setItem("dragonfighters.accEquipOff", "1");
+        return sessionStorage.getItem("dragonfighters.accEquipOff") !== "1";
+      } catch (e) { return !/[?&]accequip=0(&|$)/.test(location.search); }
+    })();
 
     /* ══ 自キャラの ▽ マーカー (依頼書 #15 STEP A-2) ═══════════════════════════
      * ⭐⭐⭐ **▽ は 1 枚だけ。毎フレーム「今の主人公」を引き直す。**
@@ -16679,6 +16686,11 @@
       if (unit && Array.isArray(unit.accessoryIndices)) return unit.accessoryIndices;
       return [0, 0];
     }
+    /* ★#113 主人公本人の装身具の枠。⭐ equipAccessory1/2 に対応するのは常にこれ */
+    function heroAccessoryUnit() {
+      return (!ACC_EQUIP_ON || heroIsHead || !heroRef) ? "player" : heroRef;
+    }
+    function heroAccessoryIndices() { return getUnitAccessoryIndices(heroAccessoryUnit()); }
     // 第3弾 Phase 2: 職業専用アクセ (classReq)。指定職以外が装備しても効果を一切発揮しない。
     //   ⚠ 効果の読み取りは全て getEquippedAccessories に集約されているので、ここ1箇所で弾けば
     //     skillBonus / fireResist / freeAction / undeadDR / hpBonus の全てが同時に無効化される。
@@ -19115,14 +19127,19 @@
     function savePersistentAccessoryStock() {
       // 各キャラのスロット 2 つを JSON で保存
       const snap = {
-        player: currentAccessoryIndices.map(i => (accessories[i] || accessories[0]).id),
+        player: heroAccessoryIndices().map(i => (accessories[i] || accessories[0]).id),
         allies: {},
       };
       if (typeof allies !== "undefined") {
         for (const a of allies) {
           if (!a || !a.classKey) continue;
+          if (ACC_EQUIP_ON && a.isHero) continue;              // ★#113 主人公は equipAccessory1/2 が権威
           snap.allies[a.classKey] = a.accessoryIndices.map(i => (accessories[i] || accessories[0]).id);
         }
+      }
+      if (ACC_EQUIP_ON && !heroIsHead) {                       // ★#113 先頭 NPC の枠は職業キーへ (空で上書きしない)
+        const headIds = currentAccessoryIndices.map(i => (accessories[i] || accessories[0]).id);
+        if (!snap.allies[leaderClassKey] || headIds.some(x => x !== "none")) snap.allies[leaderClassKey] = headIds;
       }
       // 在庫リスト = 全キャラの装備中 "shadow-amulet" 個数 (将来の素材保管にも対応)
       const stock = [];
@@ -21782,13 +21799,95 @@
           locked: lk,
           lockReason: lk ? "両手武器を持っているので盾は使えない" : null,
         };
+      }).concat(ACC_EQUIP_ON ? dfSheetAccSlots() : []);
+    }
+    /* ══ ★#113 シートの装身具 2 行 (主人公本人の枠だけを動かす) ══ */
+    const DF_ACC_SLOT = { accessory1: 0, accessory2: 1 };
+    function dfAccNote(a) {   // index の accessories[] には effect 文が無いので数値から短く作る
+      if (!a || a.id === "none") return "";
+      const p = [];
+      if (a.dmgBonus) p.push("近接ダメージ +" + a.dmgBonus);
+      if (a.acBonus) p.push("AC +" + a.acBonus);
+      if (a.saveBonus) p.push("セーヴ +" + a.saveBonus);
+      if (a.hpBonus) p.push("最大HP +" + a.hpBonus);
+      if (a.skillBonus) p.push("技能に +");
+      if (a.fireResist) p.push("炎を半減");
+      if (a.freeAction) p.push("拘束無効");
+      if (a.undeadDR) p.push("対アンデッド軽減");
+      if (a.avoidAll || a.avoidArrow) p.push("攻撃を逸らす");
+      return p.join(" ・ ");
+    }
+    /* NPC の着用 = 先頭 NPC (主人公が頭でないとき) + 主人公以外の仲間 */
+    function dfNpcWearers(idx) {
+      const out = [];
+      if (!heroIsHead) currentAccessoryIndices.forEach((v, s) => { if (v === idx) out.push({ unit: "player", slot: s }); });
+      for (const a of (allies || [])) {
+        if (!a || a.isHero || !Array.isArray(a.accessoryIndices)) continue;
+        a.accessoryIndices.forEach((v, s) => { if (v === idx) out.push({ unit: a, slot: s }); });
+      }
+      return out;
+    }
+    function dfAccStockCount(id) { return (persistent.accessoryIds || []).filter(x => x === id).length; }
+    /* ★最大 HP の増減を持つ付け替えの唯一の口。⭐ 着けても現在 HP は増やさない (着脱で回復する抜け道を塞ぐ) */
+    function dfSetUnitAcc(unit, slot, idx) {
+      const arr = getUnitAccessoryIndices(unit), before = getAccessoryHpBonus(unit);
+      arr[slot] = idx;
+      const d = getAccessoryHpBonus(unit) - before;
+      if (!d) return;
+      if (unit === "player") { maxHp += d; hp = Math.min(hp, maxHp); }
+      else { unit.maxHp = (unit.maxHp || 0) + d; unit.hp = Math.min(unit.hp, unit.maxHp); }
+    }
+    function dfAccWearerName(w) {
+      return w.unit === "player" ? getLeaderName() : (w.unit.npcName || (w.unit.def && w.unit.def.name) || "");
+    }
+    /* 候補 = 所持している・主人公の職業で装備できる・自分の両枠に入っていない (accessories の添字) */
+    function dfAccCandidates() {
+      const unit = heroAccessoryUnit(), own = getUnitAccessoryIndices(unit), cls = unitClassKeyOf(unit);
+      const out = [];
+      for (let i = 1; i < accessories.length; i++) {
+        const a = accessories[i];
+        if (!a || own[0] === i || own[1] === i) continue;
+        if (dfAccStockCount(a.id) > 0 && accessoryAllowedFor(a, cls)) out.push(i);
+      }
+      return out;
+    }
+    function dfSheetAccSlots() {
+      const own = heroAccessoryIndices();
+      return Object.keys(DF_ACC_SLOT).map(function (kind) {
+        const s = DF_ACC_SLOT[kind], ci = own[s] | 0, cur = accessories[ci] || accessories[0];
+        const options = dfAccCandidates().map(function (i) {
+          const w = dfNpcWearers(i)[0], base = dfAccNote(accessories[i]);
+          return { idx: i, name: accessories[i].name, note: w ? (base ? base + " " : "") + "(" + dfAccWearerName(w) + "が着用中)" : base };
+        });
+        if (ci !== 0) options.unshift({ idx: 0, name: "外す", note: "" });
+        return {
+          kind: kind, label: "装身具" + (s + 1),
+          current: { idx: ci, name: cur.name, note: dfAccNote(cur) },
+          options: options, locked: false, lockReason: null,
+        };
       });
+    }
+    /* 付け替え。⭐ dfSheetCanEdit の後からだけ呼ぶ。画面の候補と同じ検査をここでもする */
+    function dfSheetEquipAcc(kind, idx) {
+      const slot = DF_ACC_SLOT[kind], unit = heroAccessoryUnit();
+      if (idx === getUnitAccessoryIndices(unit)[slot]) return { ok: false, reason: "既に装備している" };
+      if (idx !== 0 && !dfAccCandidates().includes(idx)) return { ok: false, reason: "持っていない品は装備できない" };
+      if (idx !== 0 && dfAccStockCount(accessories[idx].id) - dfNpcWearers(idx).length < 1) {
+        const w = dfNpcWearers(idx)[0];                          // 余りが無いときだけ NPC から外して主人公へ移す
+        if (w) dfSetUnitAcc(w.unit, w.slot, 0);
+      }
+      dfSetUnitAcc(unit, slot, idx);
+      savePersistentAccessoryStock();
+      updateInfo();
+      try { if (window.DFSheet && window.DFSheet.isOpen && window.DFSheet.isOpen()) window.DFSheet.render(); } catch (e) {}
+      return { ok: true };
     }
     // 付け替え。⭐ 画面だけでなく **この関数の中でも** 所持と変更可否を守る
     function dfSheetEquip(kind, idx) {
       idx = idx | 0;
       const ce = dfSheetCanEdit();
       if (!ce.ok) return ce;
+      if (ACC_EQUIP_ON && Object.prototype.hasOwnProperty.call(DF_ACC_SLOT, kind)) return dfSheetEquipAcc(kind, idx);   // ★#113 ⛔ dfSheetCanEdit より前へ動かさない
       const c = dfSheetHeroCtx();
       if (!c || !DF_SHEET_SLOT[kind]) return { ok: false, reason: "主人公の装備が見つからない" };
       if (idx === c.sel[kind]) return { ok: false, reason: "既に装備している" };
@@ -21831,7 +21930,8 @@
         return {
           weaponName: h.weaponName || (h.def && h.def.weaponName) || null,
           armorName:  h.armorName  || (h.def && h.def.armorName)  || null,
-          ac: h.ac, atkBonus: h.atkBonus, dmgDice: h.dmgDice, dmgBonus: h.dmgBonus,
+          ac: ACC_EQUIP_ON ? h.ac + getAccessoryAcBonus(h) : h.ac, atkBonus: h.atkBonus, dmgDice: h.dmgDice,
+          dmgBonus: ACC_EQUIP_ON ? h.dmgBonus + getAccessoryDmgBonus(h) : h.dmgBonus,
         };
       }
       const w = getCurrentWeapon(), a = getCurrentArmor();
@@ -21873,6 +21973,7 @@
     // 検証用の読み取り窓 (classic script 直下の function は window に載らないので明示)
     window.__sheetEquip = {
       on: SHEET_EQUIP_ON,
+      heroAcc: () => heroAccessoryIndices().map(i => accessories[i].id),
       canEdit: dfSheetCanEdit, slots: dfSheetSlots, equip: dfSheetEquip,
       ownedOptions: dfSheetOwnedOptions, isOwned: dfSheetIsOwned,
       ownedTiers: dfSheetOwnedTiers, gatedOwned: dfSheetGatedOwned, hwm: dfSheetHwm,
@@ -21954,6 +22055,11 @@
       leaderClassKey = nh.classKey;
       applyLeaderStats(leaderClassKey);                 // playerStats/maxHp 再構築 (hp は満タンになる)
       hp = Math.max(1, Math.min(maxHp, nh.hp || 1));    // ★現在 hp を復元
+      if (ACC_EQUIP_ON && Array.isArray(nh.accessoryIndices)) {   // ★#113 新しい頭は自分の品を持って頭になる
+        currentAccessoryIndices = nh.accessoryIndices.slice();
+        const pb = getAccessoryHpBonus("player");                  // applyLeaderStats が作り直した最大 HP へ足し直す
+        if (pb > 0) { maxHp += pb; hp = Math.max(1, Math.min(maxHp, nh.hp || 1)); }
+      }
       equippedSkills = Array.isArray(nh.equippedSkills) ? nh.equippedSkills.slice() : equippedSkills;
       currentSpellSlots = { ...(nh.spellSlots || {}) };
       currentMaxSpellSlots = { ...(nh.maxSpellSlots || {}) };
@@ -26463,6 +26569,11 @@
       // 第3弾 Phase 2: 職業専用アクセ (classReq) は、着けても効果ゼロの職に配らない。
       //   ここで弾かないと「拾ったのに何も起きない」死蔵アイテムが生まれる (無報告バグの温床)。
       const accDef = accessories[accessoryIdxFromId(accId)];
+      if (ACC_EQUIP_ON && !heroIsHead && heroRef &&              // ★#113 後衛の主人公の空き枠を最優先
+          accessoryAllowedFor(accDef, heroRef.classKey) && !hasAccessoryId(accId, heroRef)) {
+        const hs = heroRef.accessoryIndices.findIndex(i => accessories[i] && accessories[i].id === "none");
+        if (hs >= 0) return { kind: "ally", ally: heroRef, slot: hs };
+      }
       // リーダー (currentAccessoryIndices)
       if (accessoryAllowedFor(accDef, leaderClassKey) && !hasAccessoryId(accId, "player")) {
         const slot = currentAccessoryIndices.findIndex(i => accessories[i] && accessories[i].id === "none");
@@ -39860,6 +39971,20 @@
       } catch (e) { /* JSON 不正は無視 */ }
     })();
 
+    /* ★#113 主人公が頭でないとき: 酒場の equipAccessory1/2 (15004 付近で currentAccessoryIndices へ入った値) は主人公本人の品。
+       ⚠⚠ 順序が仕様の一部 = applyAccessoryHpBonus より前 (後ろだと +HP が先頭 NPC に乗る)。
+       ⚠ restoreAccessoryState は accessoryStateJson が無いと早期 return するので別の IIFE にする。 */
+    (function seatHeroAccessories() {
+      if (!ACC_EQUIP_ON || heroIsHead || !heroRef) return;
+      heroRef.accessoryIndices = currentAccessoryIndices.slice();
+      let ids = null;
+      try { const s = JSON.parse(persistent.accessoryStateJson || "null"); ids = s && s.allies && s.allies[leaderClassKey]; } catch (e) {}
+      currentAccessoryIndices = Array.isArray(ids)
+        ? [accessoryIdxFromId(ids[0] || "none"), accessoryIdxFromId(ids[1] || "none")]
+        : [0, 0];
+      if (currentAccessoryIndices[0] !== 0 && currentAccessoryIndices[0] === currentAccessoryIndices[1]) currentAccessoryIndices[1] = 0;
+    })();
+
     // ── レベル適用: 主人公=永続 XP 由来 Lv、NPC=酒場でスタンプしたティア帯 Lv ──
     // (XP は永続、stat はランごとに base からスタート + ここで再構築)
     // member.level 未設定(直接起動/旧storage)時は従来どおり全員 currentLv にフォールバック。
@@ -44449,9 +44574,9 @@
           localStorage.setItem("dragonfighters.accessoryIds",
             JSON.stringify(persistent.accessoryIds || []));
           localStorage.setItem("dragonfighters.equipAccessory1",
-            (accessories[currentAccessoryIndices[0]] || accessories[0]).id);
+            (accessories[heroAccessoryIndices()[0]] || accessories[0]).id);
           localStorage.setItem("dragonfighters.equipAccessory2",
-            (accessories[currentAccessoryIndices[1]] || accessories[0]).id);
+            (accessories[heroAccessoryIndices()[1]] || accessories[0]).id);
           // Phase 2-G 拡張: 全キャラの装備状態を JSON で保存
           if (typeof savePersistentAccessoryStock === "function") {
             savePersistentAccessoryStock();
