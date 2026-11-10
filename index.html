@@ -24396,6 +24396,7 @@
           e.path = [];
           e.pathTimer = 0;
           e.stunned = 0;
+          e.__ambushOpen = false;
           e.slowedRemaining = 0; e.__moveBlockedThisTurn = false;
           e.poisonRemaining = 0; e.poisonDie = null;
           e.huntMarkRemaining = 0; e.huntMarkDie = 0;
@@ -24641,6 +24642,7 @@
              *    死んだユニットの手番でもスナップショットが走り、差分が空回りする。 */
             const __chSnap = RunChronicle.beginTurn(actor);
             try {
+              ambushActorClass = actor.kind === "player" ? leaderClassKey : actor.kind === "ally" ? actor.ally.classKey : null;
               if (actor.kind === "player") {
                 const tgtIdx = pickAliveEngagedIdx();
                 if (tgtIdx < 0) break;
@@ -26269,7 +26271,7 @@
         return { missed: true };
       }
 
-      const helpless = target.stunned > 0;  // スタン/スリープ中の敵は無抵抗
+      const helpless = isHelplessStrike(target);  // スタン/スリープ中の敵は無抵抗
       const atkBonus = currentPlayerAtkBonus();
       const natD20  = d20();
       const atkTotal = natD20 + atkBonus;
@@ -28642,6 +28644,42 @@
       });
     }
 
+    /* ★#114 不意打ちの第 1 ラウンド。撤退 ?ambushround=0。index は酒場からの遷移で開くので sessionStorage へ写す (#113 と同じ作法)。 */
+    const AMBUSH_ROUND_ON = (function () {
+      try {
+        if (/[?&]ambushround=0(&|$)/.test(location.search)) sessionStorage.setItem("dragonfighters.ambushRoundOff", "1");
+        return sessionStorage.getItem("dragonfighters.ambushRoundOff") !== "1";
+      } catch (e) { return !/[?&]ambushround=0(&|$)/.test(location.search); }
+    })();
+    let ambushStrikeShown = false;   // 見せ場は 1 戦 1 回
+    let ambushActorClass = null;     // 今の手番の職 (手番ループが入れる)
+
+    /* ⭐ stunned には触らない (依頼書 §2-2)。ボスは対象外 (§2-4)。 */
+    function markAmbushOpen(indices) {
+      if (!AMBUSH_ROUND_ON) return;
+      ambushStrikeShown = false;
+      for (const i of indices) {
+        const e = enemies[i];
+        if (e && e.alive && !(e.def && e.def.isBoss)) e.__ambushOpen = true;
+      }
+    }
+    function isAmbushOpen(t) { return !!(t && t.__ambushOpen) && encounterRound === 1; }
+
+    function showAmbushStrike(t) {
+      ambushStrikeShown = true;
+      const rogue = ambushActorClass === "rogue";
+      showBanner(rogue ? "🗡 暗殺!" : "⚔ 不意の一撃!", 1500);
+      const nm = (t.def && t.def.name) || "敵";
+      updateInfo(rogue ? `${nm} は声を上げる間もなく、背後から刃を受けた!` : `${nm} は構える間もなく、一撃を受けた!`);
+    }
+
+    /* 15 か所の「無防備か」の唯一の判定。 */
+    function isHelplessStrike(t) {
+      const open = isAmbushOpen(t);
+      if (open && !ambushStrikeShown) showAmbushStrike(t);
+      return t.stunned > 0 || open;
+    }
+
     // ★不意打ちの**実体**。stunned=1 を付与 → enemyAttackTurn (26583 のスタン判定) が初手を飛ばす。
     //   ここが「先制ラウンドを得る」の唯一の付与点で、下の tryStealthSurprise (第7弾「隠密の接近」) と
     //   [sce1-events] EV-9「積荷を渡すふりをする」の奇襲成功が**この 1 関数を共有**する。
@@ -28651,6 +28689,7 @@
       for (const i of indices) {
         if (enemies[i] && enemies[i].alive) { enemies[i].stunned = Math.max(enemies[i].stunned || 0, 1); n++; }
       }
+      markAmbushOpen(indices);
       return n;
     }
 
@@ -30517,7 +30556,7 @@
       startAllyAttackAnim(ally);
       await sleepMs(400);
 
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const natD20 = d20();
       const aAtk = ally.atkBonus + allyAtkBuff(ally);
       const atkTotal = natD20 + aAtk;
@@ -31007,7 +31046,7 @@
       triggerLungeAlly(ally, Math.sign(dfx), clampLungeMag(aCX, aCY, ally.def.displaySize, target));   // 攻撃エフェクト: 対象方向へ踏み込み(大型はめり込み防止クランプ)
       if (rangeKey === "melee") spawnSlashArc(aCX, aCY, Math.atan2(dfy, dfx), { radius: 52 });   // 斬撃の弧 (近接のみ / #34: opts.range も反映)
 
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const natD20 = d20();
       const aAtk = ally.atkBonus + allyAtkBuff(ally);   // ブレス/咆哮等の攻撃バフを反映
       const atkTotal = natD20 + aAtk;
@@ -31836,7 +31875,7 @@
       await castMagicMissileBarrage(launchX, launchY, ex, ey, 3, 130);
 
       // 必中: 命中判定スキップ、ダメージのみ (無抵抗ならダメージ倍)
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const critMult = ally.critMult || 2;
       const { n, sides } = parseDiceDD(skill.dmgDice);
       const times = helpless ? critMult : 1;
@@ -31910,7 +31949,7 @@
       await dfPlayCast(ally, { name: skill.name, element: 'fire' }, { duration: 2400 });
 
       // 命中判定
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const atkBonus = spellAtkBonus(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
@@ -33219,7 +33258,7 @@
       await sleepMs(1100);
 
       // 命中判定 (penalty 適用)
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const atkBonus = ally.atkBonus - (skill.atkPenalty || 0) - allyAtkStatusPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
@@ -33388,7 +33427,7 @@
       await spawnArrow(launchX, launchY, ex, ey, 360, { variant: "thrownAxe", spinning: true });
 
       // 命中判定
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const aAtk = ally.atkBonus - allyAtkStatusPenalty(ally);   // frightened (-2) 反映
       const natD20 = d20();
       const atkTotal = natD20 + aAtk;
@@ -33488,7 +33527,7 @@
         const tDef = t.def;
         const tx = t.x + tDef.displaySize / 2;
         const ty = t.y + tDef.displaySize / 2;
-        const helpless = t.stunned > 0;
+        const helpless = isHelplessStrike(t);
         const aAtk = ally.atkBonus - allyAtkStatusPenalty(ally);   // frightened (-2) 反映
         const natD20 = d20();
         const atkTotal = natD20 + aAtk;
@@ -33555,7 +33594,7 @@
         const tDef = t.def;
         const tx = t.x + tDef.displaySize / 2;
         const ty = t.y + tDef.displaySize / 2;
-        const helpless = t.stunned > 0;
+        const helpless = isHelplessStrike(t);
         const aAtk = ally.atkBonus - allyAtkStatusPenalty(ally);   // frightened (-2) 反映
         const natD20 = d20();
         const atkTotal = natD20 + aAtk;
@@ -34563,7 +34602,7 @@
       const atkBonus = ally.atkBonus + (ally.dex || 0) + (skill.atkBonusAmount || 0) - allyAtkStatusPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const isFumble = !helpless && natD20 === 1;
       const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
 
@@ -34656,7 +34695,7 @@
       // 魔力の矢: 必中なので一直線、青白く輝く
       await spawnArrow(launchX, launchY, ex, ey, 380, { variant: "magicArrow" });
 
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const critMult = ally.critMult || 2;
       const { n, sides } = parseDiceDD(skill.dmgDice);
       const times = helpless ? critMult : 1;
@@ -34997,7 +35036,7 @@
       const atkBonus = ally.atkBonus + dexMod - allyAtkStatusPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const isFumble = !helpless && natD20 === 1;
       const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
       let primaryHit = false, isCrit = helpless;
@@ -35686,7 +35725,7 @@
     // ターゲット隣接タイルに別のPT味方が居る (簡易フランキング)
     function canSneakOnTarget(ally, target) {
       if (!target || !target.alive) return false;
-      if (target.stunned > 0) return true;
+      if (target.stunned > 0 || isAmbushOpen(target)) return true;
       const tcx = target.x + target.def.displaySize / 2;
       const tcy = target.y + target.def.displaySize / 2;
       // ally がリーダー本人なら playerX/Y はワープ前の自分の位置 → フランキング扱いしない
@@ -35799,7 +35838,7 @@
       const atkBonus = ally.atkBonus + (ally.dex || 0) - allyAtkStatusPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const isFumble = !helpless && natD20 === 1;
       const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
       if (isFumble) {
@@ -35880,7 +35919,7 @@
         const launchX = aCX + (ally.facing === "right" ? 18 : -18);
         const launchY = aCY - 4;
         await spawnArrow(launchX, launchY, ex, ey, 320, { variant: "thrownAxe", spinning: true });
-        const helpless = target.stunned > 0;
+        const helpless = isHelplessStrike(target);
         const atkBonus = ally.atkBonus + (ally.dex || 0) - allyAtkStatusPenalty(ally);
         const natD20 = d20();
         const atkTotal = natD20 + atkBonus;
@@ -35939,7 +35978,7 @@
       startAllyAttackAnim(ally);
       await sleepMs(500);
 
-      const helpless = target.stunned > 0;
+      const helpless = isHelplessStrike(target);
       const atkBonus = ally.atkBonus + (ally.dex || 0) - allyAtkStatusPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;

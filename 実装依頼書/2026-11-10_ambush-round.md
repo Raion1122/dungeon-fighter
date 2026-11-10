@@ -344,3 +344,47 @@ const b = linesWith(cur, 'helpless').map((l) => l.replace(/helpless = isHelpless
 | `node tools/driver_action_priority.js` | 92 PASSED | 65 秒 | 同じ |
 
 時間帯: 上の 7 本は**昼(09 時台)に走らせた結果**。夜の走行は測っていない。
+
+### 12-2. 本体
+
+**入れた行(`index.html`・この項目のコミット後の行番号)**
+
+| 行 | 何 |
+|---|---|
+| 24399 | 交戦の初期化 `e.__ambushOpen = false;`(24398 `e.stunned = 0;` の次) |
+| 24645 | 手番ループ `ambushActorClass = ...`(`try {` の内側、`if (actor.kind === "player") {` の直前) |
+| 28647-28681 | §4 のブロック(`AMBUSH_ROUND_ON` 28648 / `markAmbushOpen` 28658 / `isAmbushOpen` 28666 / `showAmbushStrike` 28668 / `isHelplessStrike` 28677) |
+| 28687-28693 | `applySurpriseStun`(`stunned` を書く行 28690 は無変更 / `markAmbushOpen(indices);` 28692) |
+| 35728 | `canSneakOnTarget` |
+
+15 か所: 26274 / 30559 / 31049 / 31878 / 31952 / 33261 / 33430 / 33530(`t`)/ 33597(`t`)/ 34605 / 34698 / 35039 / 35841 / 35922 / 35981。
+
+**ソースの計数(`py` のバイト数え)**: CRLF 45388 = LF 45388(+39 行)。`helpless = isHelplessStrike(` 15 件。コメントを除いた `helpless = (target|t).stunned > 0` は 0 件(コメントの 3 行 23175 / 31685 / 34048 は無変更)。
+
+**煙検査(使い捨て・`C:\Users\PC_User\.claude\dev-loop\r114\item2\smoke.js`・22/22・pageerror 0 件・ログ = 同フォルダ `smoke.log`)**
+
+本物の `applySurpriseStun` / `isAmbushOpen` / `isHelplessStrike` を呼んで確かめた。
+
+- 非ボスの生存 2 体に `__ambushOpen` が付き、ボスと死体には付かない。`stunned` の付与は今までどおり(ボスにも付く)
+- `encounterRound` が 2 の間は窓が閉じ、1 のときだけ非ボスで開く。付与時に `encounterRound` が古い値(7)でも問題なし
+- バナーは最初の一撃の 1 回だけ。次の不意打ちでまた出る。文面は `ambushActorClass` が `"fighter"` で「不意の一撃」、`"rogue"` で「暗殺」。DOM の `battleBannerEl` にも書かれる
+- `isHelplessStrike` は `stunned` を書き換えない
+- `?ambushround=0`: 印もバナーも無し、`stunned` の付与は残り、sessionStorage へ写る
+- 手番ループの代入: `?autoplay=15&diag=1` の実戦で約 23 秒後に `ambushActorClass === "cleric"`(仲間の手番)を観測した
+
+**golden(2026-11-10 09 時台・昼に実行・ログ = 同フォルダ)**
+
+| ドライバ | 実測 | §12-1 との比較 |
+|---|---|---|
+| `node tools/verify_hold_person.js` | 31/31((5a) 一致=true・着手前 79 行 / 現在 79 行・15 箇所) | 同じ |
+| `node tools/verify_enemy_traits.js` | 15/15 | 同じ |
+| `node tools/driver_sce1_events.js` | 211/214(exit 1) | 同じ。赤は (2) / (4d) / (N2-隣) の 3 件で、`item1` のログと行番号・文面とも一致 |
+
+残りの 4 本(`verify_corner_check` / `verify_lore_check` / `verify_invisibility` / `driver_action_priority`)はこの項目の範囲外で、走らせていない。
+
+**依頼書と違った点**
+
+1. §4 のコードは、周囲に合わせて全行を 4 桁字下げして入れた。中身は同じ。
+2. §6 の判定文の言い直しは、指示の 1001 行に加えて、同じ番号 (5a) で出る装置故障の枝(995 行)の文言にも当てた。`check` の判定条件には触っていない。
+3. `tools/verify_hold_person.js` は LF のファイルだった(CRLF 0 / LF 1073)。LF のまま編集した。
+4. 煙検査に「手番ループの実走」を足した(§5 の 1 行は読み込みだけでは通らないため)。受入の代わりにはしていない。

@@ -992,13 +992,14 @@ function installProbe() {
     const sites = (arr) => arr.filter((l) => /helpless\s*=\s*[^=]/.test(l)).length;
 
     if (!baseIndex) {
-      check('(5a) ★ helpless を含むコードが着手前 (' + BASE_REV + ') と 1 文字も変わっていない',
+      check('(5a) ★ helpless を含むコードが #114 の置き換えを畳むと着手前 (' + BASE_REV + ') と一致する',
         false, 'git show ' + BASE_REV + ':index.html が読めなかった (装置の故障)');
     } else {
       const a = linesWith(baseIndex, 'helpless');
-      const b = linesWith(cur, 'helpless');
+      /* #114: 15 か所は isHelplessStrike 経由になった (窓を足しただけで弱めていない)。元の形へ畳んで比べる */
+      const b = linesWith(cur, 'helpless').map((l) => l.replace(/helpless = isHelplessStrike\((target|t)\);/, 'helpless = $1.stunned > 0;'));
       const same = a.length === b.length && a.every((l, i) => l === b[i]);
-      check('(5a) ★ helpless を含む **コード** が着手前 ' + BASE_REV + ' と 1 文字も変わっていない '
+      check('(5a) ★ helpless を含む **コード** が #114 の置き換えを畳むと着手前 ' + BASE_REV + ' と一致する '
         + '(⛔ 近接限定にすると出荷済みの挙動を 15 箇所で弱める = 依頼書 §2-4)',
         same && sites(a) >= 15 && sites(b) === sites(a),
         '着手前 ' + a.length + ' 行 (うち helpless= の攻撃解決 ' + sites(a) + ' 箇所) / '
