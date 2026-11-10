@@ -289,4 +289,58 @@ const b = linesWith(cur, 'helpless').map((l) => l.replace(/helpless = isHelpless
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 着手前の測り直し(1a44ac8)
+
+**結論: §4〜§8 の設計どおりに進められる。** 崩れた前提は無い(§2-2 の文言に 1 件だけ訂正あり。設計には響かない)。
+
+**行番号**: `5fd5999..1a44ac8` の `index.html` の差分は 22057 の 1 行追加 + 22062 の 1 行変更だけ。**22057 より後の行はすべて +1、前の行は不変**(内容も実測で照合)。
+
+| 依頼書の行 (5fd5999) | 1a44ac8 | 何 |
+|---|---|---|
+| 24511-24530 | 24512-24531 | 行動順 |
+| 24537 / 24538 | 24538 / 24539 | `tryStealthSurprise` / `consumeSce1Surprise` |
+| 28648-28654 | 28649-28655 | `applySurpriseStun`(注釈は 28645-28648) |
+| 38944-38945 | 38945-38946 | `enemy.stunned -= 1;` |
+| 24397 / 24041 | 24398 / 24042 | 交戦の初期化 / `mergeReinforcements` の方 |
+| 24556 / 24690 | 24557 / 24691 | `encounterRound` の更新 |
+| 35688 | 35689 | `canSneakOnTarget` |
+| 24643 | 24644 | 手番ループの `if (actor.kind === "player") {` |
+| 18190 / 31356 / 34231 | 18190 / 31357 / 34232 | AI・描画が読む `stunned` |
+| 23221 / 31771 / 32129 | 23222 / 31772 / 32130 | `Math.max` の書き手の例 |
+
+「無防備」の判定 15 か所(関数名も §2-1 の表どおり): 26272 playerSingleAttack / 30520 performAllyCounter / 31010 allyBasicAttack / 31839 allyMagicMissile / 31913 allyFireBolt / 33222 allyPowerAttack / 33391 allyThrowingAxe / 33491 allyAxeStorm(`t`) / 33558 allyEarthShatter(`t`) / 34566 allyAimedShot / 34659 allyMagicArrow / 35000 allyLightningArrow / 35802 allyShadowStep / 35883 allyThrownDagger / 35942 allyPoisonBlade。
+
+**§2 の主張の照合**
+
+| 主張 | 実測 |
+|---|---|
+| §2-2 `stunned` の書き手は全部 `Math.max` | ⚠ **文言は不正確**。敵への直接代入が 2 か所ある = 26469 `enemies[targetIdx].stunned = 1;`(主人公の盾バッシュ)/ 33928 `enemies[enemyIdx].stunned = sk.stunTarget;`(仲間の盾バッシュ)。ほかの書き手は `Math.max`、残りは 0 へのリセット。⭐ **設計は変わらない**(`stunned` に触らない方針なので、書き手の形に依存しない)。(2c) は 0 → 1 / 0 → 2 の結果を見るので `Math.max` で書いても盾バッシュの実物と同じ値になる |
+| §2-3 文字列固定 3 本 | ✅ `verify_hold_person.js` (5a) は 998-1006 行(`const b = linesWith(cur, 'helpless');` は 999 行)。`driver_sce1_events.js:177` と `verify_enemy_traits.js:152` は applySurpriseStun の 1 行を固定(後者は字下げなし)。`tools/*.js` 全体で、15 か所・`canSneakOnTarget`・手番ループの `if`・交戦初期化の行をアンカーにしているものはほかに無い |
+| §2-3 `driver_speech_v2` | ✅ 正規表現 `!helpless && isThreat` のみ。変数名を残すので影響なし |
+| §2-4 ボス判定 | ✅ `goblinKing`(グリクス)の定義 10700 行に `isBoss: true`。`tryStealthSurprise` と同じ `e.def.isBoss` で効く。EV-9 は 30047 でボスも対象 |
+| §4 `showBanner` / `updateInfo` | ✅ `showBanner(text, ms = 1000)`(23904)/ `updateInfo(message)`(17520)。呼び方は合う |
+| §5 `leaderClassKey` / `actor.ally.classKey` | ✅ 8048 の `let`(同じスコープ、24168 や 28675 でも読んでいる)。`actor.ally` は 24627 で既に参照。`classKey` の値は `"rogue"`(15052) |
+| 新しい名前 | ✅ `isHelplessStrike` / `markAmbushOpen` / `isAmbushOpen` / `showAmbushStrike` / `__ambushOpen` / `AMBUSH_ROUND_ON` / `ambushStrikeShown` / `ambushActorClass` / `ambushround` / `ambushRoundOff` はこの依頼書以外に出てこない。`tools/verify_ambush_round.js` も未作成 |
+| §4 `encounterRound` の古い値 | ✅ 書き手は 22873 / 24557 / 24691 のみ。24539 の付与から 24557 までに PT → 敵の攻撃は無い。第 1 ラウンドで決着しても 24690 で進むので、戦闘の外で窓は開かない |
+| §2-5 実戦の計測 | 再測定していない(一度きりの注入実験で、項目1 の範囲外) |
+
+**実装で気をつける点(§1〜§11 には書かれていない)**
+
+1. **(0a) の数え方**: コメントの 3 行(23175 / 31646 / 34009)に `helpless = target.stunned > 0` がそのまま書かれている。素朴に数えると「0 件」にならないので、(5a) と同じくコメントを剥いでから数える。`isHelplessStrike(` も定義行で 1 件増えるので、`helpless = isHelplessStrike(` の形で数える。
+2. **`mergeReinforcements`(24042)で印を消さなくても安全**: 呼ばれるのは `round > 1` の頭と、参加者全滅の直後(この後に攻撃は無く 24690 で第 2 ラウンドへ進む)だけで、`isAmbushOpen` は `encounterRound === 1` を要求する。
+3. **allyMagicMissile / allyMagicArrow には d20 が無い**: `helpless` はダメージの倍化だけに効く(必中の呪文なので「自動命中」は元から)。(1a) を `allyBasicAttack` で測る §8 の設計で問題ない。
+4. **バナーが早く消える可能性(コードを読んだ推定。走らせて測ってはいない)**: `showBanner` は前のタイマーを消さない。隠密の不意打ちは `showDMMessage(…, 2600)` の `narrationHold` が手番を待たせるので、実プレイでは先の 2 本のタイマーが切れた後になる。EV-9 は DM の語りが無いので、「偽りの荷」(1600ms)と `ROUND 1`(850ms)の古いタイマーに `showAmbushStrike` のバナーが消されうる。§9-3 の実機で見る項目。`showBanner` は §3 の変更範囲の外なので今回は変えない。
+
+**golden 7 本の基準(2026-11-10 09:02〜09:06 に実行。ログ = `C:\Users\PC_User\.claude\dev-loop\r114\item1\`)**
+
+| ドライバ | 実測 | 所要 | §2-6 との比較 |
+|---|---|---|---|
+| `node tools/verify_hold_person.js` | 31/31 | 10 秒 | 同じ |
+| `node tools/verify_enemy_traits.js` | 15/15 | 4 秒 | 同じ |
+| `node tools/driver_sce1_events.js` | **211/214**(exit 1) | 48 秒 | 同じ。赤は (2) / (4d) / (N2-隣) の 3 件で、原因も §2-6 どおり(`sceneFlags` のキーが 5 本) |
+| `node tools/verify_corner_check.js` | 20/20 | 81 秒 | 同じ |
+| `node tools/verify_lore_check.js` | 26/26 | 4 秒 | 同じ |
+| `node tools/verify_invisibility.js` | 27/27 | 27 秒 | 同じ |
+| `node tools/driver_action_priority.js` | 92 PASSED | 65 秒 | 同じ |
+
+時間帯: 上の 7 本は**昼(09 時台)に走らせた結果**。夜の走行は測っていない。
