@@ -570,3 +570,75 @@ function sayFind(scene, key, repUnit) {
 
 - `verify_lore_check` (1j) の言い直し(上)。
 - `verify_tower_mother_b` / `driver_dev_gate2` はまだ走らせていない。
+
+### 12-3. 受入(項目 3・2026-11-22・基準 HEAD `c3b3a65`)
+
+`tools/verify_banter_callouts.js`(新規)を作った。素 = port 10891、変異 = 10892〜10900(9 本・`MUTATIONS` の並び順)。製品のファイルは 1 バイトも変えていない(変異は配信のスナップショットにだけ注入する)。
+ログ = `C:\Users\PC_User\.claude\dev-loop\r118\item3\`(`base_run1〜3.log` / `negative_final.log` / 開発中の `dev*.log` `neg1.log`)。
+
+#### 仕込みと計測の選択
+
+- **編成**: `sessionStorage["dragonfighters.partyMembers"]` に、主人公と castId 入りのキャスト 3 人を入れて `index.html?diag=1&scen=goblin-mine&graph=0&autoplay=15` を開く。開いた後は `tryStartEncounter` を止めて `startGame()` を呼ぶ(`verify_companion_cast` と同じ作法)。人物の名前・性格・ひと言・variant は、`js/companion-cast.js` を node 側で評価した `DFCast.byId()` から作る(⛔ 写経しない)。
+  - P1 = 主人公 戦士 + ロルフ・オズ・ヨナ(伝承の判定者は、歴史と秘術がオズ、宗教がヨナ。どの技能も習熟を持つのは 1 人だけ)
+  - P2 = 主人公 魔法使い + イレーナ・ロルフ・ファルケ(歴史の判定者 = 主人公 = (2d))
+  - P3 = P1 + `&banter=0` / P4 = 直起動(partyMembers 無し)
+- **予約の観測**: `speechQueue.push` をその配列 1 本だけ包んで記録する。予約は次のフレームで表示されて行列から消えるが、こうすれば積まれた事実は残る。表示は `speechLog` の行(`castId` / `meta`)で見る。
+- **乱数**: `Math.random` を seed 付きの mulberry32 に差し替える。伝承の成否だけは出目を定数にする(成功 0.95 → d20=20 / 失敗 0 → d20=1)。
+- **探索判定**: 偽の `res` を作り、`applyRoomSearchResult(res, traps, chests, null, doors, unitOf)` を呼ぶ。`res.rep` には `buildPerceptionParty()` の本物の要素を**配列の位置で**入れる。`unitOf` は本番(`runRoomSearchCheck`)と同じ作り方にする。
+- ⭐ **隠し扉の仕込み = `setDoorState` と `doorLockedByRng` をページの中で一時的に差し替える方式**(true / false を返させる)。偽の扉 `{ id, state: "hidden" }` を渡し、呼んだ後で元へ戻す。`driver_doors_p6` のノード入りは使っていない(§8 の「差し替えても構わない」の道)。
+- **伝承**: 本物の `__dfLore.run()` を呼ぶ。敵は `createEnemy` で作り、作った敵だけを `encounterEnemyIndices` に入れる。体質の文は、ログの成功行から**ドライバが自分で切り出す**(` — ` の後ろを ` / ` で割り、先頭の要素の最初の `: ` の後ろを `、` で割って先頭 2 つ)。
+  - (2a) の敵は、P1 で判定できる技能(歴史・秘術・宗教)の種類のうち、体質の文がいちばん長い種類をページから選ぶ。実測ではカエルム(宗教・3 つ組「眠りの術が効かない、冷気が効かない、炎と雷を和らげる」)が選ばれた。⇒ ログには 3 つ出て、吹き出しには 2 つ出ることを実際に確かめている(`parts >= 3` を条件に含めた)。歴史と秘術の種類は、どれも体質が 1 つだけだった。
+
+#### 判定の一覧(20 本)と結果
+
+| 節 | 判定 | 素 ×3 |
+|---|---|---|
+| (0a) | `DFCast.all()` 12 人・全員が voice 5 場面・各場面に `{to}` 無しの行 | ✓✓✓ |
+| (0b) | 起動後の allies に castId 持ちが 2 人以上(母集団・赤なら exit 3) | ✓✓✓ |
+| (0c) | `SPEECH_LINES` のどの行にも `{` が無い・`find.door` がある | ✓✓✓ |
+| (0d) | 全ページで pageerror 0 | ✓✓✓ |
+| (1a) | 判定者 = キャスト 3 人それぞれで罠 → 話し手 = 本人・文 = 本人の `voice.trap` にドライバが `meta.to` を差し込んだもの | ✓✓✓ |
+| (1b) | 同じことを宝箱・隠し扉で | ✓✓✓ |
+| (1c) | `meta.to` = 判定者以外の生きた仲間の名前。他の仲間が倒れていれば null + `{to}` 無しの行 + 他人の名前無し | ✓✓✓ |
+| (1d) | 判定者 = 主人公 → 話し手 player・`SPEECH_LINES["find.trap"]` | ✓✓✓ |
+| (1e) | 判定者を変えて 30 回(罠・宝箱・隠し扉・伝承の 4 場面を回す)→「あなた」も `{` も無い | ✓✓✓ |
+| (2a) | キャストで伝承成功 → `lore.share` 1 本・話し手 castId・`meta.enemy`/`meta.trait` = ログから切り出した値(2 経路)・文 ∈ `voice.lore` の差し込み集合 | ✓✓✓ |
+| (2b) | 失敗 → `lore.share` 0 本・「思い出せない」1 行 | ✓✓✓ |
+| (2c) | ゴブリン + コボルドで成功 → `lore.share` 1 本・先頭の種類 | ✓✓✓ |
+| (2d) | 判定者 = 主人公(P2)→ 文 ∈ `LORE_SHARE_LINES` の差し込み集合・`meta.to` null | ✓✓✓ |
+| (3a) | 仲間 A を 20% にして `updateInfo`(3 人 × 4 回)→ `combat.lowhp`(A)+ `ally.call`(A 以外のキャスト・prio 1・`meta.to` = A の名前・文 ∈ 話し手の `voice.call` に A の名前を差し込んだ集合)。表示した `ally.call` の行に A の名前 | ✓✓✓ |
+| (3b) | 主人公を 20%(6 回)→ `ally.call` 1 本・`meta.to` null・`{to}` 無しの行・「あなた」無し | ✓✓✓ |
+| (3c) | castId を持つのが A だけ(3 人それぞれ)→ `ally.call` 0・`combat.lowhp` 1 | ✓✓✓ |
+| (3d) | もう一度 `updateInfo` → 増えない / 全快して戻してから再び 20% → もう 1 本 | ✓✓✓ |
+| (3e) | (3a) の手順 12 回の `combat.lowhp` の本数 = `?banter=0` の腕の本数(12 = 12) | ✓✓✓ |
+| (4a) | 直起動 → 話し手 = 判定者(仲間)・汎用の行・`ally.call` 0(`combat.lowhp` は出る) | ✓✓✓ |
+| (5a) | `?banter=0` → 罠の話し手 `"party"`・汎用・meta 無し / 隠し扉 0 本 / 伝承成功でも `lore.share` 0 本 / `ally.call` 0 本 | ✓✓✓ |
+
+素の腕を 3 回続けて走らせ、3 回とも **20/20 PASSED・exit 0**(各 9 秒)。フレークは無かった。
+
+- ⚠ **(3a) の読み方**: §8 (3a) には「`ally.call` の文に A の `npcName` が入っている」とある。ところが §4 の `voice.call` には、相手が仲間のときでも選ばれ得る `{to}` 無しの行がある(例「無茶だよ、下がって!」)。§4 の規則では、`{to}` 無しの行だけに絞るのは相手が主人公のときだけ。⇒ 製品の欠陥ではない。各回の判定は「`meta.to` = A の名前 かつ 文 ∈ `{to}` 込みの差し込み集合」にした。そのうえで「名前入りの文が 1 回以上ある」(実測 12 回中 8 回)と「`{to}` の行が選ばれる seed で表示し、`speechLog` の行の文に A の名前がある」を足した。
+- ⚠ **装置の罠(次のドライバ向け)**: 伝承の仕込みで元からいる敵を全部倒すと、シナリオがクリアになる(`quest.clear`)。すると吹き出しの行列が `clearSpeech` で消され、(3a) の表示待ちが空振りした。⇒ 元の敵は倒さず、作った敵だけを交戦中にして片付ける。
+
+#### 負のコントロール(`--negative`・9 本)
+
+| 変異 | 注入 | 担当 | 実際に赤 | 判定 |
+|---|---|---|---|---|
+| `norep` | `sayFind` の先頭を `return sayLine(key);` | (1a)(1b) | (1a)(1b)(1c)(1d)(4a) | ✓ |
+| `copyvoice` | `copyOf` の `voice:` を `_novoice:` | (0a)(1a) | (0a)(1a)(1b)(1c)(2a)(3a)(3b)(3d) | ✓ |
+| `heroname` | `pickToName` に `getLeaderName()` を足す + `sayAllyCall` で相手が主人公なら to = `getLeaderName()` | (1e)(3b) | (1c)(1e)(3b) | ✓ |
+| `callkey` | `sayLine("ally.call"…)` → `"combat.lowhp"` | (3a)(3e) | (3a)(3b)(3d)(3e) | ✓ |
+| `callprio2` | `speechPrio` の `ally.call` の行を消す | (3a) | (3a) | ✓ |
+| `callself` | `pickCallerFor` の `a !== target` を外す | (3a)(3c) | (3a)(3c) | ✓ |
+| `rawbrace` | `fillVoice` の `{trait}` 差し込みと、保険の `return t.indexOf("{")…` の両方を外す | (1e)(2a) | (1e)(2a)(2d) | ✓ |
+| `loreall` | 成否が決まった直後(`const unit = …` の行)で種類ごとに `sayLoreShare` + 成功の枝の 1 回を消す | (2b)(2c) | (2b)(2c) | ✓ |
+| `banterleak` | `banterOn()` を常に true | (5a) | (5a) | ✓ |
+
+**9 / 9 が検出に成功**(担当 ⊆ 赤)し、`--negative` は exit 0(99 秒)。担当外の赤は `NEG_ALSO` に理由付きで記録した(合否には使わない)。
+- 装置の検算: どの変異も注入点は原本でちょうど 1 か所・行数は不変。自分のアンカーと書き換える行が他の `tools/*.js` に出てこないことを起動時に確かめる(出てきたら exit 3)。逆向き(他ドライバの `from:` 536 本のコード部分がこのドライバに出てこないか)も一時スクリプトで確かめ、0 件だった。最初は mulberry32 の 1 行が `verify_road_events` のアンカーと同じ文字列だったので、書き方を変えて重なりを消した。
+- ⛔ 測っていない(§8): どの行が選ばれるかの偏り・吹き出しの見た目・1 場面あたりの本数。
+
+#### 項目 4 への注意
+
+- 新しいドライバの総括行は `  20/20 PASSED   FAILED 0   PENDING 0`(`PASS` で拾える)。全数の走査に加えるなら、素 1 本(9 秒)・`--negative`(約 100 秒)で回る。
+- `verify_lore_check` (1j) の言い直しと、`verify_tower_mother_b` / `driver_dev_gate2` の実走は、引き続き項目 4 で行う(§12-2)。
+- 他ドライバのピア検査(自分のアンカーが他の `tools/*.js` に出てこないこと)は、このファイルが増えても崩れない(上の逆向き検査で 0 件)。ただし、`--negative` を持つドライバの起動時の検査で確かめるのが確実。
