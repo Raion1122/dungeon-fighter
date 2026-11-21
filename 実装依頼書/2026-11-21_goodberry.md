@@ -377,4 +377,83 @@ if (await tryDrinkHealingPotion(ally)) return;
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 着手前の測り直し + golden の基準(項目 1・基準 HEAD `3adee77`・2026-11-21)
+
+**基準**: `3adee77`(作業ツリーきれい)。`git diff --stat 63c7632 3adee77` は依頼書・会議記録・README の 3 本だけ = **本番コード(index / tavern / js / tools)は起草時の基準 `63c7632` と同じバイト**。ログ一式は `~/.claude/dev-loop/r116/item1/`(`remeasure*.log` / `<driver>.log` / `golden_raw.txt` / `summary.txt`)。
+
+**§2 の行番号 — ずれ無し**(`sed -n` / `grep -n` で実測。範囲の終わりが 1〜5 行ずれる 2 件は注記つき。どちらも挿入位置には影響しない):
+
+| 依頼書の行 | 実測 | 判定 |
+|---|---|---|
+| `index.html:25227-25232` `"cure-minor"` | 25227 `"cure-minor": {` 〜 25232 `},`(25233 = Ranger 5 呪文の見出し) | ✅ |
+| `index.html:15216-15220` 森の書 5 冊 | 15216 hail(common)/ 15217 cordon / 15218 lightning / 15219 conjure / 15220 haste、15221 `};` | ✅ |
+| `index.html:15373` 抽選の行 | 末尾 `… && (isCounterspellOn() \|\| id !== "scroll-counterspell"));` | ✅ |
+| `index.html:15259-15262` `isMageHandOn()` | 15259 〜 15262 | ✅ |
+| `index.html:15940-15949` `startGame()` | 15940 `function startGame()` / 15943 `runHiddenFoeSlain = false;` / 15948 `tryArcaneEyeOnEntry();` / 15949 `}` | ✅ |
+| `index.html:41414-41426` `takeArcaneEyeCaster` | 41414 〜 41426 | ✅ |
+| `index.html:34087-34088` 仲間の口 | 34087 注記 / 34088 `if (await tryDrinkHealingPotion(ally)) return;` | ✅ |
+| `index.html:36758-36759` 主人公の口 | 36758 注記 / 36759 `if (await tryDrinkHealingPotion("player")) return;` | ✅ |
+| `index.html:24314-24345` `tryDrinkHealingPotion` | 24314 〜 **24340**(関数の閉じ括弧。24342〜 は次のワンドの注記)。24316 = 罠 B の早期 return | ✅(終わりは 24340) |
+| `index.html:21487-21495` 枠の回復はクリア時だけ | 21487 `dungeonCleared = true;` 〜 21495 | ✅ |
+| `index.html:14660` `SPELL_SLOT_CURVE_ELF` | `[0, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10]` | ✅ |
+| `index.html:15720-15757` `initAllySpellSlots` | 15721 `function` / 15747 `if (!isSpellKnown(classKey, id)) continue;` | ✅ |
+| `index.html:36420-36433` `apTryPreferred` | 36420 / 36433 `if (sk.reactive \|\| sk.passive \|\| sk.outOfCombat) return false;` | ✅ |
+| `index.html:15501-15507` `plazaInventory` | 15501 〜 15507(15508 = `addChargeItem`) | ✅ |
+| `index.html:17143-17150` `beginTurn` | 17144 `beginTurn(actor) {` / 17147 `if (turnDepth > 1) return NESTED;` | ✅ |
+| `index.html:17045-17058` `applyTurnDiff` | 17045 〜 **17059**(関数の閉じ括弧) | ✅ |
+| `index.html:24658` `const __chSnap` | 24658 | ✅ |
+| `index.html:35133` コードンの帰属 / `:35170` 注記 | 35133 `const __chOut = RunChronicle.beginTurn(zone.owner \|\| "コードン");` / 35170 N7 の注記 | ✅ |
+| `tavern.html:4899-4911` `ELF_SKILLS_UI` | 4899 `const ELF_SKILLS_UI = [` 〜 4910 haste / 4911 `];` | ✅(足すのは 4910 の後) |
+| `tavern.html:5724-5728` `SCROLL_CATALOG_TV` 森の書 | 5724 〜 5728(5729 `};`) | ✅ |
+| `tavern.html:7442` 棚の filter 行 | `return Object.keys(SCROLL_CATALOG_TV).filter(id => SCROLL_CATALOG_TV[id].rarity === "common");` | ✅ |
+| `tavern.html:8430-8434` `isAutoCastSkillTV` | 8430 注記 / 8431 `function` 〜 8434 | ✅ |
+| `tools/verify_scroll_shelf.js:377 / :415 / :543` | `DRV_COMMON.length === 5` / `others.length === 4` / `btnsLow.length === 4 … btnsEq.length === 4` | ✅ |
+| `scripts/hooks/check_changelog.py:32` | `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` | ✅ |
+
+再測定コマンド(§2-7)の結果: `cordon-of-arrows` は index 8 か所・tavern 2 か所、他のページと `js/*.js` には 0(✅)/ `tryDrinkHealingPotion(` = 15576・24314・34088・36759 / common の冊数 = index 5・tavern 5(✅)/ `goodberry` は index・tavern・tools のどこにも 0 件(未着手の確認)/ ハンターズ・マークの `mpCost: 2, levelReq: 1`(25249)= §5-1 の値の根拠どおり。
+
+**前提の補足(崩れてはいない・項目 2 で踏まないための注記)**:
+
+- ⚠ **N7 の「ちょうど 6 本」**: 生の `grep -c 'const __chOut = RunChronicle.beginTurn('` は **7** を返す(7 本目 = 35170 の**注記コメント**)。ドライバの正規表現 `const __chOut = RunChronicle\.beginTurn\([^;]*\);` で数えると **6**(18981 / 19665 / 30401 / 30430 / 30482 / 35133)。⇒ `creditHealTo` の注記には `const __chOut = RunChronicle.beginTurn(…);` を**逐語で書かない**(`);` で閉じると 7 本目として数えられ、N7 の注入数が合わなくなる)
+- ⚠ `verify_scroll_shelf` の言い直しは、ロジックの 3 か所(377 / 415 / 543)のほかに、**表示用の文字列とコメント**にも数が埋まっている: 見出し 25・30・32・36、注記 171・192、`R.check` のラベル 378(`common 5 件`)・391(`common 4 件`)・416(`他の common 4 件`)・440(`4 件は同じ`)。(1a)(1c)(1e) の判定そのものは `DRV_COMMON` / `commonNames` から引くので値の書き換えは要らない(454 も `=== DRV_COMMON.length`)
+- `RunChronicle.beginTurn(` の全数は 9 本(`__chSnap` 1 + `__chOut` 6 + `__chSp` ほか)。項目 2 で 1 本も足さない方針(§2-3)は変わらない
+
+**golden の基準(`3adee77`・2026-11-21 16:31〜16:43 の**昼**に直列で実走・PowerShell から `node tools/<d>.js`。各ドライバは自前のサーバを立てるため `py -m http.server` は使っていない)**:
+
+| ドライバ | 結果 | 秒 |
+|---|---|---|
+| `verify_scroll_shelf` | **19/19 PASSED** exit 0 | 3 |
+| `verify_run_chronicle` | **74 PASSED / 0 FAILED** exit 0 | 179 |
+| `verify_plaza_srd` | **27/27 PASSED** exit 0 | 19 |
+| `verify_arcane_eye` | **34/34 PASSED** exit 0 | 65 |
+| `verify_mage_hand` | **32/32 PASSED** exit 0 | 143 |
+| `verify_invisibility` | **27/27 PASSED** exit 0 | 45 |
+| `verify_cleric_spirits` | **23/23 PASSED** exit 0 | 11 |
+| `verify_counterspell` | **25/25 PASSED** exit 0 | 55 |
+| `driver_action_priority` | **PASSED 92 / FAILED 0** exit 0 | 75 |
+| `verify_spell_off` | **51/51 PASSED** exit 0 | 6 |
+| `verify_promote_growth` | **14/14 PASSED** exit 0 | 22 |
+| (追加)`verify_clear_chests` | **21/21 PASSED** exit 0 | 10 |
+| (追加)`verify_save_slots` | **30/30 passed** exit 0 | 5 |
+| (追加)`verify_egg_parent` | **25/26・FAILED 1** exit 1 ⚠ | 109 |
+
+⇒ §8 の名指し 11 本はすべて緑(11/11)。⚠ #102 の時刻依存: 11 本と追加 3 本の中で `plazaClock` を種まきするのは `verify_clear_chests` / `verify_save_slots` の 2 本だけ。どちらも昼に走らせて緑だった。項目 2 の後も**昼**に走らせて比べる。
+
+⚠ **`verify_egg_parent` の赤 1 本 = 型 3(#116 とは無関係・着手前から赤い)**: (6a)「触らない約束の関数のソースが `62f500a` と同じ」で、`runEncounter` の長さが 21906 → 22068 と違う(他の 4 関数は同じ)。コミットごとに `runEncounter` の本体を切り出して長さを測ると、変わったのは **`9034fc7`(#114 項目 2 = 不意打ちの第 1 ラウンド)**で、それより前(`62f500a` / `9efa2bd` / `f8e3cb1` / `1a44ac8`)は同じ。⇒ (6a) は #111 の固定の基準 `BASE_REV = '62f500a'` に縛られていて、#114 が `runEncounter` を正当に変えた時点で赤くなっていた。⛔ #116 では直さない(#116 は `runEncounter` を触らない)。項目 2 の後も **25/26・赤いのは (6a) だけ**で同じなら非退行とみなす。言い直しは別チケット候補(基準を `9034fc7` 以降へ進めるか、#114 の差分を許す)。
+
+**⭐ 巻物の拾得を名前で縛るドライバ(罠 D で動きうるもの)** — `grep -ln "pickScrollId" tools/*.js` と巻物 ID の名指し(`"(grimoire|scroll|tome)-…"`)の和集合で 9 本:
+
+| ドライバ | 縛り方 | common が 6 冊になったときの見込み |
+|---|---|---|
+| `verify_scroll_shelf` | common の冊数を固定値で 3 か所(377 / 415 / 543) | **確実に赤** ⇒ §2-5 どおり言い直す(+ 上のラベルとコメント) |
+| `verify_mage_hand` (11b) | `pickScrollId({common:100})` の全区間 2000 点で `scroll-mage-hand` が素で 1 回以上・`?magehand=0` で 0 回 | 母集団 6 冊でも 1 回以上当たる見込み = 緑のはず |
+| `verify_counterspell` (5b) | 全区間の common / uncommon / rare の集合を素と `?counterspell=0` で比べる(common は**同じページ同士の比較**) | 両腕に `grimoire-goodberry` が入る = 緑のはず |
+| `verify_cleric_spirits` (5b) | 同上(`?clericspirit=0`) | 緑のはず |
+| `verify_arcane_eye` (6b) | rare / uncommon の集合だけを見る | 影響なし |
+| `verify_invisibility` (6b) | uncommon だけを見る | 影響なし |
+| `verify_egg_parent` (5b) | `pickScrollId` を包んで**重みだけ**を記録する | 影響なし |
+| `sim_plaza_entry` | 注記で重みに触れるだけ(golden ではない) | 影響なし |
+| `verify_save_slots` | 表の全呪文を 9 冊ずつ種まきする(名指しの数は持たない) | 緑のはず(表を読む側) |
+
+⇒ 抽選の出方の変化で赤くなるのが確実なのは `verify_scroll_shelf` だけ。他の 8 本は項目 2 の後に実走して確かめる(赤ければ `?goodberry=0` で緑に戻ることを確かめてから言い直す = §8 の作法)。
+⚠ 種を固定して宝箱やボスの落とし物の**巻物の名前**を縛っているドライバは見つからなかった(`verify_clear_chests` は `scrollStock` を localStorage の控えとして読むだけで、名前の assert は無い)。
