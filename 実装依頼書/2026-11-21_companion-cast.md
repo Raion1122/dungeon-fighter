@@ -471,4 +471,90 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 着手前の実測 + golden の基準(項目 1・着手時 HEAD = `e6246bf`)
+
+生ログ・走らせた台本は `C:\Users\PC_User\.claude\dev-loop\r117\item1\`(`run_golden.ps1` / `golden_raw.txt` / `summary.txt` / 各ドライバの `.log` / `remeasure*.log` / `trapC.log`)。
+
+#### (1) §2 の測り直し — 行番号は起草時(`0d1885c`)からずれていない
+
+| 主張 | 測った値(`e6246bf`) | 判定 |
+|---|---|---|
+| 2-1 `NPC_NAMES` / `NPC_NAMES_BY_CLASS` / `NPC_TRAITS` / `NPC_LINES` | `tavern.html:4970` / `4981` / `4995` / `4998` | ✅ |
+| 2-1 `makeNpcMember` / `pickCompanion` / 新顔へ落ちる 4 枝 | `5065` / `5090` / 枝 `5091`・`5097`・`5099`・`5101`(名簿の枝の return は `5104-5106`、`level` と `mercId` も返す) | ✅ |
+| 2-1 `npcTrait` / `npcLine` | `index.html:40012-40013` の代入 2 行だけ。読む箇所 0 件 | ✅ |
+| 2-2 呼び口 | `buildParty` `5201`(呼び `5216` / `5223`)・`drawTodaysPatrons` `9255`(呼び `9266`)・`regeneratePartyMembers` `7681` | ✅ |
+| 2-3 `CAP = 12` | `js/mercenary-roster.js:64` | ✅ |
+| 2-4 表示 | `tavern.html:6665-6666` / `6973-6977` / `7746-7747` | ✅ |
+| 2-5 受け渡し | `tavern.html:8882` / `8968`・`js/recruit-candidates.js:88` `add`・`index.html:39928` 読み・`40004-40017` で `allies` を作る・`normMember` `js/mercenary-roster.js:102` | ✅ |
+| 2-5 `index.html` は名簿を読まない | `<script src="js/` に `mercenary-roster.js` / `recruit-candidates.js` は無い(`39947` はコメント) | ✅ |
+| 2-6 絵 | `tavern.html:9229` `PARTY_PORTRAIT_SPRITES`(dwarf は `9231`)/ `index.html:18484` `SPRITE_VARIANTS`(dwarf の [1]〜[3] = `18508-18510`) | ✅ |
+| 2-8 吹き出し | `SPEECH_MS` `14084`・`sayLine` `14163`・`sayEnemyCry` `14241`(`ambient` は `14252`)・`speechOnScreen` `14140`・`updateSpeechBubbles` 定義 `14206` / 呼び `18100`(`renderWorld` `18082` の中)・`dialogPaused` `16024`・`gameOver` `14520`・`speechLog` `14105` | ✅ |
+| 2-9 `speechLog` を読むドライバ 6 本 | `driver_dev_gate2` / `driver_speech_boss` / `driver_speech_engine` / `driver_speech_hooks` / `driver_speech_v2` / `verify_tower_mother_b` | ✅ |
+| 2-10 changelog | `scripts/hooks/check_changelog.py:32` `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` | ✅ |
+| 既存の `castId` / `DFCast` / `mercRosterPreCast` | 本番・ドライバとも 0 件 | ✅(新しく作る) |
+
+訂正・補足(どれも設計は崩さない):
+
+- **2-8**: `index.html:16303` は `let currentPhase = "explore";` の**宣言**であって比較ではない。`currentPhase === "explore"` という比較は本番に 0 件(既存の書き方は `currentPhase !== "explore"` `36558` / `=== "combat"` `8351`)。切り替えは `setPhase` `16335`
+- **2-8 ⚠ `sayLine` の順番**: `sayLine` は先頭で `resolveSpeechLines(triggerKey)` を引き、**行が無ければ `return false`**(`14165-14166`)。`idle.chatter` は `SPEECH_LINES` に無いので、`opts.text` の分岐は**この行より前**で効かせないと独り言が一言も出ない。また `speechPrio("idle.chatter")` は既定で **2** を返す(`14111-14115`)ので `prio: 0` の明示は必須(§5-5 のとおり)
+- **2-2 補足**: 新顔の枝 `makeNpcMember` は `pickUniqueName` の中で `usedNames.add` する。キャストの新顔の枝も `usedNames.add(name)` を自分で行うこと(⛔ 忘れると 1 回の編成で同じキャストが 2 人になり (1c) が赤)
+- **5-3 補足**: `DFRoster._wipe()` は `KEY` だけを消す(`js/mercenary-roster.js:243`)。写しを `_wipe` で消すようにすると、`_wipe` → `enroll()` で仕込むドライバ(`verify_member_identity.js:517` / `880`)で次の `load()` が切り替えを走らせる。⛔ `_wipe` に写しを巻き込まない
+- **5-3 補足**: モジュールの頭書き `js/mercenary-roster.js:50-52`「読み込んだだけでは localStorage に一切書き込まない」は、§5-3(空の名簿でも写しを書く)で**偽になる**。頭書きを直すこと(文書の嘘を残さない)
+
+#### (2) golden 15 本の基準(着手時 HEAD `e6246bf`・2026-11-21 20:43〜20:58 に走らせた)
+
+| ドライバ | 結果 | 赤の集合 |
+|---|---|---|
+| `verify_member_identity` | 28/28 | ∅ |
+| `verify_mercenary_roster` | 44/44 | ∅ |
+| `verify_party_promises` | 35/35 | ∅ |
+| `verify_recruit_talk` | 25/25 | ∅ |
+| `verify_recruit_size` | 91/91 | ∅ |
+| `verify_class_line` | 18/18 | ∅ |
+| `verify_darkvision` | 25/25 | ∅ |
+| `verify_hold_person` | 31/31 | ∅ |
+| `driver_speech_engine` | 18/18 | ∅ |
+| `driver_speech_v2` | **45/46** | **{(A1)}** |
+| `driver_speech_hooks` | 13/13 | ∅ |
+| `driver_speech_boss` | 19/19 | ∅ |
+| `verify_tower_mother_b` | 22/22 | ∅ |
+| `driver_dev_gate2` | 62/62 | ∅ |
+| `verify_goodberry` | 23/23 | ∅ |
+
+**着手前からの赤 = { `driver_speech_v2` (A1) } の 1 件だけ。** 中身は「全敵種に `enemy.cry.<type>` がある」で、鳴き声が無いのは `koboldChief` / `plaguePriest` / `mummy` / `greenHag` / `frostGiant` / `winterWolf` / `swampNovice` / `wyvern` / `wyvernBoss`(#103〜#107 で足した行き先の敵種)。#117 とは無関係 = 基準として残す(別チケット候補)。
+
+- ⚠ **時間帯**: 走らせたのは**夜**(闇市が開いている 20:00〜24:59 の帯)。項目 4 の再走が昼になる場合、酒場に触れる本(`verify_recruit_talk` / `verify_party_promises` / `verify_member_identity` ほか)で差が出たら、まず時刻差(CLAUDE.md #102 節)を疑う。今回の 15 本は時刻での赤は無かった
+- ⚠ **`driver_dev_gate2` の装置の不調(本番の不具合ではない)**: 1 回目は rc=3 で 0 判定。`%TEMP%\df_cleanup2_base` が `index.html` の無い半端な状態で残り(git の worktree 登録は生きている)、`prepareBaseline()` が「再利用」にも「作り直し」にも入らず `worktree add` が「already exists」で落ちる。`--baseline <新しいパス>` で再走して 62/62。再走用の worktree は走らせた後に `git worktree remove` 済み。項目 4 でも同じ症状なら `node tools/driver_dev_gate2.js --baseline "%TEMP%\df_cleanup2_base_r117"` で回す
+
+#### (3) 罠 C — 旧名簿を localStorage へ**直接**書いてから開くドライバ
+
+`grep -n "mercRoster" tools/*.js` で名簿のキーに触れるのは `verify_member_identity` / `verify_mercenary_roster` / `verify_darkvision`(`DFRoster` 経由)の 3 本だけ。仕込み方を 1 本ずつ見た:
+
+| ドライバ | 仕込み方 | 切り替えの影響 |
+|---|---|---|
+| ⚠⚠ `verify_member_identity.js` ユニット **S3d**(`877-938`) | 1 枚目のタブで `DFRoster.enroll()` して**生の文字列を取り出し**、2 枚目のタブを `baseLs(..., { 'dragonfighters.mercRoster': seed.r, 'dragonfighters.recruitCandidates': seed.c })`(`893`)で開く。`seedOnce`(`339-350`)が `dragonfighters.*` を全部消してから入れる = **写し `mercRosterPreCast` は入らない** | **切り替えが走る**。判定 **(3d)**(`1317`)は「読み込み・抽選・出発の後も名簿と約束が 1 バイトも変わらない」(`895` `afterLoad.r === sr`)を見る ⇒ **キャスト ON では赤になるのが正しい**。項目 4 で言い直しが要る(案: 仕込みに写し(空の名簿の JSON)を足して「切り替え済みの世界で名簿が変わらない」に絞る / または S3d を `?cast=0` の腕で回す)。⛔ 期待値を黙って書き換えない |
+| ⚠ `verify_mercenary_roster.js` | 仕込みは本番の口(`grow` = 酒場を回す・`DFRoster.load()/save()` の往復 `1171` / `1227`)。直接書きは無い。同じタブの `reload()`(`542`)は印が残るので切り替えは走らない | 罠 C 自体の影響は無い。**ただし別の罠を見つけた**(下の (4)) |
+| `verify_darkvision.js` | 酒場を開いてから `DFRoster.enroll()`(`582` / `780`)。`localStorage.clear()`(`384` / `896`)は index / 5 ページの探りで、名簿を入れていない | 影響なし(最初の `load()` で空の名簿の印が立ち、その後の `enroll()` は切り替えに触れない) |
+
+`dragonfighters.recruitCandidates` を `setItem` で直接書くドライバは 0 本(S3d の `baseLs` 経由だけ)。
+
+#### (4) ⚠⚠ 新たに見つけた罠 F — 写しのキー名が「`mercRoster` を含むキーは 1 本」の判定に当たる
+
+`verify_mercenary_roster.js` は名簿のキーを `Object.keys(localStorage).filter(k => k.indexOf('mercRoster') >= 0)` で数える(`464` / `996` / `1286`)。§5-3 の写し **`dragonfighters.mercRosterPreCast` もこの部分一致に当たる**ので:
+
+- **(3a)**(`1300`)「名簿のキーが localStorage に**ちょうど 1 本**」→ 2 本になり**赤**
+- **(3c)**(`1307`)「`DFSlots.snapshot()` の data に名簿キーが**ちょうど 1 本**」→ 2 本になり**赤**
+- (3b)(`1312`)wipeLive 後 0 本 → 写しも `dragonfighters.` なので消える = 緑のまま
+- (6a)(`1046`)`?roster=0` でキー 0 本 → `?roster=0` では `all()` が `load()` を呼ばないので写しは書かれない見込み = 緑のまま(⚠ `load()` を直接呼ぶ口を足すと赤になる)
+- 変異 `switchleak`(`318-326`)も `"mercRoster"` の部分一致で名簿を落とす = 写しも一緒に落ちる(変異としては効いたまま)
+
+項目 2 で選ぶこと(どちらでも §5-3 の設計は成り立つ):
+
+- **案 1(推奨)**: 写しのキー名を `mercRoster` を含まない名前にする(例 `dragonfighters.preCastRoster`)。⇒ (3a)(3c) は言い直し不要。依頼書 §5-3 / §7 / §8 (2b)(2e)(5c) のキー名をそろえて書き換え、ここに理由を書く
+- 案 2: キー名は依頼書のまま、項目 4 で `verify_mercenary_roster` の (3a)(3c) を「名簿の本体キー `DFRoster.KEY` がちょうど 1 本」へ言い直す
+
+### 12-2. (項目 2 — 本体)
+
+### 12-3. (項目 3 — 受入)
+
+### 12-4. (項目 4 — 非退行 + 文書)
