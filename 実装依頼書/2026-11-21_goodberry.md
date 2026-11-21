@@ -1,6 +1,6 @@
 # #116 グッドベリー — エルフが木の実を 10 個作り、弱った味方が戦闘中に 1 個ずつ食べる
 
-- **起草**: 2026-11-21(計画窓) / **ステータス**: **承認済**(2026-11-21 ユーザー承認)
+- **起草**: 2026-11-21(計画窓) / **ステータス**: **実装完了**(2026-11-21・§9 実機は未。承認 = 2026-11-21 ユーザー)
 - **基準 HEAD**: `63c7632`(origin と同期・作業ツリーきれい。2026-11-21 計画窓で確認)
 - **触るファイル**: `index.html` / `tavern.html` / `js/changelog.js`(ヘルパー経由)/ `tools/verify_goodberry.js`(新規)/ `tools/verify_scroll_shelf.js`(言い直し 3 か所)
 - ⛔ **触らないファイル**: なし(並走している別窓は無い。`git status` で確認済み)。それでも `git add .` は禁止で、**ファイル単位 add** にし、`git diff --cached <file>` を読んでから commit する
@@ -559,3 +559,42 @@ if (await tryDrinkHealingPotion(ally)) return;
 - 製品の欠陥は見つからなかった(素 23/23 を 3 回連続)
 - 「満タンで切れる」(§8 (2a))は、整数の HP で `hp < maxHp / 2` なら `hp + 1 ≤ maxHp` が常に成り立つので**到達しない**。判定は `hp ≤ maxHp` を見るだけにした(`Math.min` の枝を外す変異は作れても、赤くできる入力が無い)
 - 変異 inloop の下で、主人公の眠りが 2 ラウンド目に 0 に戻る手番が 1 回あった(食べて HP が上がった後の眠りの監視)。素では起きない。製品の挙動の話ではなく変異の副作用なので追わない
+
+### 12-4. 非退行(項目 4・基準 HEAD `c4ec481`・2026-11-21)
+
+**結論: 既存 golden 14 本はすべて §12-1 / §12-2 の基準どおり。受入も素 23/23・変異 10/10。** 期待値の書き換えは無し。
+
+実行 = 2026-11-21 17:27〜17:39(**昼**の走行。夜は測っていない)/ HEAD `c4ec481`(`index.html` / `tavern.html` は項目 2 の `ec42073` から不変)/ 直列に 1 回ずつ(`run_golden.ps1` を出力先だけ変えて流用)/ ログ = `C:\Users\PC_User\.claude\dev-loop\r116\item4\`(rc と所要秒は同フォルダ `golden_raw.txt` / `summary.txt`)。
+
+| ドライバ | 実測 | 所要 | 基準(§12-1 / §12-2)との比較 |
+|---|---|---|---|
+| `verify_scroll_shelf`(言い直し後) | 19/19・exit 0 | 3 秒 | 同じ |
+| `verify_run_chronicle` | 74 PASSED / 0 FAILED・exit 0 | 179 秒 | 同じ |
+| `verify_plaza_srd` | 27/27・exit 0 | 19 秒 | 同じ |
+| `verify_arcane_eye` | 34/34・exit 0 | 66 秒 | 同じ |
+| `verify_mage_hand` | 32/32・exit 0 | 143 秒 | 同じ |
+| `verify_invisibility` | 27/27・exit 0 | 27 秒 | 同じ |
+| `verify_cleric_spirits` | 23/23・exit 0 | 10 秒 | 同じ |
+| `verify_counterspell` | 25/25・exit 0 | 53 秒 | 同じ |
+| `driver_action_priority` | PASSED 92 / FAILED 0・exit 0 | 65 秒 | 同じ |
+| `verify_spell_off` | 51/51・exit 0 | 6 秒 | 同じ |
+| `verify_promote_growth` | 14/14・exit 0 | 21 秒 | 同じ |
+| `verify_clear_chests` | 21/21・exit 0 | 10 秒 | 同じ |
+| `verify_egg_parent` | 25/26・exit 1 | 104 秒 | 同じ(赤は (6a) だけ・`runEncounter` 21906→22068 = #114 `9034fc7` 由来・着手前から) |
+| `verify_save_slots` | 30/30・exit 0 | 5 秒 | 同じ |
+| `verify_goodberry`(受入・素) | 23/23・exit 0 | 9 秒 | §12-3 と同じ |
+| `verify_goodberry --negative` | 素 23/23 + 変異 10/10 検出・exit 0 | 89 秒 | §12-3 と同じ(担当外の赤の並びも同じ) |
+
+**言い直したドライバ**: チケット全体で `verify_scroll_shelf` の 1 本だけ(項目 2・§12-2)。この項目では 0 本。
+
+**残り = §9 の実機(3 点)**
+
+1. 酒場の巻物の棚で森の書・グッドベリーを買って読み、エルフに 1 枠配分して出撃する。最初の部屋で帯が 1 回出る
+2. 4 人が同時に半分を切る戦闘で、頭上の「+1」が詰まらないか(iPhone)
+3. 帰還後のレポートで、エルフの「回復」に木の実の分が載っている
+
+**別チケット候補**
+
+- `verify_egg_parent` (6a) の言い直し(#111 の固定の基準 `BASE_REV = '62f500a'` を `9034fc7` 以降へ進めるか、#114 の `runEncounter` の差分を許す。§12-1)
+- `verify_scroll_shelf` の変異 `allrarity` の注記「17 件並ぶ」(166 行)と担当表のコメント「並ぶ件数が 17 / ボタンが 16 個」(191 行)が古い(`SCROLL_CATALOG_TV` は #116 の前で 23 件・後で 24 件。注記の数は #116 より前から合っていない。判定は件数を固定値で持たないので合否には影響しない)
+- 1 個あたりの回復量(SRD の 1 HP)の見直しは実機の後(§11)
