@@ -69,6 +69,7 @@
  * ■ 所要 (2026-09-29 この機械の実測・項目4 の走行と並走中) = 素 2.8 秒 (25 assert・3 回とも同じ) / --negative 28.8 秒 (素の基準 + 変異 11 本)。
  *   項目4b の後 = 素 2.9〜3.0 秒 (26 assert・3 回とも同じ) / --negative 32.5 秒 (変異 12 本)。
  *   ページは 6 枚 (主 ON / 主 ?lore=0 / 主人公=魔法使い ON / 同 ?lore=0 / 戦士+盗賊 / ?namelabel=0)。
+ *   ★[#118 項目4 2026-11-22] (1j) 専用に 2 枚を足して 8 枚 (合流 ?banter=0 / 合流 ?lore=0&banter=0)。下の runSuite の注記を参照。
  */
 'use strict';
 
@@ -764,8 +765,7 @@ async function collectMain(page) {
   // (1g) ボス戦 + 対照
   A.boss = await bossRun(page, ['lich', 'skeleton']);
   A.plainEnc = await bossRun(page, ['goblin', 'goblin']);
-  // (1j) 戦闘の途中で合流 (項目4b)
-  A.merge = await mergeRun(page);
+  // (1j) 戦闘の途中で合流 (項目4b) — ★#118 項目4: ここでは撃たず、runSuite の ?banter=0 の専用ページ 2 枚で撃つ
   // §2 AI
   const S = ['skeleton', 'skeleton', 'skeleton'], G = ['goblin', 'goblin', 'goblin'];
   A.a2a = { k: await mageRun(page, { fn: 'mageAI', types: S, known: ['skeleton'], skills: ['sleep', 'fire-bolt'], seed: 7, turns: 20 }),
@@ -1095,7 +1095,7 @@ function summarize(R, label) {
 const ALL_IDS = ['(0a)', '(0b)', '(0c)', '(0d)', '(0e)', '(1a)', '(1b)', '(1c)', '(1d)', '(1e)', '(1f)', '(1g)', '(1h)', '(1i)', '(1j)',
   '(2a)', '(2b)', '(2c)', '(2d)', '(2e)', '(2f)', '(2g)', '(2h)', '(3a)', '(3b)', '(4a)'];
 async function runSuite(browser, port, label) {
-  const ctx = { browser, port, errs: [], booted: 0, want: 6 };
+  const ctx = { browser, port, errs: [], booted: 0, want: 8 };
   const R = mkResults();
   const pages = [];
   const open = async (qs, party, tag) => { const p = await openIndex(ctx, qs, party, tag); pages.push(p); return p; };
@@ -1111,6 +1111,17 @@ async function runSuite(browser, port, label) {
     D.heroOn = await collectHero(hOn);
     const hOff = await open('?lore=0', MAGE_HERO_PARTY, 'hero');
     D.heroOff = await collectHero(hOff);
+    /* ★[#118 項目4 2026-11-22] (1j) の言い直し: 合流の 2 つの腕を &banter=0 の専用ページで撃つ。
+       #118 で伝承に成功すると吹き出しを出す (sayLoreShare) ようになり、話し相手の名前選び (pickToName)・
+       行選び (fillVoice)・sayLine の行選びで Math.random を 3 回余分に引く。ON 腕だけが成功するので、
+       (1j) の「first の回数 = ?lore=0 の腕 + 1 (d20 の 1 回)」が first [5, 1] にずれていた (#118 §12-2)。
+       (1j) の目的は「伝承の判定の回数」を数えることで、吹き出しの乱数はその外 ⇒ 期待値に +3 を足すのではなく、
+       両方の腕で吹き出しを止めて判定の回数だけを比べる。吹き出しそのものは tools/verify_banter_callouts.js (2a)〜(2d) が見る。
+       主ページ (D.on / D.off) は既定の URL のままにして、他の節の条件を変えない。 */
+    const mOn = await open('?banter=0', SEED_PARTY, 'merge');
+    D.on.merge = await mergeRun(mOn);
+    const mOff = await open('?lore=0&banter=0', SEED_PARTY, 'merge');
+    D.off.merge = await mergeRun(mOff);
     const pNo = await open('', NOREL_PARTY, 'norel');
     D.norel = { first: await loreOn(pNo, ['skeleton'], RND_HI), second: await loreOn(pNo, ['skeleton'], RND_HI, { keep: true }) };
     const pNl = await open('?namelabel=0', SEED_PARTY, 'nolabel');
