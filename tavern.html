@@ -4908,6 +4908,8 @@
     { id: "cordon-of-arrows", name: "コードン・オブ・アロー", category: "攻撃", range: "medium", mpCost: 3, levelReq: 2, flavor: "地帯に矢を仕込む。3R 間、範囲内の敵に毎R 1d6" },
     // ── STEP3: ヘイスト (自己バフ。戦闘移動 +1マス=計2マスを6T。STEP4 で 2回攻撃も付与予定) ──
     { id: "haste", name: "ヘイスト", category: "バフ", range: "self", mpCost: 5, levelReq: 3, flavor: "自己強化。戦闘移動+1マス(計2マス)を6T" },
+    // ★[#116] グッドベリー (index.html ELF_SKILLS と同期)。autoCast = 最初の部屋で自動で唱える (傾向の候補に出さない)。
+    { id: "goodberry", name: "グッドベリー", category: "回復", range: "self", mpCost: 2, levelReq: 1, autoCast: true, flavor: "最初の部屋で木の実を 10 個作る。HP が半分を切った味方が手番の頭に 1 個食べて 1 HP 回復 (手番は終わらない)" },
   ];
   // 盗賊スキル (index.html ROGUE_SKILLS と同期)
   const ROGUE_SKILLS_UI = [
@@ -5726,6 +5728,7 @@
     "grimoire-lightning-arrow":  { name: "森の書・ライトニングアロー", spellId: "lightning-arrow",  classKey: "elf", rarity: "uncommon" },
     "grimoire-conjure-volley":   { name: "森の書・コンジュアヴォリー", spellId: "conjure-volley",   classKey: "elf", rarity: "rare"     },
     "grimoire-haste":            { name: "森の書・ヘイスト",           spellId: "haste",            classKey: "elf", rarity: "uncommon" },
+    "grimoire-goodberry":        { name: "森の書・グッドベリー",       spellId: "goodberry",        classKey: "elf", rarity: "common"   },
   };
   // 初期習得(常に known)。elf は index/tavern 両 defaults の和集合 (index.html DEFAULT_KNOWN と同期)。
   const DEFAULT_KNOWN_TV = {

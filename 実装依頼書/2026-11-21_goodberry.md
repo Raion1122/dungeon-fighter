@@ -457,3 +457,59 @@ if (await tryDrinkHealingPotion(ally)) return;
 
 ⇒ 抽選の出方の変化で赤くなるのが確実なのは `verify_scroll_shelf` だけ。他の 8 本は項目 2 の後に実走して確かめる(赤ければ `?goodberry=0` で緑に戻ることを確かめてから言い直す = §8 の作法)。
 ⚠ 種を固定して宝箱やボスの落とし物の**巻物の名前**を縛っているドライバは見つからなかった(`verify_clear_chests` は `scrollStock` を localStorage の控えとして読むだけで、名前の assert は無い)。
+
+### 12-2. 本体(項目 2・基準 HEAD `d67930f`・2026-11-21)
+
+ログ一式は `~/.claude/dev-loop/r116/item2/`(`smoke_goodberry.js` / `smoke.log` / `verify_scroll_shelf*.log` / `golden/`)。
+
+**何をどこに入れたか**(行番号は項目 2 の後の `index.html` / `tavern.html`):
+
+| 場所 | 中身 |
+|---|---|
+| `index.html:25294` | `ELF_SKILLS["goodberry"]`(`cure-minor` の後・`outOfCombat: true`・`mpCost: 2, levelReq: 1`) |
+| `index.html:15221` / `tavern.html:5731` | `"grimoire-goodberry"`(common・森の書の末尾)。2 ファイルで中身は逐語で同じ(字下げだけ各ファイルの流儀) |
+| `index.html:15281-15288` | `isGoodberryOn()`(`?goodberry=0`)・`GOODBERRY_COUNT = 10`・`let goodberryPouch = null`(⛔ localStorage に入れない) |
+| `index.html:15384` | 抽選の行の末尾へ `&& (isGoodberryOn() \|\| id !== "grimoire-goodberry")` |
+| `index.html:15955` / `:15960` | `startGame()` で `goodberryPouch = null;` と、`tryArcaneEyeOnEntry();` の直前に `tryGoodberryOnEntry();` |
+| `index.html:17033` / `:17165` / `:17173` | `RunChronicle` の閉包に `openSnap`。`beginTurn` が深さ 1 で作った控えを持ち、`endTurn`(NESTED でないとき)で `null` |
+| `index.html:17183` | `RunChronicle.creditHealTo(owner, target, delta)`: ① owner の `healed += delta` ② 開いている控えの target の基準を `+delta`。`credit` / `applyTurnDiff` は無改修。`beginTurn` の呼び出しは 1 本も足していない(`const __chOut = RunChronicle.beginTurn(` の生 grep は着手前と同じ 7) |
+| `index.html:24382` | `tryEatGoodberry(unit)`(`tryDrinkHealingPotion` の直後。早期 return を先に並べ、乱数も DOM も触らない) |
+| `index.html:34154` / `:36827` | 呼び口 2 か所(仲間 / 主人公)。どちらも状態のガードの後・`tryDrinkHealingPotion` の直前に `return` なしで置いた |
+| `index.html:41501` | `tryGoodberryOnEntry()`(同期・`takeArcaneEyeCaster` と同じ順 = 主人公 → 仲間。1 人見つけたら止まる) |
+| `tavern.html` `ELF_SKILLS_UI` | haste の後に 1 行(`autoCast: true`) |
+| `js/changelog.js` | §10 の文面を `py tools/add_changelog.py` で 1 行(4 件を維持) |
+| `tools/verify_scroll_shelf.js` | ロジック 377(5→6)/ 415(4→5)/ 543(4/4→5/5)。ラベル 378・391・416・440 と見出し 25・30・32・36、注記 171・192・375・538 の数も合わせた。変異 `idlist` の直書きの列へ `"grimoire-goodberry"` を足した(「スリープ以外の common 全部」に追従させる = 注記 171 の約束どおり。担当の集合は変えていない) |
+
+⚠ 補足: 帯の文面は `🫐 グッドベリー — 木の実が 10 個実った`(唱えたとき)と `🫐 木の実を食べ尽くした`(袋が空になったとき)の 2 つだけ。食べるたびの表示は頭上の `+1`(`showHealAt`)と `updateInfo` の 1 行だけにした。
+
+**煙検査**(`node smoke_goodberry.js` → **SMOKE 18/18 PASS・exit 0**・pageerror 0)。種まき = `dragonfighters.knownSpells = {elf:[…,"goodberry"]}`・`dragonfighters.partySkills = {elf:["goodberry","cure-minor"]}`(⚠ 配列で渡す。`{goodberry:1}` の形だと配分に入らない)・`?diag=1` で開いて `startGame()` を直接呼ぶ:
+
+- A1〜A4: 仲間エルフの `maxSpellSlots.goodberry = 1` → `startGame()` の前は袋 `null`、後は `count 10`・owner = そのエルフ・枠 1 → 0・帯が出た
+- A5: ちょうど半分(15/30)は食べない / A6: `stunned = 2` の仲間の手番では食べない(ポーションの口にも届かない)
+- A7: HP 3/30 の仲間の手番(`beginTurn` / `allyAttackTurn` / `endTurn` の組)で `count -1`・HP 3 → 4・ポーションの口まで届いた(= 手番は続く)
+- A8: 唱えたエルフの `healed` が 0 → 1・食べた戦士の `healed` は 0 のまま / A9: 主人公が食べても頭の `healed` は 0 のままで、エルフが 1 → 2
+- A10: 袋が空 → 帯「食べ尽くした」・以後は `false` / A11: `dragonfighters.plazaInventory` が前後で同じ
+- A12 / C3: `pickScrollId({common:100})` 3000 回で、素では `grimoire-goodberry` が出る(6 冊)、`?goodberry=0` では出ない(5 冊)
+- B1 / B2: 主人公エルフ + 仲間エルフ → 主人公の枠 `"player"` だけが 1 減り、owner = `"player"`、仲間の枠は 1 のまま
+- C1 / C2: `?goodberry=0` → 唱えない(枠 1 のまま・袋 `null`)・袋を手で置いても食べない
+
+**回帰**(項目 1 の `run_golden.ps1` を出力先だけ変えて昼 16:54〜17:05 に直列で実走 = `golden/golden_raw.txt`):
+
+| ドライバ | 項目 1 の基準 | 項目 2 の後 |
+|---|---|---|
+| `verify_scroll_shelf` | 19/19 | **19/19**(言い直し後。`--negative` も 8/8 検出・exit 0) |
+| `verify_run_chronicle` | 74/0 | **74/0** |
+| `verify_plaza_srd` | 27/27 | **27/27** |
+| `verify_arcane_eye` | 34/34 | **34/34** |
+| `verify_mage_hand` | 32/32 | **32/32** |
+| `verify_invisibility` | 27/27 | **27/27** |
+| `verify_cleric_spirits` | 23/23 | **23/23** |
+| `verify_counterspell` | 25/25 | **25/25** |
+| `driver_action_priority` | 92/0 | **92/0** |
+| `verify_spell_off` | 51/51 | **51/51** |
+| `verify_promote_growth` | 14/14 | **14/14** |
+| `verify_clear_chests` | 21/21 | **21/21** |
+| `verify_save_slots` | 30/30 | **30/30** |
+| `verify_egg_parent` | 25/26(赤は (6a)) | **25/26(赤は (6a) だけ・`runEncounter` 21906→22068 で項目 1 と同じ)** = 非退行 |
+
+⇒ 抽選の出方の変化(罠 D)で赤くなったのは、言い直しを見込んでいた `verify_scroll_shelf` だけ。ほかの 8 本(§12-1 の表)は言い直しなしで緑のままだったので、`?goodberry=0` へ戻す確認は要らなかった。

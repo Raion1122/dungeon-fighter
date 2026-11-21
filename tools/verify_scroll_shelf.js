@@ -22,18 +22,18 @@
  *   - 撤退の腕 = tavern.html?scrollshop=0 を直接開く (ページ単位の判定 isScrollShopOnTV)。
  *
  * ■ 測っているもの (依頼書 §8 の番号)
- *   §0 (0a) [装置] ソースから引いた巻物が common 5 件 (#80 で 4→5) + それ以外 13 件以上 (#78 §6 で全件数の固定をやめた・0 件なら exit 3) + ページの表 (SCROLL_CATALOG_TV) と
+ *   §0 (0a) [装置] ソースから引いた巻物が common 6 件 (#80 で 4→5・#116 で 5→6) + それ以外 13 件以上 (#78 §6 で全件数の固定をやめた・0 件なら exit 3) + ページの表 (SCROLL_CATALOG_TV) と
  *           id / name / spellId / classKey / rarity が全件一致
  *      (0b) [装置] __equipTV.scrollShelf / shopBuyScroll / scrollStock / learnScroll が関数・#shopList に .shopGroupHead が 1 つ以上
  *           ⭐ これが無いと全 assert が空振りで永久緑
  *      (0c) [装置] 全ページが起動し (__equipTV が立つ) pageerror 0 件 (⭐ 構文破壊で全部赤くなる偽の検出を見分ける)
- *   §1 (1a) 新しいセーブで「巻物」の見出しが 1 つ・その下の行の名前 = ソースの common 4 件 (順も)・ブリッジの id 列も同じ
+ *   §1 (1a) 新しいセーブで「巻物」の見出しが 1 つ・その下の行の名前 = ソースの common 6 件 (順も)・ブリッジの id 列も同じ
  *      (1b) uncommon / rare の巻物 (13 件以上) の名前が #shopList に 1 件も無い・ブリッジも common だけ
- *      (1c) 主人公を戦士・僧侶・魔法使い・エルフに変えても 4 件は同じ (shopHeroKey() が実際に変わったことも確かめる)
+ *      (1c) 主人公を戦士・僧侶・魔法使い・エルフに変えても 6 件は同じ (shopHeroKey() が実際に変わったことも確かめる)
  *      (1d) 売却タブに「巻物」の見出しも巻物の名前も無い (shopTab === "sell" を確かめる)
  *      (1e) 武器防具を全部所持させても購入タブに「買える品はもうありません。」が出ない・見出しは「巻物」だけ (罠C)
  *   §2 (2a) 新しいセーブでスリープの行は「習得済み」でボタンが無い・state known・shopBuyScroll = {ok:false, reason:"known"} (200G 持たせて)
- *      (2b) 他の common 4 件 (#80 で 3→4) は state buyable・行に「購入 <SCROLL_SHELF_PRICE>G」のボタン
+ *      (2b) 他の common 5 件 (#80 で 3→4・#116 で 4→5) は state buyable・行に「購入 <SCROLL_SHELF_PRICE>G」のボタン
  *      (2c) tavern.html?magesleep=0 ではスリープが buyable・行にボタン (isSpellKnownTV("mage","sleep") が偽になったことも確かめる)
  *      (2d) バーニングハンズを 1 冊持たせると「所持中」・stocked・買っても金貨/所持数が変わらない / learnScroll の後は「習得済み」・known
  *   §3 (3a) 200G でバーニングハンズを買う → ok:true・price = SCROLL_SHELF_PRICE・金貨 200-P・scrollStock()=1・localStorage も 1
@@ -168,10 +168,10 @@ const MUTATIONS = {
     { from: '.filter(id => SCROLL_CATALOG_TV[id].rarity === "common")',
       to:   '.filter(id => (' + HIT('allrarity') + ', true))   /* ★変異allrarity */' }],
   /* 棚を ID 直書きにし、scroll-sleep を抜く (不採用の 3 種案)。★[#80] 直書きの列は「スリープ以外の common 全部」に
-   *   追従させる (メイジハンドを足して 4 件)。⚠ 抜くのはスリープ 1 件だけ = 担当 (NEG_EXPECT) は不変。 */
+   *   追従させる (メイジハンドを足して 4 件・#116 でグッドベリーを足して 5 件)。⚠ 抜くのはスリープ 1 件だけ = 担当 (NEG_EXPECT) は不変。 */
   idlist: [
     { from: '    return Object.keys(SCROLL_CATALOG_TV).filter(id => SCROLL_CATALOG_TV[id].rarity === "common");',
-      to:   '    ' + HIT('idlist') + '; return ["scroll-burning-hands", "scroll-mage-hand", "tome-bless", "grimoire-hail-of-thorns"];   /* ★変異idlist */' }],
+      to:   '    ' + HIT('idlist') + '; return ["scroll-burning-hands", "scroll-mage-hand", "tome-bless", "grimoire-hail-of-thorns", "grimoire-goodberry"];   /* ★変異idlist */' }],
   /* 所持中でも買える */
   nostockcap: [
     { from: '    if ((scrollStockTV[id] || 0) > 0) return "stocked";',
@@ -189,7 +189,7 @@ const NEG_EXPECT = {
   noany:      ['(1e)'],
   leakbuy:    ['(5a)'],
   allrarity:  ['(1a)', '(1b)', '(1c)', '(1e)', '(3b)'],   // (1c)(1e) = 並ぶ件数が 17 / (3b) = ボタンが 16 個
-  idlist:     ['(1a)', '(1c)', '(1e)', '(2a)', '(2c)'],   // (2a) = スリープの行が無い / (1c)(1e) = 4 件しか並ばない (#80 前は 3 件)
+  idlist:     ['(1a)', '(1c)', '(1e)', '(2a)', '(2c)'],   // (2a) = スリープの行が無い / (1c)(1e) = 5 件しか並ばない (#116 前は 4 件・#80 前は 3 件)
   nostockcap: ['(2d)', '(3a)'],                  // (3a) = 押して買った行が「所持中」にならず買えるまま
   /* 主人公 戦士の新しいセーブでは棚が空になる ⇒ 棚を読む節がほぼ全部赤 (表示だけでなく購入も同じ関数を通る証拠) */
   herofilter: ['(1a)', '(1c)', '(1e)', '(2a)', '(2b)', '(2c)', '(2d)', '(3a)', '(3b)', '(3c)', '(3d)'],
@@ -372,10 +372,10 @@ async function runSuite(browser, port, mutKey, label) {
       const c = SCROLL_CATALOG_TV[id]; return { id, name: c.name, spellId: c.spellId, classKey: c.classKey, rarity: c.rarity };
     }));
     {
-      /* ★[#78 §6] 全件数は固定しない (B/C で拾う巻物が増える)。⛔ common は 5 件で固定のまま —— common が増えたのか
+      /* ★[#78 §6] 全件数は固定しない (B/C で拾う巻物が増える)。⛔ common は 6 件で固定のまま (#116 で 5→6) —— common が増えたのか
        *   uncommon / rare が増えたのかを見分けるため (「18 件」へ書き換えるだけにしない = #77 §12-4)。 */
-      const ok = DRV_CAT.length === DRV_COMMON.length + DRV_OTHER.length && DRV_OTHER.length >= 13 && DRV_COMMON.length === 5 && J(pageCat) === J(DRV_CAT);
-      R.check('(0a)', '[装置] ソースから引いた巻物 = 全 ' + DRV_CAT.length + ' 件 (common 5 件 + それ以外 ' + DRV_OTHER.length + ' 件 ≥ 13)・ページの表と全件一致', ok,
+      const ok = DRV_CAT.length === DRV_COMMON.length + DRV_OTHER.length && DRV_OTHER.length >= 13 && DRV_COMMON.length === 6 && J(pageCat) === J(DRV_CAT);
+      R.check('(0a)', '[装置] ソースから引いた巻物 = 全 ' + DRV_CAT.length + ' 件 (common 6 件 + それ以外 ' + DRV_OTHER.length + ' 件 ≥ 13)・ページの表と全件一致', ok,
         '全 ' + DRV_CAT.length + ' / common ' + DRV_COMMON.length + ' [' + commonIds.join(',') + '] / ページ ' + pageCat.length + ' 件'
         + (J(pageCat) === J(DRV_CAT) ? ' (一致)' : ' ⛔ 不一致'));
     }
@@ -388,7 +388,7 @@ async function runSuite(browser, port, mutKey, label) {
     {
       const scrollHeads = d.heads.filter((h) => h === '巻物').length;
       const ok = scrollHeads === 1 && J(d.scroll.map((r) => r.name)) === J(commonNames) && J(shelf0.map((x) => x.id)) === J(commonIds);
-      R.check('(1a)', '新しいセーブ: 「巻物」の見出しが 1 つ・行の名前 = ソースの common 4 件 (順も)・ブリッジの id 列も同じ', ok,
+      R.check('(1a)', '新しいセーブ: 「巻物」の見出しが 1 つ・行の名前 = ソースの common 6 件 (順も)・ブリッジの id 列も同じ', ok,
         '見出し ' + J(d.heads) + ' / 行 ' + J(d.scroll.map((r) => r.name)) + ' / ブリッジ ' + J(shelf0.map((x) => x.id)) + ' / 期待 ' + J(commonNames));
     }
     {
@@ -412,8 +412,8 @@ async function runSuite(browser, port, mutKey, label) {
     {
       const others = DRV_COMMON.filter((c) => c.id !== SLEEP.id);
       const rows = others.map((c) => ({ id: c.id, st: stateOf(shelf0, c.id), row: rowOf(d, c.name) }));
-      const ok = others.length === 4 && rows.every((x) => x.st === 'buyable' && x.row && x.row.btn === wantBtn && x.row.tag === null);
-      R.check('(2b)', '他の common 4 件は state buyable・行に「' + wantBtn + '」のボタン', ok, rows);
+      const ok = others.length === 5 && rows.every((x) => x.st === 'buyable' && x.row && x.row.btn === wantBtn && x.row.tag === null);
+      R.check('(2b)', '他の common 5 件は state buyable・行に「' + wantBtn + '」のボタン', ok, rows);
     }
 
     /* ── (1d) 売却タブ ── */
@@ -437,7 +437,7 @@ async function runSuite(browser, port, mutKey, label) {
         got[hk] = { hero: info.hero, names: dh.scroll.map((r) => r.name), ids: info.ids };
       }
       const ok = Object.keys(got).every((hk) => got[hk].hero === hk && J(got[hk].names) === J(commonNames) && J(got[hk].ids) === J(commonIds));
-      R.check('(1c)', '主人公を戦士・僧侶・魔法使い・エルフに変えても 4 件は同じ (shopHeroKey が実際に変わった)', ok,
+      R.check('(1c)', '主人公を戦士・僧侶・魔法使い・エルフに変えても 6 件は同じ (shopHeroKey が実際に変わった)', ok,
         Object.keys(got).map((hk) => hk + '→hero=' + got[hk].hero + ' ' + got[hk].names.length + '件' + (J(got[hk].names) === J(commonNames) ? '' : ' ⛔' + J(got[hk].names))).join(' / '));
     }
 
@@ -538,9 +538,9 @@ async function runSuite(browser, port, mutKey, label) {
       await page.evaluate((P) => { __equipTV.setGold(P); __equipTV.renderShop(); }, PRICE);
       const dEq = await shelfDom(page);
       const btnsLow = dLow.scroll.filter((r) => r.btn !== null), btnsEq = dEq.scroll.filter((r) => r.btn !== null);
-      /* ★[#80] ボタンの数 = common のうちスリープ (初期習得) を除いた件数。メイジハンドの巻物 (common) で 3→4 ((2b) と同じ数)。 */
+      /* ★[#80] ボタンの数 = common のうちスリープ (初期習得) を除いた件数。メイジハンドの巻物 (common) で 3→4・#116 グッドベリーの森の書で 4→5 ((2b) と同じ数)。 */
       const ok = b.r.ok === false && b.r.reason === 'gold' && b.gold === PRICE - 1 && !b.stock[BLESS.id] && b.lsBefore === b.lsAfter
-        && btnsLow.length === 4 && btnsLow.every((r) => r.disabled === true) && btnsEq.length === 4 && btnsEq.every((r) => r.disabled === false);
+        && btnsLow.length === 5 && btnsLow.every((r) => r.disabled === true) && btnsEq.length === 5 && btnsEq.every((r) => r.disabled === false);
       R.check('(3b)', '金貨 P-1 ではボタン disabled (P ちょうどでは押せる)・shopBuyScroll = gold・金貨/所持品/localStorage 不変', ok,
         J(b) + ' / P-1 のボタン ' + J(btnsLow.map((r) => r.disabled)) + ' / P のボタン ' + J(btnsEq.map((r) => r.disabled)));
     }

@@ -15218,6 +15218,7 @@
       "grimoire-lightning-arrow":  { name: "森の書・ライトニングアロー", spellId: "lightning-arrow",  classKey: "elf", rarity: "uncommon" },
       "grimoire-conjure-volley":   { name: "森の書・コンジュアヴォリー", spellId: "conjure-volley",   classKey: "elf", rarity: "rare"     },
       "grimoire-haste":            { name: "森の書・ヘイスト",           spellId: "haste",            classKey: "elf", rarity: "uncommon" },
+      "grimoire-goodberry":        { name: "森の書・グッドベリー",       spellId: "goodberry",        classKey: "elf", rarity: "common"   },
     };
     // 初期習得(常に known)。elf は index/tavern 両 defaults の和集合 (どちらの起動経路でも初期呪文がロックされないように)。
     const DEFAULT_KNOWN = {
@@ -15275,6 +15276,16 @@
       try { return new URLSearchParams(window.location.search).get("counterspell") !== "0"; }
       catch (e) { return true; }
     }
+    /* ★[#116] 撤退スイッチ ?goodberry=0 — 唱えない・食べない・森の書を拾わない (棚には並ぶ = 依頼書 §2-5)。
+     * ⚠ const に畳まず関数にする (TDZ 回避)。各ページが独立に読む (遷移はまたがない)。 */
+    function isGoodberryOn() {
+      try { return new URLSearchParams(window.location.search).get("goodberry") !== "0"; }
+      catch (e) { return true; }
+    }
+    /* ★[#116] 木の実の袋。出撃 = ページ 1 枚のあいだだけ持つ (宣言で null・startGame でも null に戻す)。
+     * ⛔ plazaInventory / localStorage に入れない (罠 A: 出撃をまたいで無料の回復が増え続ける)。 */
+    const GOODBERRY_COUNT = 10;
+    let goodberryPouch = null;   // { count, owner, ownerName } — owner は "player" か仲間 (帰属に使う)
     /* ★[#97] 撤退スイッチ ?plazasrd=0 — 闇市の棚を着手前 (3ca8938) の品ぞろえへ戻す + 新しい品の効き目の口を閉じる。
      * ⚠ const に畳まず関数にする (TDZ 回避)。各ページが独立に読む (遷移はまたがない)。
      * ⚠ 目玉 4 品の名前は戻さない (表示名だけ・id と効き目は同じ)。 */
@@ -15370,7 +15381,7 @@
       if (roll < (w.common || 0)) rarity = "common";
       else if (roll < (w.common || 0) + (w.uncommon || 0)) rarity = "uncommon";
       else rarity = "rare";
-      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility") && (isEyeOn() || id !== "scroll-arcane-eye") && (isMageHandOn() || id !== "scroll-mage-hand") && (isClericSpiritOn() || (id !== "tome-spiritual-weapon" && id !== "tome-spirit-guardians")) && (isCounterspellOn() || id !== "scroll-counterspell"));
+      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility") && (isEyeOn() || id !== "scroll-arcane-eye") && (isMageHandOn() || id !== "scroll-mage-hand") && (isClericSpiritOn() || (id !== "tome-spiritual-weapon" && id !== "tome-spirit-guardians")) && (isCounterspellOn() || id !== "scroll-counterspell") && (isGoodberryOn() || id !== "grimoire-goodberry"));
       if (!pool.length) pool = Object.keys(SCROLL_CATALOG);
       return pool[Math.floor(Math.random() * pool.length)];
     }
@@ -15941,10 +15952,12 @@
       if (gameStarted) return;
       gameStarted = true;
       runHiddenFoeSlain = false;   // ★[#108] ラン開始 = 隠し要素の印を下ろす
+      goodberryPouch = null;       // ★[#116] ラン開始 = 木の実の袋は空 (出撃をまたがない)
       applyNodeZoom();   // ★[P7] 起点ノードが大部屋 (廃坑入口 33x22) のときは初手から引く
       startScreen.style.display = "none";
       updateInfo("ゲームスタート！");
       setPhase("explore");
+      tryGoodberryOnEntry();   // ★[#116] 最初の部屋で 1 回だけグッドベリー (同期・乱数を引かない)
       tryArcaneEyeOnEntry();   // ★[#79] ① 最初の部屋で魔法の眼 (await しない。旗は関数の頭で同期に立つ)
     }
 
@@ -17017,6 +17030,7 @@
        *    AI のターゲット選択で高頻度に走るので、書込みを畳む目的で読みへコストを乗せない。 */
       let turnDepth = 0;                  // beginTurn のネスト深さ (内側は no-op)
       const NESTED = { nested: true };    // ネストした beginTurn の返り値 (identity で判定)
+      let openSnap = null;                // ★[#116] 深さ 1 で開いている手番の控え (creditHealTo が基準を直す)。endTurn で null
 
       /* 全ユニットの hp を控える。O(仲間 + 敵) の配列走査 1 周だけ。 */
       function hpSnapshot() {
@@ -17148,6 +17162,7 @@
           curActor = actorName(actor);
           const s = hpSnapshot();
           s.actor = curActor;
+          openSnap = s;   // ★[#116]
           return s;
         },
         /* 手番の終わり。hp 差分を行動者へ帰属する (delta<0 = ダメージ / delta>0 = 回復)。 */
@@ -17155,8 +17170,29 @@
           if (!CHRONICLE_ON) return;
           if (turnDepth > 0) turnDepth--;
           if (!snap || snap === NESTED) return;
+          openSnap = null;   // ★[#116]
           try { applyTurnDiff(snap); } catch (e) { /* 帰属の失敗で手番を止めない */ }
           curActor = null;
+        },
+
+        /* ★[#116] 手番の行動者ではない者 (木の実を作ったエルフ) へ回復を帰属する口。
+         *   ⚠⚠ 手番の中で開き直しても入れ子は何もしない (罠 B) ので、帰属を開き直す方式は取らない。
+         *   ① owner の healed へ delta を直接積む ② 開いている控えの target の基準を +delta して、
+         *   手番の終わりの差分から外す (食べた本人の手番に二重に積まれるのを防ぐ)。
+         *   owner / target は頭なら { head: true }、仲間なら仲間のオブジェクト。⛔ credit / applyTurnDiff は変えない。 */
+        creditHealTo(owner, target, delta) {
+          if (!CHRONICLE_ON || !delta) return;
+          syncRoster();
+          const m = ensure(owner);
+          if (m) m.healed += delta;
+          if (!openSnap || !target) return;
+          if (target.head === true) {
+            if (openSnap.head != null) openSnap.head += delta;
+          } else {
+            let i = -1;
+            try { i = allies.indexOf(target); } catch (e) { i = -1; }
+            if (i >= 0 && i < openSnap.allies.length && openSnap.allies[i] != null) openSnap.allies[i] += delta;
+          }
         },
 
         /* 敵の撃破。呼び口は defeatEnemy ただ 1 点 (呼び出しは 33 箇所あるが集約されている)。
@@ -24339,6 +24375,29 @@
       return true;
     }
 
+    /* ★[#116] 木の実を 1 個食べる。食べたら true だが、⛔ 呼び口は return しない (手番は終わらない)。
+     *   呼び口は手番の関数の中 2 か所 (状態のガードの後・ポーションの直前)。⛔ 手番のループ側へ移さない (罠 C: 眠っていても食べる)。
+     * ⚠⚠ 乱数も DOM も触らずに false を返す枝を先に全部並べる (依頼書 §2-6 = 既存 golden を動かさない)。
+     * ⚠ 帰属は唱えた者へ (RunChronicle.creditHealTo)。唱えたエルフが倒れていても owner は変えない。 */
+    function tryEatGoodberry(unit) {
+      if (!goodberryPouch || goodberryPouch.count <= 0 || !isGoodberryOn()) return false;
+      const isPlayer = unit === "player";
+      if (isPlayer ? !(hp > 0 && hp < maxHp / 2) : !(unit && unit.alive && unit.hp < unit.maxHp / 2 && !unit.isSummon)) return false;
+      goodberryPouch.count--;
+      if (isPlayer) hp = Math.min(maxHp, hp + 1); else unit.hp = Math.min(unit.maxHp, unit.hp + 1);
+      RunChronicle.creditHealTo(goodberryPouch.owner === "player" ? { head: true } : goodberryPouch.owner,
+                                isPlayer ? { head: true } : unit, 1);
+      if (isPlayer) {
+        showHealAt(playerX + 48, playerY + 40, 1);
+        updateInfo(`${getLeaderName()} は木の実を食べた: HP +1 (${hp}/${maxHp}) — 残り ${goodberryPouch.count} 個`);
+      } else {
+        showHealAt(unit.x + unit.def.displaySize / 2, unit.y, 1);
+        updateInfo(`${unit.npcName || unit.def.name} は木の実を食べた: HP +1 (${unit.hp}/${unit.maxHp}) — 残り ${goodberryPouch.count} 個`);
+      }
+      if (goodberryPouch.count <= 0) showBanner("🫐 木の実を食べ尽くした", 1300);
+      return true;
+    }
+
     // ワンドオブマジックミサイルを振る (魔法使いが攻撃呪文を 1 つも撃てないとき)。撃ったら true。
     // actor = 仲間 or makeLeaderActor() / unit = 枠を見る相手 ("player" | 仲間) / targetIdx = null なら最寄りの交戦中の敵。
     async function tryWandMagicMissile(actor, unit, targetIdx) {
@@ -25229,6 +25288,13 @@
         healDice: "1d6", useWis: true, range: "self",
         mpCost: 3,
         flavor: "自分に 1d6+WIS HP 回復 (MP 3)",
+      },
+      // ★[#116] グッドベリー (5.1 SRD Ranger 1 / 変成術)。最初の部屋で 1 回だけ自動で唱える (tryGoodberryOnEntry)。
+      // ⭐ outOfCombat: true —— apTryPreferred と主人公の技の候補がこの旗で外す (#78 / #79 と同じ)。elfAI は名指しなので拾わない。
+      "goodberry": {
+        name: "グッドベリー", category: "回復", target: "self", range: "self",
+        mpCost: 2, levelReq: 1, outOfCombat: true,
+        flavor: "最初の部屋で木の実を 10 個作る。HP が半分を切った味方が手番の頭に 1 個食べて 1 HP 回復 (手番は終わらない)",
       },
       // ── spells.md エルフ Ranger 5呪文 (Phase 2-V) ──
       "hail-of-thorns": {
@@ -34084,6 +34150,8 @@
         return;
       }
 
+      // ★[#116] HP が半分を切っていて木の実の袋があれば 1 個食べる (手番は終わらない = return しない)
+      tryEatGoodberry(ally);
       // ★[#97] HP が半分を切っていて回復のポーションを持っていれば、手番を使って飲む (その手番は攻撃しない)
       if (await tryDrinkHealingPotion(ally)) return;
 
@@ -36755,6 +36823,8 @@
         }
       }
 
+      // ★[#116] HP が半分を切っていて木の実の袋があれば 1 個食べる (手番は終わらない = return しない)
+      tryEatGoodberry("player");
       // ★[#97] HP が半分を切っていて回復のポーションを持っていれば、手番を使って飲む (その手番は攻撃しない)
       if (await tryDrinkHealingPotion("player")) return;
 
@@ -41423,6 +41493,29 @@
           ? { unit: caster, actor: caster, name: caster.npcName || (caster.def && caster.def.name) || "魔法使い" } : null;
       }
       return null;
+    }
+
+    /* ★[#116] 最初の部屋でグッドベリーを 1 回だけ唱える (startGame から。await しない同期関数)。唱えたら true。
+     * ⭐ 術者探しは takeArcaneEyeCaster の型 (順 = 主人公 → 仲間)。主人公の枠は "player"。
+     * ⛔ 乱数を引かない。2 人目のエルフは唱えない (袋は 1 つ・枠が減るのは 1 人だけ)。 */
+    function tryGoodberryOnEntry() {
+      const GB_ID = "goodberry";
+      if (!isGoodberryOn() || goodberryPouch !== null || gameOver) return false;
+      let caster = null;
+      if (hp > 0 && leaderClassKey === "elf" && hasSpellSlot("player", GB_ID)) {
+        if (consumeSpellSlot("player", GB_ID)) caster = { owner: "player", name: getLeaderName() };
+      } else {
+        for (const a of allies) {
+          if (!a || !a.alive || a.classKey !== "elf" || !hasSpellSlot(a, GB_ID)) continue;
+          if (consumeSpellSlot(a, GB_ID)) caster = { owner: a, name: a.npcName || (a.def && a.def.name) || "エルフ" };
+          break;
+        }
+      }
+      if (!caster) return false;
+      goodberryPouch = { count: GOODBERRY_COUNT, owner: caster.owner, ownerName: caster.name };
+      showBanner(`🫐 グッドベリー — 木の実が ${GOODBERRY_COUNT} 個実った`, 1600);
+      updateInfo(`${caster.name} はグッドベリーを唱えた: 木の実が ${GOODBERRY_COUNT} 個実った (HP が半分を切った仲間が 1 個ずつ食べて +1)`);
+      return true;
     }
 
     /* 羊皮紙の影絵: 種類ごとに 1 マス (先頭コマを brightness(0) で黒く塗る + 「×n」)、最大 4 マス。ボスありは先頭に丸い影 +「?」。 */
