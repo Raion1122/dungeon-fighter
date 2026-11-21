@@ -13998,6 +13998,7 @@
       // ── 発見系 (話者=生存パーティ) ──
       "find.trap":  ["待て! 床が怪しい…罠だ。", "見つけたぞ。踏むなよ?", "危ない、足を止めろ!", "こういうのは大抵、痛い。"],
       "find.chest": ["宝箱だ! 開けようぜ!", "お宝の匂いがするぞ。", "中身は山分けだからな?", "報酬は正当な取り分だ。"],
+      "find.door":  ["壁に隙間がある…隠し扉だ。", "この壁、動くぞ。", "隠し扉だ。道が続いている。"],   // ★#118 (⛔ 印 {to} 等は入れない・罠 E)
       // ── フェーズ系 (話者=生存パーティ) ──
       "phase.rest":  ["ふう…少し休ませてくれ。", "傷を見せろ、手当てする。", "携行食はまだ残ってるか?", "少しだけだぞ。気を抜くな。"],
       "quest.clear": ["終わったな…帰ろう。", "俺たちの勝ちだ!", "酒場で祝杯だ!", "生きて帰れた。それが一番だ。"],
@@ -14112,6 +14113,7 @@
     function speechPrio(key) {
       if (key === "enemy.cry") return 0;
       if (key === "combat.crit" || key === "combat.lowhp" || key === "phase.rest") return 1;
+      if (key === "ally.call") return 1;   // ★#118 仲間の危機の声掛け = combat.lowhp と同じ 1 (罠 C: 足さないと知らないキー = 2)
       return 2;   // encounter.* / find.* / boss.* / quest.clear / combat.allydown
     }
 
@@ -14163,6 +14165,7 @@
     // opts.ambient : 環境音。「キューが空 & 誰も喋っていない」時だけ積む = 重要な台詞を絶対に押し出さない
     // opts.text    : ★#117 文面を直接渡す (SPEECH_LINES を引かない)。⚠ 行が無いと false を返す判定より前で効かせる
     //                 (idle.chatter は SPEECH_LINES に無い)。⛔ opts.text を渡さない既存の呼び口は従来どおり
+    // opts.meta    : ★#118 検証用の付帯情報 ({ scene, to, ... })。予約と speechLog の行に載る。渡さない呼び口では欄ごと付けない
     function sayLine(triggerKey, speaker, opts) {
       opts = opts || {};
       const lines = (typeof opts.text === "string" && opts.text) ? [opts.text] : resolveSpeechLines(triggerKey, opts.eventKey);
@@ -14177,13 +14180,15 @@
         if (speechQueue[w].prio > prio) return false;
         speechQueue.splice(w, 1);
       }
-      speechQueue.push({
+      const entry = {
         key: triggerKey,
         text: lines[Math.floor(Math.random() * lines.length)],
         speaker: speaker || "party",
         dropAfter: Date.now() + SPEECH_STALE_MS,
         prio,
-      });
+      };
+      if (opts.meta && typeof opts.meta === "object") entry.meta = opts.meta;   // ★#118
+      speechQueue.push(entry);
       return true;
     }
     function _renderBubble(entry) {
@@ -14203,6 +14208,7 @@
       speechBusyUntil = Date.now() + SPEECH_MS + SPEECH_GAP_MS;
       const logRow = { key: entry.key, text: entry.text, kind, cry: isCry, at: Date.now() };
       if (kind === "ally" && unit.castId) logRow.castId = unit.castId;   // ★#117: 話し手 (キャストのときだけ足す)
+      if (entry.meta) logRow.meta = entry.meta;   // ★#118: 検証用 (meta を渡した呼び口のときだけ足す)
       speechLog.push(logRow);
       if (speechLog.length > 50) speechLog.shift();
       return true;
@@ -14317,6 +14323,7 @@
         else if (hp > 0 && hp <= maxHp * SPEECH_LOWHP_RATIO && !playerBuffs.lowHpSpoken) {
           playerBuffs.lowHpSpoken = true;
           sayLine("combat.lowhp", "player");
+          if (banterOn()) sayAllyCall("player");   // ★#118 別の仲間が声を掛ける (話し手選びは関数の外・罠 D)
         }
       }
       if (typeof allies === "undefined") return;
@@ -14332,9 +14339,90 @@
         else if (a.hp > 0 && a.hp <= a.maxHp * SPEECH_LOWHP_RATIO && !a.buffs.lowHpSpoken) {
           a.buffs.lowHpSpoken = true;
           sayLine("combat.lowhp", a);
+          if (banterOn()) sayAllyCall(a);   // ★#118
         }
       }
     }
+
+    // ── ★#118 気づいた本人が名前を呼んで伝える (依頼書 #118 §5-2〜§5-5) ─────────────────
+    // 撤退スイッチ ?banter=0。呼ぶたびに読む (TDZ 回避・DFCast.enabled と同じ作法)
+    function banterOn() {
+      try { return new URLSearchParams(window.location.search).get("banter") !== "0"; } catch (e) { return true; }
+    }
+    // 汎用の伝承の行 (印入り)。⛔ SPEECH_LINES には入れない (罠 E: 文面を渡し忘れた呼び口で印が画面に出る)
+    const LORE_SHARE_LINES = ["{enemy}だ。{trait}。", "あれは{enemy}。{trait}はずだ。", "{enemy}か…{trait}。用心しろ。"];
+    // {to} の候補 = 話し手以外の、名前を持つ生きた仲間。⛔ 主人公 ("あなた") は入れない (罠 B)
+    function pickToName(speaker) {
+      if (typeof allies === "undefined") return null;
+      const names = [];
+      for (const a of allies) if (a && a.alive && a !== speaker && a.npcName) names.push(a.npcName);
+      return names.length ? names[Math.floor(Math.random() * names.length)] : null;
+    }
+    // 行を選んで差し込む。vars.to が無ければ {to} を含まない行だけから選ぶ。
+    // 差し込み後に "{" が残ったら null (罠 E の保険 = 呼び側が汎用へ倒す)
+    function fillVoice(lines, vars) {
+      vars = vars || {};
+      if (!Array.isArray(lines)) return null;
+      const pool = lines.filter(l => typeof l === "string" && l && (vars.to || l.indexOf("{to}") < 0));
+      if (!pool.length) return null;
+      let t = pool[Math.floor(Math.random() * pool.length)];
+      if (vars.to) t = t.split("{to}").join(vars.to);
+      if (vars.enemy) t = t.split("{enemy}").join(vars.enemy);
+      if (vars.trait) t = t.split("{trait}").join(vars.trait);
+      return t.indexOf("{") >= 0 ? null : t;
+    }
+    // キャストの声。unit が castId を持たない / voice が無い → null (呼び側が汎用へ倒す)。
+    // ⚠ 本体は castId があるときだけキャストとして扱う (npcName から引かない・#117 §2-7)
+    function castVoiceText(unit, scene, vars) {
+      if (!unit || typeof unit !== "object" || !unit.castId) return null;
+      if (!(window.DFCast && typeof window.DFCast.byId === "function")) return null;
+      const c = window.DFCast.byId(unit.castId);
+      const lines = c && c.voice && c.voice[scene];
+      return (Array.isArray(lines) && lines.length) ? fillVoice(lines, vars) : null;
+    }
+    // 罠・宝箱・隠し扉の吹き出し。repUnit = 判定者本人 ("player" か ally・探索判定の対応表 unitOf で引いたもの)
+    function sayFind(scene, key, repUnit) {
+      if (!banterOn() || !repUnit) return sayLine(key);            // ?banter=0 / 対応が取れない = 今までどおり (party・汎用)
+      const to = pickToName(repUnit);
+      const text = castVoiceText(repUnit, scene, { to });
+      if (text) return sayLine(key, repUnit, { text, meta: { scene, to } });
+      return sayLine(key, repUnit);                                // キャストでない判定者 = 汎用の行・話し手は本人
+    }
+    // 伝承の吹き出し。runLoreCheck の成功の枝から 1 回だけ (e = 先頭の種類の代表・体質は先頭 2 つ = §2-8)
+    function sayLoreShare(unit, e) {
+      if (!banterOn() || !e || !e.def) return false;
+      const enemy = e.def.name;
+      const trait = loreTraitText(e).split("、").slice(0, 2).join("、");
+      let to = pickToName(unit);
+      let text = castVoiceText(unit, "lore", { to, enemy, trait });
+      if (!text) { to = null; text = fillVoice(LORE_SHARE_LINES, { enemy, trait }); }
+      if (!text) return false;
+      return sayLine("lore.share", unit || undefined, { text, meta: { scene: "lore", to, enemy, trait } });
+    }
+    // 声掛けの話し手 = castId を持つ生きた仲間で、target 本人ではない人。画面内を優先。
+    // ⚠ 罠 D: checkPartySpeech の外に置く。画面内の判定は speechOnScreen (キャッシュだけを読む) のみ
+    function pickCallerFor(target) {
+      if (typeof allies === "undefined") return null;
+      const pool = [];
+      for (const a of allies) if (a && a.alive && a.castId && a !== target) pool.push(a);
+      if (!pool.length) return null;
+      const vis = pool.filter(speechOnScreen);
+      const p = vis.length ? vis : pool;
+      return p[Math.floor(Math.random() * p.length)];
+    }
+    // 仲間の危機の声掛け。相手が主人公なら {to} を含まない行だけ (罠 B)。キーは ally.call (罠 C)
+    function sayAllyCall(target) {
+      const caller = pickCallerFor(target);
+      if (!caller) return false;
+      const to = (target && target !== "player" && target.npcName) ? target.npcName : null;
+      const text = castVoiceText(caller, "call", { to });
+      if (!text) return false;
+      return sayLine("ally.call", caller, { text, meta: { scene: "call", to } });
+    }
+    window.__banter = {
+      on: banterOn, loreLines: LORE_SHARE_LINES, pickTo: pickToName, fill: fillVoice, castText: castVoiceText,
+      find: sayFind, lore: sayLoreShare, caller: pickCallerFor, call: sayAllyCall,
+    };
 
     // ヘッドレス検証用 (window.__narr と同じ思想)
     window.__speech = {
@@ -28735,6 +28823,14 @@
 
       const party = buildPerceptionParty();
       if (party.length === 0) return;
+      /* ★#118 罠 A: res.rep は写し (party) の要素そのもの = castId も座標も無い。本物の話し手は、
+       *   party と**同じ瞬間に**同じ並び (生きている主人公 → 生きている仲間) で作った対応表で引く
+       *   (判定を待つ間に誰かが倒れても位置がずれない)。⛔ 写しに ally を入れない (伝承と同じ作法)。 */
+      const searchUnits = [];
+      if (hp > 0 && !gameOver) searchUnits.push("player");
+      for (const a of allies) if (a.alive) searchUnits.push(a);
+      const unitOf = new Map();
+      party.forEach((m, k) => unitOf.set(m, searchUnits[k]));
       const hasTrap = pendingTraps.length > 0;
       const baseDc = (currentScenario && currentScenario.perceptionDC) || 14;
       /* ★1 ロールなので DC も 1 つ。罠が絡む部屋は罠の DC、宝箱だけの部屋は従来の
@@ -28756,7 +28852,7 @@
         // アイコンは罠が絡むときだけ。捜査だけの判定に出さないのは v1 のユーザー決定を踏襲。
         iconContext: hasTrap ? "trap" : undefined,
       }).then((res) => {
-        applyRoomSearchResult(res, pendingTraps, pendingChests, pendingMimic, pendingDoors);
+        applyRoomSearchResult(res, pendingTraps, pendingChests, pendingMimic, pendingDoors, unitOf);
       }).catch(() => {}).finally(() => {
         skillCheckActive = false;
         dialogPaused = false;
@@ -29091,16 +29187,18 @@
      * ⚠ 告知は成功・失敗とも **1 行だけ**にすること。ロールが 1 本になった以上、
      *   「罠を見落とした」「隠し物も見つからなかった」を 2 行出すと**2 回振ったように見える**
      *   = 画面の上では今回の変更が何も起きていないのと同じになる。 */
-    function applyRoomSearchResult(res, pendingTraps, pendingChests, pendingMimic, pendingDoors) {
+    function applyRoomSearchResult(res, pendingTraps, pendingChests, pendingMimic, pendingDoors, unitOf) {
       if (!res) return;
       const rep = (res.rep && res.rep.name) ? res.rep.name : getLeaderName();
       if (!res.success) {
         updateInfo(`${rep} は部屋を検分したが、めぼしいものは見つからなかった… (${res.total} < DC ${res.dc})`);
         return;
       }
-      const trapsFound  = applyPerceptionResult(res, pendingTraps);
-      const chestsFound = applyInvestigationResult(res, pendingChests, pendingMimic);
-      const doorsFound  = applyRoomSearchDoors(res, pendingDoors);
+      // ★#118 判定者本人 ("player" か ally)。対応表が無い / 引けない = null (吹き出しは今までどおり party)
+      const repUnit = (res.rep && unitOf) ? (unitOf.get(res.rep) || null) : null;
+      const trapsFound  = applyPerceptionResult(res, pendingTraps, repUnit);
+      const chestsFound = applyInvestigationResult(res, pendingChests, pendingMimic, repUnit);
+      const doorsFound  = applyRoomSearchDoors(res, pendingDoors, repUnit);
       const parts = [];
       if (trapsFound  > 0) parts.push(`罠${trapsFound}件`);
       if (chestsFound > 0) parts.push(`隠し${chestsFound}件`);
@@ -29115,7 +29213,7 @@
 
     /* 罠の発見だけを反映し、発見数を返す。★呼び出しは applyRoomSearchResult 経由のみで、
      *   失敗時はあちらが 1 行告知して return するので、ここは成功枝だけを持つ。 */
-    function applyPerceptionResult(res, pendingTraps) {
+    function applyPerceptionResult(res, pendingTraps, repUnit) {
       if (!res || !res.success) return 0;
       let found = 0;
       for (const trap of pendingTraps) {
@@ -29125,7 +29223,7 @@
       if (pendingTraps.some(t => t.found)) {
         showBanner("⚠ 罠を見つけた!", 1400);
         showDMMessage("足を止めろ。床に不自然な跡がある。罠だ。慎重に進め。", 2400);
-        sayLine("find.trap");   // ★ speech
+        sayFind("trap", "find.trap", repUnit);   // ★ speech (★#118 話し手 = 判定者本人)
       }
       return found;
     }
@@ -29138,7 +29236,7 @@
      * ⚠ 書き込みは setDoorState ただ 1 つ = nodeState へ write-through されるので、
      *   **一度見つけた隠し扉は再入場でも隠れ直さない** (P8 の器へそのまま乗る)。
      * ⚠ 発見に失敗した部屋は roomSearchRolled が二度目を拒むので、往復して振り直すことはできない。 */
-    function applyRoomSearchDoors(res, pendingDoors) {
+    function applyRoomSearchDoors(res, pendingDoors, repUnit) {
       if (!res || !res.success || !pendingDoors || !pendingDoors.length) return 0;
       let found = 0;
       for (const d of pendingDoors) {
@@ -29149,6 +29247,7 @@
       if (found > 0) {
         showBanner("🚪 隠し扉を見つけた!", 1400);
         showDMMessage("壁の継ぎ目に、指がかかるほどの隙間がある。……隠し扉だ。この先に道がある。", 2400);
+        if (banterOn()) sayFind("door", "find.door", repUnit);   // ★#118 (?banter=0 では今までどおり吹き出し無し)
       }
       return found;
     }
@@ -29156,7 +29255,7 @@
     /* 隠し宝箱の発見 / ミミックの看破を反映し、宝箱の発見数を返す。
      * ⚠ ミミックの看破だけは**この中で告知する**。他と違い「見つけた」ではなく
      *   「戦闘が始まる」という帰結を伴うので、件数の合算に混ぜると意味が消える。 */
-    function applyInvestigationResult(res, pendingChests, pendingMimic) {
+    function applyInvestigationResult(res, pendingChests, pendingMimic, repUnit) {
       if (!res || !res.success) return 0;
       const rep = (res.rep && res.rep.name) ? res.rep.name : getLeaderName();
       let found = 0;
@@ -29166,7 +29265,7 @@
       }
       if (pendingChests.some(c => c.found)) {
         showBanner("🎁 宝箱を見つけた!", 1400);
-        sayLine("find.chest");   // ★ speech
+        sayFind("chest", "find.chest", repUnit);   // ★ speech (★#118 話し手 = 判定者本人)
       }
       // ミミック (偽宝箱) の看破: 成功で粘着なし先制起動
       if (pendingMimic && !pendingMimic.awakened) {
@@ -31500,6 +31599,7 @@
             return `${e.def.name}${cr ? ` (脅威度 ${cr})` : ""}: ${loreTraitText(e)}`;
           });
           updateInfo(`📜 ${repName}は伝承を思い出した — ${lines.join(" / ")}`);
+          sayLoreShare(unit, g.rep[g.types[0]]);   // ★#118 吹き出しは 1 回だけ (先頭の種類・体質は先頭 2 つ)
           for (let i = 0; i < enemies.length; i++) {
             if (enemies[i] && enemies[i].alive && g.types.indexOf(enemies[i].type) >= 0) loreDecorateLabel(i);
           }

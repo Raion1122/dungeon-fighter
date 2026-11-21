@@ -491,3 +491,82 @@ function sayFind(scene, key, repUnit) {
 4. 受入 (2a) の 2 経路目は `📜 …は伝承を思い出した — ` の後ろを ` / ` で割り、各要素の**最初の `: ` の後ろ**を体質の文とする(`(脅威度 X)` が名前と `:` の間に入る)。
 5. 新しい受入のポート 10891〜10900 は空いている(§2-10 の根拠の文だけが誤り)。
 6. golden を続けて回すとき、短いドライバの直後に `ERR_NO_BUFFER_SPACE` が出ることがある ⇒ 赤が出たら単独で 1 回再走してから判断する。
+
+### 12-2. 本体(項目 2・2026-11-22 朝・基準 HEAD `816e6ea`)
+
+#### 入れたもの(行番号は項目 2 の後の値)
+
+| ファイル:行 | 何 |
+|---|---|
+| `js/companion-cast.js` 12 人の要素 | `voice: { trap, chest, door, lore, call }`。§4 の本文を**プログラムで写した**(§4 の「名前と id の見出し行」と「場面ごとの行」を正規表現で読んで JSON 文字列として差し込んだ)。足した後に node でもう一度照合した: 12 人・156 本・食い違い 0。`trait` / `line` / `idle` の文面は 1 文字も変えていない(`git diff` の `-` 行 = 各人の `idle` 行の末尾 `}` と `copyOf` の 1 行だけ) |
+| `js/companion-cast.js` `copyOf` | `voice` を場面ごとに `slice()` で深く写す(罠 F)。ヘッダの「公開API」と概要にそれぞれ 1 行 |
+| `index.html:14001` | `SPEECH_LINES["find.door"]` 汎用 3 本(印なし) |
+| `index.html:14116` | `speechPrio`: `if (key === "ally.call") return 1;`(既存の 1 の行は**変えず**、その次の行に足した = 既存ドライバのアンカーを守る) |
+| `index.html:14168` / `14190` / `14211` | `sayLine` の `opts.meta` → 予約の `entry.meta` → `_renderBubble` の `logRow.meta`。meta を渡さない呼び口では欄ごと付かない(予約の形は今までと同じ) |
+| `index.html:14326` / `14342` | `checkPartySpeech` の `combat.lowhp` 2 か所の**直後**に `if (banterOn()) sayAllyCall(…)`(`combat.lowhp` の行そのものは変えない) |
+| `index.html:14349-14425` | `banterOn` / `LORE_SHARE_LINES` / `pickToName` / `fillVoice` / `castVoiceText` / `sayFind` / `sayLoreShare` / `pickCallerFor` / `sayAllyCall` / `window.__banter`。すべて `checkPartySpeech` の**外**(罠 D)。`window.__speech` の直前に置いた |
+| `index.html:28825-28833` | `runRoomSearchCheck`: `party` を作った直後(`if (party.length === 0) return;` の後・`dfSkillCheck(...)` より前)に、伝承と同じ作り方の `unitOf` を作る(罠 A) |
+| `index.html:28855` | `.then` の中で `applyRoomSearchResult(..., unitOf)` |
+| `index.html:29190` / `29198` | `applyRoomSearchResult(…, unitOf)` → `repUnit` を 3 つの関数へ渡す(第 3・第 4 引数の後ろに 1 個足しただけ) |
+| `index.html:29226` / `29268` | 罠・宝箱: `sayLine("find.trap")` → `sayFind("trap", "find.trap", repUnit)`(宝箱も同様)。`?banter=0` では `sayLine(key)` と同じ = 今までどおり |
+| `index.html:29250` | 隠し扉: `if (banterOn()) sayFind("door", "find.door", repUnit)`(`?banter=0` では吹き出し無し) |
+| `index.html:31602` | 伝承の成功の枝、ログの 1 行の直後に `sayLoreShare(unit, g.rep[g.types[0]])`(1 回だけ・失敗の枝は変えない) |
+
+- 細かい決め:
+  - `meta.to` は「選んだ相手の名前」をそのまま入れる(選ばれた行が `{to}` を含まなくても入る)。キャストでない話し手が伝承の汎用の行を使うときは `to: null`。罠・宝箱・隠し扉で**汎用の行**になるとき(主人公・castId 無し)は meta を付けない(§5-3 の `sayLine(key, repUnit)` のとおり)
+  - `fillVoice` は `vars` の値が空なら印を差し込まず、差し込んだ後に `{` が残れば `null` を返す(罠 E の保険)。⇒ 項目 3 の変異 `rawbrace` は、差し込みを抜くだけだと保険で `null` になって**汎用の行に倒れて緑のまま**になる。保険の行(`return t.indexOf("{") >= 0 ? null : t;`)ごと外す変異にすること
+  - `sayLoreShare` の話し手は `unit`(`unitOf.get(res.rep)`)。引けなかったときは `"party"`
+- 撤退 `?banter=0` = `banterOn()`(呼ぶたびに URL を読む)。
+
+#### 煙テスト(一時スクリプト・リポジトリ外 `C:\Users\PC_User\.claude\dev-loop\r118\item2\smoke.js`・port 10895)
+
+直起動(`index.html?diag=1&scen=goblin-mine&graph=0&autoplay=15`)して、仲間 3 人へ手で `castId` を付け(ロルフ / イレーナ / オズ)、本番の関数を直接呼んだ。**17/17 PASS**:
+- 判定者 = キャストの仲間 → `find.trap` / `find.chest` / `find.door` の話し手 = 本人、文 = 本人の `voice` に `meta.to` を差し込んだもの(例: ロルフ「イレーナ、止まれ。床に仕掛けがある。」)
+- 判定者 = 主人公 → 話し手 `player`・汎用の行・meta 無し。隠し扉は汎用の `find.door`
+- 判定者を変えて 30 回 → 「あなた」0・`{` 0
+- 伝承(本物の `__dfLore.run`・ゴブリン + コボルド = 同じ歴史の組・出目 0.95)→ `lore.share` 1 本・話し手イレーナ・`meta.trait` = ログの行から切り出した体質の先頭 2 つ(「オズさん、ゴブリンです。眠りの術が効く。心して参りましょう。」)/ 失敗(出目 0)→ 0 本
+- 仲間の HP 20% → `combat.lowhp`(本人)+ `ally.call`(別のキャスト・優先度 1・文に相手の名前)/ もう一度 → 増えない / 主人公の HP 20% → `{to}` の無い行(「無茶だよ、下がって!」)/ castId を持つのが相手だけ → 0 本
+- 表示後の `speechLog` の行に `castId` と `meta` が載る
+- `?banter=0` → 罠の予約 `speaker === "party"`・汎用の行・隠し扉 0 本・`ally.call` 0 本・`combat.lowhp` 1 本 / castId 無し → 話し手 = 判定者・汎用の行・`ally.call` 0 本 / pageerror 0
+
+#### 回帰(HEAD `816e6ea` + 作業ツリー・直列・2026-11-22 06:50〜06:57)
+
+ログ = `C:\Users\PC_User\.claude\dev-loop\r118\item2\`(`run_golden.ps1` / `golden_raw.txt` / 各 `<driver>.log`)。
+
+| ドライバ | 基準(§12-1) | 今回 | 赤 |
+|---|---|---|---|
+| `driver_speech_engine` | 18/18 | 18/18 | ∅ |
+| `driver_speech_v2` | 45/46 | 45/46 | {(A1)} 既知 |
+| `driver_speech_hooks` | 13/13 | 13/13 | ∅(実プレイの中で `lore.share` が出たのも見えた: `seen=[find.trap, enemy.cry, encounter.lizardman, lore.share, phase.rest]`) |
+| `verify_companion_cast` | 24/24 | 24/24 | ∅ |
+| `driver_room_search_roll` | 39/39 | 39/39 | ∅ |
+| `verify_lore_check` | 26/26 | **25/26** | **{(1j)}** ⚠ 仕様由来(下) |
+| `driver_speech_boss` | 19/19 | 19/19 | ∅ |
+| `verify_goodberry` | 23/23 | 23/23 | ∅ |
+| `driver_doors_p6` | 40/40 | 40/40 | ∅ |
+| `verify_corner_check` | 20/20 | 20/20 | ∅ |
+| `verify_ambush_round` | 18/18 | 18/18 | ∅ |
+
+`verify_tower_mother_b` / `driver_dev_gate2` は今回は走らせていない(項目 4 の全数で回す)。
+既存の `tools/*.js` の変異アンカー(`from:` などの文字列)のうち `index.html` / `js/companion-cast.js` に出てくる 306 件は、編集の前後で件数も含めて全部同じ(`anchors.js` で突き合わせた)。
+
+**(1j) の赤は仕様由来**(⇒ 項目 4 で言い直す):
+- (1j) は `mergeReinforcements` の「初めてのファラクサス」の段で、`Math.random` が呼ばれた回数が `?lore=0` の腕 **+ 1**(d20 の 1 回だけ)であることを見ている(`tools/verify_lore_check.js:1038-1039` `MO.first.nR === MF.first.nR + 1`)。
+- 伝承に成功すると吹き出しを出す(§5-4)ので、話し手以外の名前選び(`pickToName`)・行選び(`fillVoice`)・`sayLine` の行選び = **3 回**増える。実測 `first: [5, 1]`(= 1 + 1 + 3)。
+- 単独で再走しても同じ 25/26(`verify_lore_check.rerun.log`)。`sayLoreShare(...)` の 1 行だけをコメントアウトして走らせると 26/26(`verify_lore_check.nobubble.log`)。⇒ 原因は伝承の吹き出しの乱数だけ。試した後は `index.html` を元のバイト列へ戻した(`cmp` で一致)。
+- 言い直しの案: (1j) の `rngOk` を「`MO.first.nR === MF.first.nR + 1 + 吹き出しの乱数`」にする / または (1j) の 2 つの腕を `&banter=0` で開く(伝承の判定の回数だけを数えるという (1j) の本来の目的に合うのは後者)。
+
+#### 項目 3(受入ドライバ)への注意
+
+1. 計測に使える口: `window.__banter = { on, loreLines, pickTo, fill, castText, find, lore, caller, call }`。`applyRoomSearchResult(res, traps, chests, mimic, doors, unitOf)` / `buildPerceptionParty` / `speechQueue`(= `__speech.queue`)/ `__speech.checkParty` / `__dfLore.run` は、どれもページから直接呼べる。
+2. meta の形: 罠・宝箱・隠し扉 `{ scene: "trap"|"chest"|"door", to }` / 伝承 `{ scene: "lore", to, enemy, trait }` / 声掛け `{ scene: "call", to }`。予約(`speechQueue[i].meta`)にも表示後の `speechLog` の行(`.meta`)にも載る。汎用の行(主人公・castId 無し・`?banter=0`)の罠・宝箱・隠し扉には meta が**無い**。
+3. 隠し扉は、煙テストでは `setDoorState` と `doorLockedByRng` をページの中で一時的に差し替えて(どちらも関数宣言なので代入で上書きできる)、`{ id, state: "hidden" }` の偽の扉を渡した。これで `applyRoomSearchDoors` の `found > 0` の枝を通せる(§8 の「差し替えても構わない」の道)。
+4. 予約を見るなら、関数を呼んだのと**同じ** `page.evaluate` の中で `speechQueue` を読むこと(次のフレームで表示されて行列から消える)。表示まで待つと `speechLog` に `castId` と `meta` が載る(煙テストの (S8)、100ms × 最大 30 回の待ちで足りた)。
+5. 直起動では `castId` が無いので、煙テストは `allies[k].castId` と `npcName` を手で付けた。§8 の作法(`sessionStorage["dragonfighters.partyMembers"]` に castId 入りの人物)を使うなら、`verify_companion_cast.js` の `openIndex` がそのまま流用できる。
+6. 伝承: ゴブリン + コボルドはどちらも歴史 = 1 本の組になる(§8 (2c) にそのまま使える)。ログの体質の切り出しは §12-1 注意 4 の作法で合っていた(`(脅威度 1/4)` が名前と `:` の間に入る)。
+7. 変異 `rawbrace` は保険の行(`fillVoice` の `return t.indexOf("{") >= 0 ? null : t;`)にも当てないと赤くならない(上の「細かい決め」)。`heroname` は `pickToName` が主人公を候補に入れる形(`"あなた"` を足す)にし、`sayAllyCall` で相手が主人公のときに `to` を `getLeaderName()` にする腕も同時に入れないと (3b) は赤くならない。
+
+#### 項目 4 への注意
+
+- `verify_lore_check` (1j) の言い直し(上)。
+- `verify_tower_mother_b` / `driver_dev_gate2` はまだ走らせていない。
