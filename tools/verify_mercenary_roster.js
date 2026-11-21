@@ -1283,7 +1283,14 @@ const PROBE_FN = function () {
     const slot = await p4.evaluate(() => {
       const out = { err: '' };
       try {
-        const hit = (o) => Object.keys(o).filter((k) => k.indexOf('mercRoster') >= 0);
+        /* ★#117 言い直し (罠 F): 固定キャストへの切り替えで、元の名簿の写し
+           DFRoster.PRECAST_KEY (= "dragonfighters.mercRosterPreCast") が並ぶようになった。
+           写しは「切り替え済み」の印であって名簿の本体ではないので、数える母集団から外す。
+           (3a)(3c) が守るのは「名簿の本体のキーが 1 本だけ・前置詞つき・スロットへ焼かれる」こと。
+           ⭐ 部分一致 'mercRoster' はそのまま残す (= 前置詞違いの本体 df.mercRoster を拾える形のまま)。 */
+        const precast = (window.DFRoster && DFRoster.PRECAST_KEY) || null;
+        const hit = (o) => Object.keys(o).filter((k) => k.indexOf('mercRoster') >= 0 && k !== precast);
+        out.rosterKey   = (window.DFRoster && DFRoster.KEY) || null;
         out.livePrefix  = DFSlots.LIVE_PREFIX;
         out.lsKeys      = hit(localStorage);
         out.before      = DFRoster.all().length;
@@ -1297,15 +1304,18 @@ const PROBE_FN = function () {
       return out;
     });
     if (slot.err) console.log('  [!] §3 の走行で例外: ' + slot.err);
-    check('(3a) 名簿のキーが localStorage にちょうど 1 本あり、その前置詞が DFSlots.LIVE_PREFIX と'
-        + '一致する (= 前置詞総なめで拾われる形になっているか)',
-      !slot.err && !!slot.lsKeys && slot.lsKeys.length === 1
+    check('(3a) 名簿のキーが localStorage にちょうど 1 本あり、それが DFRoster.KEY で、前置詞が '
+        + 'DFSlots.LIVE_PREFIX と一致する (= 前置詞総なめで拾われる形になっているか)。'
+        + '★#117 写し DFRoster.PRECAST_KEY は本体ではないので数えない',
+      !slot.err && !!slot.lsKeys && slot.lsKeys.length === 1 && slot.lsKeys[0] === slot.rosterKey
         && typeof slot.livePrefix === 'string' && slot.livePrefix.length > 0
         && slot.lsKeys[0].indexOf(slot.livePrefix) === 0 && slot.before >= 1,
-      'キー=' + JSON.stringify(slot.lsKeys) + ' / LIVE_PREFIX=' + JSON.stringify(slot.livePrefix)
+      'キー=' + JSON.stringify(slot.lsKeys) + ' / DFRoster.KEY=' + JSON.stringify(slot.rosterKey)
+        + ' / LIVE_PREFIX=' + JSON.stringify(slot.livePrefix)
         + ' / 在籍 ' + slot.before + ' 人');
-    check('(3c) DFSlots.snapshot() の data に名簿が含まれる (= スロットごとに別の名簿になる)',
-      !slot.err && !!slot.snapKeys && slot.snapKeys.length === 1
+    check('(3c) DFSlots.snapshot() の data に名簿 (DFRoster.KEY) が含まれる (= スロットごとに別の名簿になる)。'
+        + '★#117 写し DFRoster.PRECAST_KEY は数えない',
+      !slot.err && !!slot.snapKeys && slot.snapKeys.length === 1 && slot.snapKeys[0] === slot.rosterKey
         && slot.snapKeys[0].indexOf(slot.livePrefix) === 0,
       'snapshot.data の名簿キー=' + JSON.stringify(slot.snapKeys)
         + ' (data 全体 ' + slot.snapAllKeys + ' キー)');

@@ -18,7 +18,9 @@
  *   A1 = ?drawerlv=0&namejob=0        … §1 表示 (柱1 だけ生きている)
  *   A2 = ?whois=0&namejob=0           … §2 判定 Lv (柱2 だけ)
  *   A3 = ?whois=0&drawerlv=0          … §3 名前とジョブ (柱3 だけ)
- *   A0 = ?whois=0&drawerlv=0&namejob=0 … §4 恒等 (3 本とも 0 = 0e8370d の姿) — §2 の「欠陥の再現」腕もこれを兼ねる
+ *   A0 = ?whois=0&drawerlv=0&namejob=0&cast=0 … §4 恒等 (3 本とも 0 = 0e8370d の姿) — §2 の「欠陥の再現」腕もこれを兼ねる
+ *        ★#117: &cast=0 を足した (キャスト ON では ?namejob=0 でも新顔がキャストから出る = 共有 16 名に戻らない)
+ *   A3T = ?whois=0&drawerlv=0&cast=0  … ★#117 §3 の名前表 (柱3) の腕。キャスト ON の A3 ではキャストの判定を測る
  *   N  = ?namejob=0                   … 同職の注記だけ (注記は表示 × 判定の交差 = 両方が生きているときだけ新しい文面)
  *   撤退スイッチ = ?whois=0 / ?drawerlv=0 / ?namejob=0 (tavern.html の isWhoisOn / isDrawerLvOn / isNameJobOn。呼ぶたびに URL を読む)
  *
@@ -91,8 +93,13 @@ const ARM = {
   A1: '?drawerlv=0&namejob=0',
   A2: '?whois=0&namejob=0',
   A3: '?whois=0&drawerlv=0',
-  A0: '?whois=0&drawerlv=0&namejob=0',
+  A0: '?whois=0&drawerlv=0&namejob=0&cast=0',
   N:  '?namejob=0',
+  /* ★#117 言い直し: 固定キャスト (js/companion-cast.js) が名前表 NPC_NAMES_BY_CLASS より上の層に入った。
+     #72 の柱3 (名前表の引き方) は撤退 ?cast=0 の下でだけ生きている = 柱3 の表の判定は ?cast=0 を足した腕で測る。
+     キャスト ON の腕 (ARM.A3 のまま) では「新顔の名前はその職のキャスト DFCast.ofClass にいる」を測る (依頼書 #117 §2-7 罠 E・§12-4)。
+     A0 (= 0e8370d の姿) にも &cast=0 を足した (4 本とも 0 で初めて 0e8370d の姿)。 */
+  A3T: '?whois=0&drawerlv=0&cast=0',
 };
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -480,12 +487,17 @@ const DOM_SNAP = () => {
 const COLLECT = (cfg) => {
   const out = { has: typeof NPC_NAMES_BY_CLASS !== 'undefined', rtOn: isRecruitTalkOn(), nj: isNameJobOn(), src: {}, seen: {} };
   const tbl = out.has ? NPC_NAMES_BY_CLASS : null;
+  /* ★#117: キャストの母集団はページの DFCast から読む (⛔ 12 人を写経しない)。 */
+  out.castOn = !!(window.DFCast && DFCast.enabled());
+  const castOf = (k) => (window.DFCast ? DFCast.ofClass(k).map((c) => c.name) : []);
+  out.castSize = {}; ALL_CLASS_KEYS.forEach((k) => { out.castSize[k] = castOf(k).length; });
   const perCls = {};
   function rec(s, m) {
     if (!m || m.isHero || m.mercId != null) return;
-    const r = out.src[s] || (out.src[s] = { n: 0, notInList: 0, notInOld: 0, ex: [] });
+    const r = out.src[s] || (out.src[s] = { n: 0, notInList: 0, notInOld: 0, notInCast: 0, ex: [] });
     r.n++;
     if (tbl && (!tbl[m.classKey] || tbl[m.classKey].indexOf(m.name) < 0)) { r.notInList++; if (r.ex.length < 4) r.ex.push(m.classKey + ':' + m.name); }
+    if (castOf(m.classKey).indexOf(m.name) < 0) r.notInCast++;
     if (NPC_NAMES.indexOf(m.name) < 0) r.notInOld++;
     const e = out.seen[m.name] || (out.seen[m.name] = {});
     e[m.classKey] = (e[m.classKey] || 0) + 1;
@@ -507,6 +519,7 @@ const COLLECT = (cfg) => {
   }
   out.multi = Object.keys(out.seen).filter((n) => Object.keys(out.seen[n]).length > 1);
   out.coverFull = tbl ? ALL_CLASS_KEYS.every((c) => tbl[c].every((n) => perCls[c] && perCls[c][n])) : null;
+  out.coverCast = ALL_CLASS_KEYS.every((c) => castOf(c).length > 0 && castOf(c).every((n) => perCls[c] && perCls[c][n]));
   out.perClassDistinct = {}; ALL_CLASS_KEYS.forEach((c) => { out.perClassDistinct[c] = perCls[c] ? Object.keys(perCls[c]).length : 0; });
   return out;
 };
@@ -858,14 +871,21 @@ const UNITS = {
   /* S3 — §3 名前とジョブ (A3 と A3 + ?recruittalk=0)。 */
   async S3(ctx) {
     const out = {};
-    { const p = await openTavern(ctx, 'S3', baseLs(ctx, HERO_XP), ARM.A3);
+    /* ★#117: 名前表 (柱3) の判定は ?cast=0 の腕 A3T で。キャスト ON の腕 A3 では新顔がキャストから出ることを集める (colC / colRtC)。 */
+    { const p = await openTavern(ctx, 'S3_cast', baseLs(ctx, HERO_XP), ARM.A3);
+      out.colC = await p.evaluate(COLLECT, { N: 200 });
+      await closePage(ctx, p); }
+    { const p = await openTavern(ctx, 'S3_cast_rt0', baseLs(ctx, HERO_XP), ARM.A3 + '&recruittalk=0');
+      out.colRtC = await p.evaluate(COLLECT, { N: 200 });
+      await closePage(ctx, p); }
+    { const p = await openTavern(ctx, 'S3', baseLs(ctx, HERO_XP), ARM.A3T);
       out.col = await p.evaluate(COLLECT, { N: 200 });
       out.setA = await p.evaluate(SETUP, { mode: 'oldrule' });
       out.genA = await p.evaluate(GEN, { classes: ['warrior', 'dwarf', 'cleric', 'mage', 'elf', 'rogue'], N: 100, patrons: true });
       out.setB = await p.evaluate(SETUP, { mode: 'bound' });
       out.genB = await p.evaluate(GEN, { classes: ['mage'], N: 150, patrons: true });
       await closePage(ctx, p); }
-    { const p = await openTavern(ctx, 'S3_rt0', baseLs(ctx, HERO_XP), ARM.A3 + '&recruittalk=0');
+    { const p = await openTavern(ctx, 'S3_rt0', baseLs(ctx, HERO_XP), ARM.A3T + '&recruittalk=0');
       out.colRt = await p.evaluate(COLLECT, { N: 200 });
       out.setRt = await p.evaluate(SETUP, { mode: 'oldrule', cands: false });
       out.genRt = await p.evaluate(GEN, { N: 60, party: 4 });
@@ -875,7 +895,11 @@ const UNITS = {
 
   /* S3d — 名簿・約束の保存物 (A3)。本番の口で旧規則の名簿 (同名 2 人を含む) と約束を作り、別のページで読み込み → 抽選 → 声掛け → 出発。 */
   async S3d(ctx) {
-    const sp = await openTavern(ctx, 'S3d_seed', baseLs(ctx, HERO_XP), ARM.A3);
+    /* ★#117 言い直し (罠 C): (3d) が守るのは #72 の「名前とジョブの層は保存物を 1 バイトも書き換えない
+       (旧規則の名簿は移行しない)」。キャスト ON では旧規則の名簿は承認済みの切り替え (1 回だけ) で
+       キャストへ寄せられる = この前提がそもそも成り立たない (切り替えの 1 回だけ・写しの一致は
+       verify_companion_cast (2b)(2c) が測る)。⇒ #72 の層だけを ?cast=0 の腕 A3T で測る。 */
+    const sp = await openTavern(ctx, 'S3d_seed', baseLs(ctx, HERO_XP), ARM.A3T);
     const seed = await sp.evaluate(() => {
       DFRoster._wipe(); DFRecruits.clear();
       const ks = ALL_CLASS_KEYS;
@@ -890,7 +914,7 @@ const UNITS = {
       return { r: localStorage.getItem('dragonfighters.mercRoster'), c: localStorage.getItem('dragonfighters.recruitCandidates'), ids };
     });
     await closePage(ctx, sp);
-    const p = await openTavern(ctx, 'S3d', baseLs(ctx, HERO_XP, { 'dragonfighters.mercRoster': seed.r, 'dragonfighters.recruitCandidates': seed.c }), ARM.A3, { rng: 2468 });
+    const p = await openTavern(ctx, 'S3d', baseLs(ctx, HERO_XP, { 'dragonfighters.mercRoster': seed.r, 'dragonfighters.recruitCandidates': seed.c }), ARM.A3T, { rng: 2468 });
     const r = {};
     r.afterLoad = await p.evaluate((sr, sc) => ({ r: localStorage.getItem('dragonfighters.mercRoster') === sr, c: localStorage.getItem('dragonfighters.recruitCandidates') === sc }), seed.r, seed.c);
     r.afterGen = await p.evaluate((sr, sc) => {
@@ -950,7 +974,12 @@ const UNITS = {
     }
     const roster = J({ v: 1, next: list.length + 1, list });
     const out = { rosterList: list };
-    for (const [k, qs, ls] of [['A1full', ARM.A1, { 'dragonfighters.mercRoster': roster }], ['A1empty', ARM.A1, {}], ['A0full', ARM.A0, { 'dragonfighters.mercRoster': roster }]]) {
+    /* ★#117 言い直し (罠 C): この盤面は名簿を localStorage へ**直接**書いてから開く = キャスト ON の腕では
+       固定キャストへの切り替え (1 回だけ) が走り、名簿パネルの中身がキャストの 12 人 + 知らせの 1 行になる。
+       (1d) が守るのは「#72 の表示の柱 (A1) が名簿パネルと頭上札を変えない」= A0 との比較なので、
+       比べる 2 つの腕のキャストの状態をそろえる (A0 は &cast=0 を持つ ⇒ A1 の 2 つの腕にも &cast=0)。 */
+    const A1T = ARM.A1 + '&cast=0';
+    for (const [k, qs, ls] of [['A1full', A1T, { 'dragonfighters.mercRoster': roster }], ['A1empty', A1T, {}], ['A0full', ARM.A0, { 'dragonfighters.mercRoster': roster }]]) {
       const p = await openTavern(ctx, 'DLG_' + k, baseLs(ctx, HERO_XP, ls), qs, { rng: 12345 });
       await sleep(400);
       const snap = await p.evaluate(DOM_SNAP);
@@ -1282,17 +1311,33 @@ function judge(ctx, R, isPlain) {
   /* ── §3 名前とジョブ (A3) ───────────────────────────────────────────────────── */
   if (ran('S3') && ran('meta')) {
     const S = D.S3 || {}; const c = S.col || { src: {} }, r = S.colRt || { src: {} };
+    const cc = S.colC || { src: {} }, rc = S.colRtC || { src: {} };
     const srcOk = (o, s) => !!o.src[s] && o.src[s].n > 0 && o.src[s].notInList === 0;
-    R.check('(3a)', '★ 新しく作られた NPC の名前がその職の名前表に含まれる (表はページの NPC_NAMES_BY_CLASS を読む): makeNpcMember / pickCompanion / 既定の卓 drawTodaysPatrons /'
-      + ' ?recruittalk=0 の buildParty / regeneratePartyMembers',
-      !!c.has && srcOk(c, 'makeNpcMember') && srcOk(c, 'pickCompanion') && srcOk(c, 'drawTodaysPatrons') && srcOk(r, 'buildParty') && srcOk(r, 'regeneratePartyMembers'),
-      J(Object.keys(c.src).map((k) => k + ' ' + c.src[k].n + '/外 ' + c.src[k].notInList)) + ' ‖ rt0 ' + J(Object.keys(r.src).map((k) => k + ' ' + r.src[k].n + '/外 ' + r.src[k].notInList)) + E('S3'));
-    const uni = {};
-    [c, r].forEach((o) => Object.keys(o.seen || {}).forEach((n) => { uni[n] = Object.assign(uni[n] || {}, o.seen[n]); }));
+    const srcOkC = (o, s) => !!o.src[s] && o.src[s].n > 0 && o.src[s].notInCast === 0;
+    const SRCS = (o) => J(Object.keys(o.src).map((k) => k + ' ' + o.src[k].n + '/外 ' + o.src[k].notInList));
+    const SRCSC = (o) => J(Object.keys(o.src).map((k) => k + ' ' + o.src[k].n + '/キャスト外 ' + o.src[k].notInCast));
+    /* ★#117 言い直し (罠 E): キャスト ON では新顔は 12 人の固定キャストから出る。ラスムーゼンは名前表に無い
+       (ユーザー指定の新しい名前・⛔ 表へ足さない = (0b) の「1 職 15 人」と (3c) の共有 16 名を崩さない)。
+       ⇒ ON の腕 (A3) は「その職のキャスト DFCast.ofClass に含まれる」、名前表の判定は ?cast=0 の腕 (A3T) で従来どおり。 */
+    R.check('(3a)', '★ 新しく作られた NPC の名前がその職の名前表に含まれる (表はページの NPC_NAMES_BY_CLASS を読む・★#117 ?cast=0 の腕 A3T): makeNpcMember / pickCompanion / 既定の卓 drawTodaysPatrons /'
+      + ' ?recruittalk=0 の buildParty / regeneratePartyMembers。★#117 キャスト ON の腕 (A3) では同じ 5 つの生成口の名前がその職のキャスト (ページの DFCast.ofClass) に含まれる',
+      !!c.has && c.castOn === false && r.castOn === false && srcOk(c, 'makeNpcMember') && srcOk(c, 'pickCompanion') && srcOk(c, 'drawTodaysPatrons') && srcOk(r, 'buildParty') && srcOk(r, 'regeneratePartyMembers')
+        && cc.castOn === true && rc.castOn === true && srcOkC(cc, 'makeNpcMember') && srcOkC(cc, 'pickCompanion') && srcOkC(cc, 'drawTodaysPatrons') && srcOkC(rc, 'buildParty') && srcOkC(rc, 'regeneratePartyMembers'),
+      '表 ' + SRCS(c) + ' ‖ 表 rt0 ' + SRCS(r) + ' ‖ キャスト ' + SRCSC(cc) + ' ‖ キャスト rt0 ' + SRCSC(rc) + E('S3'));
+    const uniOf = (arr) => { const u = {}; arr.forEach((o) => Object.keys(o.seen || {}).forEach((n) => { u[n] = Object.assign(u[n] || {}, o.seen[n]); })); return u; };
+    const uni = uniOf([c, r]);
     const multi = Object.keys(uni).filter((n) => Object.keys(uni[n]).length > 1);
-    R.check('(3b)', '★ 名前 → 職業が単射 (既定の卓 + ?recruittalk=0 の buildParty で集めた新顔の名前) + どの職も表の名前を全部使う (抽選が表の一部に偏って止まっていない)',
-      multi.length === 0 && Object.keys(uni).length >= M.classKeys.length * ((M.cap || 0) - 1 + M.recruitMax + 1) && c.coverFull === true && r.coverFull === true,
-      '名前 ' + Object.keys(uni).length + ' 種 / 2 職に出た名前 ' + multi.length + ' ' + J(multi.slice(0, 4)) + ' / 職ごとの種類 ' + J(c.perClassDistinct));
+    const uniC = uniOf([cc, rc]);
+    const multiC = Object.keys(uniC).filter((n) => Object.keys(uniC[n]).length > 1);
+    /* ★#117 言い直し: 「どの職も表の 15 人を全部使う」は名前表の層 (A3T) の性質。キャスト ON では
+       母集団が各職 2 人 (依頼書 #117 §2-3) なので「各職のキャスト全員を使い、それ以外は出ない」へ。 */
+    const perC = M.classKeys.every((k) => (cc.castSize || {})[k] >= 1 && (cc.perClassDistinct || {})[k] === cc.castSize[k] && (rc.perClassDistinct || {})[k] === rc.castSize[k]);
+    R.check('(3b)', '★ 名前 → 職業が単射 (既定の卓 + ?recruittalk=0 の buildParty で集めた新顔の名前) + どの職も表の名前を全部使う (抽選が表の一部に偏って止まっていない) [★#117 ?cast=0 の腕 A3T]。'
+      + '★#117 キャスト ON の腕 (A3): 名前 → 職業が単射 + どの職もその職のキャスト全員 (DFCast.ofClass) を使い、種類の数がキャストの人数と一致',
+      multi.length === 0 && Object.keys(uni).length >= M.classKeys.length * ((M.cap || 0) - 1 + M.recruitMax + 1) && c.coverFull === true && r.coverFull === true
+        && multiC.length === 0 && cc.coverCast === true && rc.coverCast === true && perC,
+      '表: 名前 ' + Object.keys(uni).length + ' 種 / 2 職に出た名前 ' + multi.length + ' ' + J(multi.slice(0, 4)) + ' / 職ごとの種類 ' + J(c.perClassDistinct)
+      + ' ‖ キャスト: 名前 ' + Object.keys(uniC).length + ' 種 / 2 職に出た名前 ' + multiC.length + ' ' + J(multiC.slice(0, 4)) + ' / 職ごとの種類 ' + J(cc.perClassDistinct) + ' rt0 ' + J(rc.perClassDistinct) + ' / キャストの人数 ' + J(cc.castSize));
     const ga = S.genA || {}, gb = S.genB || {}, gr = S.genRt || {}, sa = S.setA || {}, sb = S.setB || {};
     const mageNew = (gb.newNames || []).filter((k) => k.indexOf('mage:') === 0);
     R.check("(3b')", '★★ 名簿・約束に居る名前 (旧規則の顔 = 共有 16 名の先頭 8 名を表と別の職で名簿へ + 約束 2 人) を新顔が使わない (makeNpcMember / pickCompanion / 卓 / ?recruittalk=0 の buildParty) /'
