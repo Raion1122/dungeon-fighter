@@ -350,3 +350,47 @@ Lv の分を足すので正しい。**昇格の経路(`:22056`)には、その�
 | `node tools/verify_ambush_round.js` | 18/18 | 0 | 6 秒 | 同じ(18/18) |
 
 赤は 0 本。時間帯: **昼(09 時台)に走らせた結果**。`verify_accessory_equip` の走行中に §2-1 の計測ドライバ(port 10795)を並走させた(所要秒が数秒伸びた可能性があるだけで、判定には響かない)。
+
+### 12-2. 本体(項目2)
+
+**入れた行(`index.html`・この項目のコミット後の行番号)**
+
+| 行 | 何 |
+|---|---|
+| 22049-22055 | §4 の撤退スイッチ `PROMOTE_GROWTH_ON`(22050)。`// ── 頭委譲 (Q1=B)` の見出しコメントの手前 = `tryPromoteNewHead`(22059)の直前 |
+| 22065-22071 | §5 の引き継ぎブロック(`applyLeaderStats(leaderClassKey);` 22064 の直後)。str/dex/con/wis/int・atkBonus・`dmgBonus − _dmgEnhDelta`・maxHp。ac は写さない |
+| 22077 | `if (pb > 0 && !nh.isHero && !PROMOTE_GROWTH_ON) {`(条件に `&& !PROMOTE_GROWTH_ON` を足しただけ) |
+
+- 無変更: 主人公の maxHp 引き継ぎ(22072・`1a44ac8`)/ 現在 HP の復元(22073)/ 変異アンカー 2 本(22074 `if (ACC_EQUIP_ON && …) {   // ★#113 …` 行全体・22112 `paintHeadClassLine(!nh.isHero && !!nh.npcName, nh.classKey);`)/ `applyLeaderStats` 本体(22476)/ 起動時の経路
+- **ソースの計数(`py` のバイト数え)**: CRLF 45388 = LF 45388 → CRLF 45403 = LF 45403(+15 行)。置換 3 点はどれも原本でちょうど 1 か所を assert して入れた(`r115\item2\patch.py`)
+- `AMBUSH_ROUND_ON` は 28648 → 28663 へずれた(+15)
+
+**煙検査(使い捨て・`C:\Users\PC_User\.claude\dev-loop\r115\item2\smoke_promote.js`・pageerror 0 件・ログ = 同フォルダ `smoke_on.log` / `smoke_off.log`)**
+
+§2-1 の計測ドライバに例 H(盗賊 NPC にアミュレットオブヘルス + ガントレットオブオーガパワー)を足し、昇格前に `nh.hp` を半分へ減らしてから `hp = 0; onHeadDowned('measure')` で昇格させた。全例 `onHeadDowned` = true・`leaderClassKey` = 昇格した人の職・C だけ `heroIsHead` = true。
+
+| 例 | 昇格前(仲間)maxHp / hp / atk / 実効 dmg / 能力値 / 実効 AC | 昇格後(素)maxHp / hp / 実効 atk / 実効 dmg / 能力値 / 実効 AC | 昇格後(`?promotegrowth=0`) |
+|---|---|---|---|
+| **E** 盗賊 Lv10・刃 +1 | 76 / 38 / 11 / 2(dmgBonus 2・_dmgEnhDelta 1)/ dex 6 / 16 | **76 / 38 / 12**(11 + 武器 +1 = §2-4)/ **2** / dex **6** / 16 | 22 / 22 / 5 / 2 / dex 4 / 16 |
+| **F** 盗賊 Lv4 | 40 / 20 / 7 / 1 / dex 5 / 14 | **40 / 20 / 7 / 1** / dex **5** / 14 | 22 / 20 / 4 / 1 / dex 4 / 14 |
+| **G** 戦士 Lv10 | 120 / 60 / 15 / 5 / str 5 / 16 | **120 / 60 / 15 / 5** / str **5** / 16 | 30 / 30 / 4 / 3 / str 3 / 16 |
+| **H** 盗賊 Lv10・アミュレット + ガントレット | 84(76 + 8)/ 42 / 11 / 3(1 + 装身具 2)/ dex 6 / 14 | **84**(+8 は 1 回だけ)/ 42 / 11 / **3** / dex 6 / 14 | 30(22 + 8)/ 30 / 4 / 3 / dex 4 / 14 |
+| **C** 主人公の魔法使い Lv10 | 54 / 27 / 6 / 1 / int 6 / 12 | **54 / 27 / 6 / 1** / int **6** / 12 | 54 / 27 / 1 / 1 / int 4 / 12 |
+
+- (1a) maxHp = 昇格前の `nh.maxHp`(全例)/ (1b) 実効命中 = `nh.atkBonus + effectiveWeaponEnh("player")`(E 12 = 11 + 1、他は武器 +0)/ (1c) 実効ダメージ = `effectiveAllyDmgBonus(nh)`(E 2・G 5・H 3)/ (1d) 能力値 str/dex/con/wis/int が全例で `nh.*` と一致 / (1e) 実効 AC = `currentAllyAc(nh)`(全例)/ (1f) H 84 / (1g) 現在 HP は半分のまま(満タンに戻らない)
+- ⭐ **項目1 で未測定だった推定を確認**: `effectiveAllyDmgBonus` と `currentPlayerDmgBonus` はどちらも装身具のダメージ(ガントレット +2)を足し、`nh.dmgBonus`(1)には入っていない ⇒ H で 3 === 3 = 二重にならない
+- 撤退側は §2-1 の表(項目1 の `measure_promote.log`)と maxHp / atk / dmg / 能力値 / AC が全例で一致。H の撤退は 22 + 装身具 8 = 30(従来どおり NPC に足し直す)。撤退で現在 HP が maxHp で頭打ちになる(E 38 → 22)のも従来どおり
+
+**回帰(2026-11-21 昼・ログ = `C:\Users\PC_User\.claude\dev-loop\r115\item2\`)**
+
+| ドライバ | 実測 | §12-1 との比較 |
+|---|---|---|
+| `node tools/verify_accessory_equip.js` | 32/32(147 秒) | 同じ |
+| `node tools/verify_class_line.js` | 18/18 | 同じ |
+| `node tools/verify_ambush_round.js` | 18/18 | 同じ |
+| `node tools/verify_class_line.js --negative --only headstale` | 担当 (2e),(2f) が赤 = 検出成功 | 変異アンカー 22112 が今も当たる |
+| `node tools/verify_accessory_equip.js --negative --only promote` | 担当 (5a) が赤 = 検出成功(294 秒) | 変異アンカー 22074 が今も当たる |
+
+`driver_heromark_signplate.js` / `verify_run_chronicle.js` は項目4(非退行)で走らせる。
+
+**依頼書と違った点**: なし(§4・§5 のコード例を、周囲に合わせて 4 桁 / 6 桁字下げして逐語で入れた)。

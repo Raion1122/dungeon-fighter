@@ -22046,6 +22046,14 @@
       wl.appendChild(clsLine);
     }
 
+    /* ★#115 先頭に立った仲間は育った体のまま頭になる。撤退 ?promotegrowth=0。index は酒場からの遷移で開くので sessionStorage へ写す (#113/#114 と同じ作法)。 */
+    const PROMOTE_GROWTH_ON = (function () {
+      try {
+        if (/[?&]promotegrowth=0(&|$)/.test(location.search)) sessionStorage.setItem("dragonfighters.promoteGrowthOff", "1");
+        return sessionStorage.getItem("dragonfighters.promoteGrowthOff") !== "1";
+      } catch (e) { return !/[?&]promotegrowth=0(&|$)/.test(location.search); }
+    })();
+
     // ── 頭委譲 (Q1=B): 頭(player)が倒れたら次の最前生存メンバーを頭に昇格 ──
     // グローバル群 + #player を新頭へ差し替え、旧頭(ally)の DOM を撤去。true=昇格成功 / false=不能(全滅)
     function tryPromoteNewHead(context) {
@@ -22054,12 +22062,19 @@
       const nh = allies[ni];
       leaderClassKey = nh.classKey;
       applyLeaderStats(leaderClassKey);                 // playerStats/maxHp 再構築 (hp は満タンになる)
+      if (PROMOTE_GROWTH_ON) {   // ★#115 仲間として育った体 (Lv・能力値上昇・装身具の HP) をそのまま頭へ写す
+        for (const k of ["str", "dex", "con", "wis", "int"]) playerStats[k] = nh[k] | 0;
+        playerStats.atkBonus = nh.atkBonus | 0;                                 // 仲間の atkBonus に装備の +N は入っていない
+        playerStats.dmgBonus = (nh.dmgBonus | 0) - (nh._dmgEnhDelta | 0);       // ⚠ 焼き込まれた武器の +N を抜く (頭は読み出し時に足す)
+        if (nh.maxHp > 0) maxHp = nh.maxHp;                                     // Lv と装身具の HP 込み
+        // ⛔ playerStats.ac は写さない (nh.ac には鎧/盾の +N が焼き込み済み。Lv で AC は伸びない)
+      }
       if (nh.isHero && nh.maxHp > 0) maxHp = nh.maxHp;  // ★主人公は Lv と装身具の分を含む本人の最大 HP を引き継ぐ (applyLeaderStats は素の値へ戻す)
       hp = Math.max(1, Math.min(maxHp, nh.hp || 1));    // ★現在 hp を復元
       if (ACC_EQUIP_ON && Array.isArray(nh.accessoryIndices)) {   // ★#113 新しい頭は自分の品を持って頭になる
         currentAccessoryIndices = nh.accessoryIndices.slice();
         const pb = getAccessoryHpBonus("player");                  // applyLeaderStats が作り直した最大 HP へ足し直す
-        if (pb > 0 && !nh.isHero) { maxHp += pb; hp = Math.max(1, Math.min(maxHp, nh.hp || 1)); }
+        if (pb > 0 && !nh.isHero && !PROMOTE_GROWTH_ON) { maxHp += pb; hp = Math.max(1, Math.min(maxHp, nh.hp || 1)); }
       }
       equippedSkills = Array.isArray(nh.equippedSkills) ? nh.equippedSkills.slice() : equippedSkills;
       currentSpellSlots = { ...(nh.spellSlots || {}) };
