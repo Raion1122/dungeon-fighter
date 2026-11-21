@@ -2949,6 +2949,7 @@
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。index.html と共有。撤退 ?slots=0 -->
   <script src="js/recruit-candidates.js"></script><!-- 同行候補 (#54)。酒場で声を掛けた相手を次の潜行まで保管。⛔ キーの前置詞は dragonfighters. のまま。撤退 ?recruittalk=0 -->
+  <script src="js/companion-cast.js"></script><!-- ★#117 固定キャスト 12 人 (window.DFCast)。⚠ js/mercenary-roster.js より前 (名簿の切り替えが読む)。撤退 ?cast=0 -->
   <script src="js/mercenary-roster.js"></script><!-- 傭兵名簿 (#38)。一度共に戦った冒険者が次の依頼にも来る。⛔ キーの前置詞は dragonfighters. のまま (save-slots の keysOf が総なめ)。撤退 ?roster=0 -->
   <script src="js/hero-classes.js"></script><!-- 職の立ち位置/役割/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
   <script src="js/class-sight.js"></script><!-- 職業別の視界の唯一の正 (#39)。マッチングカードと傭兵名簿が読む。⚠ js/player-sheet.js より前。撤退 ?darkvision=0 (表示のみ) -->
@@ -5062,7 +5063,19 @@
     usedSet.add(n);
     return n;
   }
+  /* ★[#117 §5-2] 新顔の 1 本口。キャスト ON ならキャストから (makeCastMember)、?cast=0 なら従来の
+     90 人の表から (makeTableNpcMember = #72 の姿・本体は改名しただけで 1 文字も変えていない)。
+     ⭐ pickCompanion の 4 つの新顔の枝 (名簿 OFF / 例外 / 満杯でその職 0 人 / 新顔) はどれもここを通る
+       = 依頼書 §5-2 の既定案「名簿は覚える機能、キャストは誰がいるか なので独立」。
+     ⚠ pickCompanion の枝の行は tools/verify_mercenary_roster.js の計測シームが逐語で当てるので、
+       枝の行は makeNpcMember のまま残し、振り分けはこの関数の中で行う。 */
   function makeNpcMember(classKey, usedSet) {
+    if (isCastOnTV()) {
+      try { return makeCastMember(classKey, usedSet); } catch (e) {}
+    }
+    return makeTableNpcMember(classKey, usedSet);
+  }
+  function makeTableNpcMember(classKey, usedSet) {
     return {
       classKey, isHero: false, zone: PARTY_ZONES[classKey],
       name: pickUniqueName(usedSet, classKey),
@@ -5087,6 +5100,47 @@
        (isRecruitOn() / devPartySizeOverride() が同じ理由でそう書かれている)。
      ⚠ 名簿の失敗で編成を止めない。読めなければ黙って新顔へ落とす (try/catch)。
      ⛔ Lv はここで clamp しない。主人公 Lv による clamp は assignCompanionLevels() 1 箇所に集約。 */
+  /* ════════════ #117 固定キャスト 12 人 (依頼書 §5-2) ════════════════════════
+     ⚠ isCastOnTV() は呼ぶたびに読む (DFCast.enabled() が URL を毎回読む。TDZ 回避)。
+     ⭐ castIdOfTV() は **名前 (と職) から** castId を引く。名簿 normMember は知らない項目を落とすので、
+       名簿に castId を保存せず、pickCompanion が返す時点で付ける (罠 A)。
+     ⛔ ?cast=0 では castId を付けない = 本体の独り言も出ない (罠 B — 90 人の表の同名の別人を拾わない)。 */
+  function isCastOnTV() {
+    try { return !!(window.DFCast && DFCast.enabled()); } catch (e) { return false; }
+  }
+  function castIdOfTV(name, classKey) {
+    if (!isCastOnTV() || !name) return null;
+    try {
+      const id = DFCast.idOfName(name);
+      const c = id ? DFCast.byId(id) : null;
+      return (c && c.classKey === classKey) ? id : null;
+    } catch (e) { return null; }
+  }
+  /* キャストから新顔を 1 人。乱数は 1 回だけ (⛔ 引き直しのループを作らない)。
+     ① この編成でも名簿・約束でも使っていない人 (namesTakenTV を共有) ② 退避: この編成で使っていない人
+     ③ 退避: その職のキャストの誰か (重複したまま返す = pickClassNameTV の ③ と同じ)。
+     ⭐ どの退避でもその職のキャストの外へは出ない。 */
+  function makeCastMember(classKey, usedNames) {
+    const list = DFCast.ofClass(classKey);
+    if (!list.length) return makeTableNpcMember(classKey, usedNames);   // 知らない職 (起きない想定)
+    const taken = namesTakenTV();
+    let pool = list.filter(c => !usedNames.has(c.name) && !taken.has(c.name));
+    if (!pool.length) pool = list.filter(c => !usedNames.has(c.name));
+    if (!pool.length) pool = list;
+    const c = pool[Math.floor(Math.random() * pool.length)];
+    usedNames.add(c.name);   // ⭐ 自分で足す (忘れると 1 回の編成に同じキャストが 2 人入る)
+    return { classKey, isHero: false, zone: PARTY_ZONES[classKey],
+             name: c.name, trait: c.trait, line: c.line, variant: c.variant, castId: c.id };
+  }
+  /* 出発時の最後の関所: 焼く直前に castId を付け直す。⭐ 同行の約束に古い castId が残っていても
+     (?cast=0 へ切り替えた後など)、ON なら名前から付け直し、OFF なら外す (罠 B)。 */
+  function stampCastIdsTV(members) {
+    (members || []).forEach(m => {
+      if (!m || m.isHero) return;
+      const id = castIdOfTV(m.name, m.classKey);
+      if (id) m.castId = id; else delete m.castId;
+    });
+  }
   function pickCompanion(classKey, usedNames) {
     if (!(window.DFRoster && DFRoster.enabled())) return makeNpcMember(classKey, usedNames);   // 名簿 OFF の枝
     let vets = [], full = false;
@@ -5101,9 +5155,12 @@
     if (i >= vets.length) return makeNpcMember(classKey, usedNames);   // 新顔を作る枝
     const v = vets[i];                                                 // 名簿から引く枝
     usedNames.add(v.name);   // ⭐ 1 回の編成に同じ顔が 2 回入らない (pickUniqueName と同じ器を共有)
-    return { classKey, isHero: false, zone: PARTY_ZONES[classKey],
+    const out = { classKey, isHero: false, zone: PARTY_ZONES[classKey],
              name: v.name, trait: v.trait, line: v.line,
              variant: v.variant, level: v.level, mercId: v.id };
+    const cid = castIdOfTV(v.name, classKey);   // ★#117 罠 A: 名簿には無いので名前から付ける (OFF なら付けない)
+    if (cid) out.castId = cid;
+    return out;
   }
   // ════════════ 依頼の重さ → 応募人数 (実装依頼書 #7 quest-recruit-size / STEP2) ════════════
   /* ⚠⚠ ★[#61 / 2026-09-08] **意味が反転した**。関数の中身は 1 文字も変えていないが、
@@ -6683,11 +6740,31 @@
     return list.length;
   }
 
+  /* ★#117 §5-4: 名簿の切り替えで誰かを引き継いだら、名簿パネルを開いたときに 1 回だけ一覧の上へ 1 行。
+     印 (DFRoster.NOTICE_KEY) は js/mercenary-roster.js の切り替えが書く。出したら消す。
+     ⛔ 新しいオーバーレイやトーストは作らない。 */
+  function showCastNoticeOnce() {
+    try {
+      const key = (window.DFRoster && DFRoster.NOTICE_KEY) || "dragonfighters.castNotice";
+      if (localStorage.getItem(key) !== "1") return false;
+      const body = document.getElementById("rosterBody");
+      if (!body) return false;
+      const div = document.createElement("div");
+      div.className = "mrCastNotice";
+      div.style.cssText = "margin:0 0 8px;padding:6px 8px;border:1px solid rgba(220,180,60,0.55);"
+        + "border-radius:6px;background:rgba(220,180,60,0.12);font-size:12px;line-height:1.5;";
+      div.textContent = "仲間の顔ぶれが 12 人に決まりました。以前の仲間の育ち(Lv・同行回数)は、同じ職の仲間へ引き継いでいます。";
+      body.insertBefore(div, body.firstChild);
+      localStorage.removeItem(key);
+      return true;
+    } catch (e) { return false; }
+  }
   function openRoster() {
     if (!rosterOnTv()) return false;
     const ov = document.getElementById("rosterOverlay");
     if (!ov) return false;
     renderRosterPanel();
+    showCastNoticeOnce();   // ★#117 §5-4
     ov.classList.add("show");
     ov.setAttribute("aria-hidden", "false");
     return true;
@@ -8879,6 +8956,7 @@
         });
       }
     } catch (e) { console.warn("[roster] 名簿への登録に失敗", e); }
+    try { stampCastIdsTV(selection.partyMembers); } catch (e) {}   // ★#117: castId は酒場が ON のときだけ付ける
     sessionStorage.setItem("dragonfighters.partyMembers", JSON.stringify(selection.partyMembers));
     sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyMembers.map(m => m.classKey)));
     // === tavern-intel v1.0 (tavern.html / index.html) ===
@@ -8965,6 +9043,7 @@
       // 自動デバッグ巡回はクエスト未確定 → 主人公Lv相当のティア帯で仲間Lvを割当
       const heroLv = getLevelFromXP(inventory.xp);
       assignCompanionLevels(selection.partyMembers, heroLv, heroLv);
+      try { stampCastIdsTV(selection.partyMembers); } catch (e) {}   // ★#117
       sessionStorage.setItem("dragonfighters.partyMembers", JSON.stringify(selection.partyMembers));
       sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyMembers.map(m => m.classKey)));
     } catch (e) {}

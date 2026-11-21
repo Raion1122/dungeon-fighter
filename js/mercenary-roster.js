@@ -47,9 +47,22 @@
  *   CAP / enabled() / load() / save(r) / all() / enroll(member) /
  *   recordRun(ids, survived) / release(id) / _wipe()
  *
- * ⚠ 本モジュールは「読み込んだだけでは localStorage に一切書き込まない」。
- *   書くのは enroll() / recordRun() / release() / save() / _wipe() を **呼ばれた時だけ**。
- *   script タグを足した時点で挙動が 1 ミリも変わらないことの根拠になっている。
+ * ⚠ 本モジュールは「script タグを読み込んだだけでは localStorage に一切書き込まない」。
+ *   書くのは load() / enroll() / recordRun() / release() / save() / _wipe() を **呼ばれた時だけ**。
+ *   ★[#117 §5-3 で訂正] 旧文面は「load() も書かない」だったが、#117 から load() は
+ *   **固定キャストへの切り替えを 1 回だけ**行い、そのとき写し PRECAST_KEY (と、元の名簿があれば
+ *   名簿・同行の約束・知らせの印) を書く。条件 = キャスト ON (window.DFCast && DFCast.enabled())
+ *   かつ 名簿 ON (?roster=0 でない) かつ 写しが無い。写しは名簿が空でも書く (= 切り替え済みの印)。
+ *   ⇒ 2 回目以降の load() は従来どおり読むだけ。
+ *
+ * ── #117 固定キャストへの切り替え (依頼書 §5-3 / §7) ─────────────────────────
+ *   - 写し PRECAST_KEY = "dragonfighters.mercRosterPreCast" に **元の生の文字列をそのまま** 残す。
+ *   - 職ごとにキャスト 2 人へ枠を割り当てる: ① 名前 (と職) が一致する人をそのキャストへ (罠 D) /
+ *     ② 残り枠へ残りの人を Lv → runs → id の順で。引き継ぐのは id / level / runs だけ。
+ *   - ⛔ normMember の保存形は変えない = castId は名簿に保存しない (罠 A。酒場が名前から付ける)。
+ *   - ⛔ _wipe() は写しを消さない (消すと _wipe → enroll で仕込むドライバで切り替えが再発する = 罠 C)。
+ *   - 撤退 ?cast=0: 切り替えない。写しがあれば **写しを読み書きする** (activeKey())。
+ *     ⚠ 撤退中に写しへ書いた変化は、スイッチを戻してもキャストの名簿には反映されない (別々に進む)。
  *
  * ⛔ どの API も例外を投げない。名簿の失敗が「出発できない」「酒場が開かない」に化けてはいけない。
  */
@@ -58,6 +71,11 @@
 
   /* ⛔ 前置詞を変えるな (ファイル冒頭の注意書き参照)。 */
   var KEY = "dragonfighters.mercRoster";
+  /* ★#117: 切り替え前の名簿の写し。⚠ 名前は依頼書 §5-3 のまま (項目 1 の罠 F = verify_mercenary_roster の
+     部分一致 'mercRoster' に当たるのは想定内・テストの言い直しは項目 4)。 */
+  var PRECAST_KEY = "dragonfighters.mercRosterPreCast";
+  var RECRUIT_KEY = "dragonfighters.recruitCandidates";   // js/recruit-candidates.js の KEY (読み込み順に依存しないよう直書き)
+  var NOTICE_KEY = "dragonfighters.castNotice";           // 酒場の名簿パネルで 1 回だけ知らせる印 (§5-4)
   var VERSION = 1;
   /* 在籍の上限。⚠ [#72 で訂正] 「NPC_NAMES = 16 より小さいことが名前が衝突しない根拠」は成り立っていなかった
      (冒頭の「上限が 12 人である理由」参照。衝突しない根拠は tavern.html の除外 = namesTakenTV)。 */
@@ -125,8 +143,96 @@
      ⚠ ここはゲートしない。?roster=0 は「読まず書かず」を **all()/enroll()/recordRun()/release()**
         の側で実現する。低レベルの入出力までゲートすると、撤退中に名簿が残っていることを
         調べる手段がなくなる (js/save-slots.js の sizeReport() が同じ理由でゲートされていない)。 */
+  /* ★#117: キャスト ON か (読み込み順に依存しないよう呼ぶたびに見る)。DFCast の無いページでは false。 */
+  function castOn() {
+    try { return !!(global.DFCast && typeof global.DFCast.enabled === "function" && global.DFCast.enabled()); }
+    catch (e) { return false; }
+  }
+  /* ★#117 §7: いま読み書きする名簿のキー。キャスト ON = 本体の KEY。
+     撤退 ?cast=0 で写しがあれば写し (切り替え前の名簿で遊べる)。無ければ KEY のまま。 */
+  function activeKey() {
+    if (!castOn() && global.DFCast && lsGet(PRECAST_KEY) != null) return PRECAST_KEY;
+    return KEY;
+  }
+
+  /* ★#117 §5-3: 固定キャストへの切り替え。**写しが無いときに 1 回だけ** (罠 C)。
+     ⛔ 例外を投げない (失敗しても通常の読み込みへ落ちる)。 */
+  function migrateToCastOnce() {
+    if (!castOn() || !enabled()) return;           // ?cast=0 / ?roster=0 / DFCast 無し → 何もしない
+    if (lsGet(PRECAST_KEY) != null) return;         // 切り替え済み
+    try {
+      var raw = lsGet(KEY);
+      /* 1. 写し。⭐ 元の生の文字列を 1 バイトも変えずに。名簿が無ければ空の名簿 = 切り替え済みの印。 */
+      if (!lsSet(PRECAST_KEY, raw != null ? raw : JSON.stringify(emptyRoster()))) return;
+      if (raw == null) return;                      // 元が無い = 書き換えるものが無い (⛔ 空の名簿を KEY へ書かない)
+      var cur = parseRoster(raw);
+      var cast = global.DFCast.all();
+      var byClass = {};
+      cast.forEach(function (c) { (byClass[c.classKey] = byClass[c.classKey] || []).push(c); });
+      var keep = {};                                // 元の id → 割り当てたキャスト
+      var moved = 0;
+      Object.keys(byClass).forEach(function (ck) {
+        var slots = byClass[ck];
+        var pool = cur.list.filter(function (m) { return m.classKey === ck; });
+        var taken = {};
+        var filled = [];
+        /* ① 名前 (と職) が一致する在籍者を、同じ名前のキャストへ (罠 D)。同名が複数いれば Lv の高い人。 */
+        slots.forEach(function (c, si) {
+          var best = null;
+          pool.forEach(function (m) {
+            if (taken[m.id] || m.name !== c.name) return;
+            if (!best || better(m, best)) best = m;
+          });
+          if (best) { taken[best.id] = 1; filled[si] = best; }
+        });
+        /* ② 残りの枠へ、残りの在籍者を Lv → runs → id の順で。 */
+        var rest = pool.filter(function (m) { return !taken[m.id]; }).sort(function (a, b) { return better(a, b) ? -1 : 1; });
+        slots.forEach(function (c, si) {
+          if (filled[si] || !rest.length) return;
+          filled[si] = rest.shift();
+        });
+        slots.forEach(function (c, si) { if (filled[si]) keep[filled[si].id] = c; });
+      });
+      /* 元の並び順のまま、枠に入った人だけを残す (入らなかった人は写しにだけ残る)。 */
+      var list = [];
+      cur.list.forEach(function (m) {
+        var c = keep[m.id];
+        if (!c) return;
+        list.push({ id: m.id, classKey: m.classKey, name: c.name, trait: c.trait, line: c.line,
+                    variant: c.variant, level: m.level, runs: m.runs });
+        moved++;
+      });
+      save({ v: VERSION, next: cur.next, list: list });   // ⛔ next は元の値を保つ (save が押し上げるだけ)
+      /* 3. 同行の約束からキャストにいない名前の人を外す。⚠ 名前の置き換えはしない (外すだけ)。 */
+      var rraw = lsGet(RECRUIT_KEY);
+      if (rraw) {
+        var rv = null;
+        try { rv = JSON.parse(rraw); } catch (e) { rv = null; }
+        if (Array.isArray(rv)) {
+          var kept = rv.filter(function (m) {
+            return m && typeof m.name === "string" && global.DFCast.idOfName(m.name) != null;
+          });
+          if (kept.length !== rv.length) {
+            if (kept.length) lsSet(RECRUIT_KEY, JSON.stringify(kept)); else lsDel(RECRUIT_KEY);
+          }
+        }
+      }
+      /* 4. 引き継いだ人が 1 人以上いたら、酒場の名簿パネルで 1 回だけ知らせる (§5-4)。 */
+      if (moved > 0) lsSet(NOTICE_KEY, "1");
+    } catch (e) { /* ⛔ 投げない。写しが書けていれば以降は通常の読み込み */ }
+  }
+  /* 引き継ぎの順位: Lv → runs → id (小さいほうが先)。a が b より先なら true。 */
+  function better(a, b) {
+    if (a.level !== b.level) return a.level > b.level;
+    if (a.runs !== b.runs) return a.runs > b.runs;
+    return a.id < b.id;
+  }
+
   function load() {
-    var raw = lsGet(KEY);
+    migrateToCastOnce();
+    return parseRoster(lsGet(activeKey()));
+  }
+  function parseRoster(raw) {
     if (!raw) return emptyRoster();
     var o = null;
     try { o = JSON.parse(raw); } catch (e) { return emptyRoster(); }
@@ -163,7 +269,7 @@
     norm.next = next;
     var json;
     try { json = JSON.stringify(norm); } catch (e) { return false; }
-    return lsSet(KEY, json);
+    return lsSet(activeKey(), json);   // ★#117: ?cast=0 で写しがあれば写しへ (§7)
   }
 
   /* 在籍者の配列 (表示用 / 抽選用)。**複製を返す** ので、呼び出し側が触っても名簿は変わらない。
@@ -240,11 +346,19 @@
   }
 
   /* テスト用。⚠ ゲートしない (?roster=0 でも消せる)。これは機能ではなく道具。 */
-  function _wipe() { return lsDel(KEY); }
+  /* ★#117: ⛔ 写し PRECAST_KEY は消さない (罠 C — 消すと _wipe → enroll で仕込むドライバで切り替えが再発する)。
+     キャスト ON では従来どおり KEY を消すだけ。?cast=0 で写しを読み書きしているときは、
+     写しを「空の名簿」で上書きする (写し = 切り替え済みの印は残したまま、いま見ている名簿を空にする)。 */
+  function _wipe() {
+    if (activeKey() === PRECAST_KEY) return lsSet(PRECAST_KEY, JSON.stringify(emptyRoster()));
+    return lsDel(KEY);
+  }
 
   // ⚠ classic script 直下の関数は window に載らない。ここで明示的に生やすこと。
   global.DFRoster = {
     KEY: KEY,
+    PRECAST_KEY: PRECAST_KEY,   // ★#117
+    NOTICE_KEY: NOTICE_KEY,     // ★#117
     CAP: CAP,
     LEVEL_MAX: LEVEL_MAX,
     RUNS_PER_LEVEL: RUNS_PER_LEVEL,

@@ -3325,6 +3325,7 @@
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。tavern.html と共有。撤退 ?slots=0 -->
+  <script src="js/companion-cast.js"></script><!-- ★#117 固定キャスト 12 人 (window.DFCast)。本体は castId を持つ仲間の独り言にだけ使う。⛔ 本体は ?cast=0 を読まない (酒場が castId を付けるかで決まる) -->
   <script src="js/hero-classes.js"></script><!-- 職の立ち位置/役割/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
   <script src="js/class-sight.js"></script><!-- 職業別の視界 8/10/12 の唯一の正 (#39)。index/tavern/title と js/player-sheet.js が読む。⚠ 下の const CLASS_SIGHT より前。撤退 ?darkvision=0 (表示のみ) -->
   <script src="js/plaza-hours.js"></script><!-- ★[#102] 闇市が開いている時間の唯一の正。ここでは撤退 (?plazanight=0) の判定だけ使う (杖のドロップ) -->
@@ -14160,9 +14161,11 @@
     // 台詞を1件キューに積む。speaker 省略 = "party" (表示直前に選出 → 滞留中の死亡に強い)
     // opts.prio    : 優先度を明示上書き (省略時は speechPrio(triggerKey))
     // opts.ambient : 環境音。「キューが空 & 誰も喋っていない」時だけ積む = 重要な台詞を絶対に押し出さない
+    // opts.text    : ★#117 文面を直接渡す (SPEECH_LINES を引かない)。⚠ 行が無いと false を返す判定より前で効かせる
+    //                 (idle.chatter は SPEECH_LINES に無い)。⛔ opts.text を渡さない既存の呼び口は従来どおり
     function sayLine(triggerKey, speaker, opts) {
       opts = opts || {};
-      const lines = resolveSpeechLines(triggerKey, opts.eventKey);
+      const lines = (typeof opts.text === "string" && opts.text) ? [opts.text] : resolveSpeechLines(triggerKey, opts.eventKey);
       if (!lines || !lines.length) return false;
       const prio = (opts.prio !== undefined) ? opts.prio : speechPrio(triggerKey);
       if (opts.ambient && (speechQueue.length || speechBubbles.length || Date.now() < speechBusyUntil)) return false;
@@ -14198,7 +14201,9 @@
       enemyLayer.appendChild(el);                       // enemyLayer は stacking context を作らない → z-index は大域で効く
       speechBubbles.push({ el, unit, expireAt: Date.now() + SPEECH_MS });
       speechBusyUntil = Date.now() + SPEECH_MS + SPEECH_GAP_MS;
-      speechLog.push({ key: entry.key, text: entry.text, kind, cry: isCry, at: Date.now() });
+      const logRow = { key: entry.key, text: entry.text, kind, cry: isCry, at: Date.now() };
+      if (kind === "ally" && unit.castId) logRow.castId = unit.castId;   // ★#117: 話し手 (キャストのときだけ足す)
+      speechLog.push(logRow);
       if (speechLog.length > 50) speechLog.shift();
       return true;
     }
@@ -14223,6 +14228,38 @@
         if (_renderBubble(entry)) break;       // 話者不在なら次の予約へ
       }
     }
+    // ══════════ ★#117 歩いている間の独り言 (依頼書 §5-5) ══════════
+    // 話すのは castId を持つ生きた仲間だけ (= 酒場がキャスト ON で付けた人。直起動 / ?cast=0 では一言も出ない)。
+    // 優先度 0・ambient = 「行列が空で誰も話していないとき」だけ積む → 遭遇・罠・ボスの台詞を押し出さない。
+    // ⚠ 間隔 25〜45 秒 / 最初は開始から 15 秒以上あと は遊んで調整する数値 (受入は向きだけを測る)。
+    // ⚠ 時刻は吹き出しの行列と同じ Date.now()。⚠ renderWorld は let 宣言より前に呼ばれ得るので全体を try で包む。
+    const IDLE_CHATTER_FIRST_MS = 15000;
+    const IDLE_CHATTER_MIN_MS   = 25000;
+    const IDLE_CHATTER_SPAN_MS  = 20000;
+    const IDLE_CHATTER_RETRY_MS = 3000;    // 話し手がいない / 行列が埋まっていたら少し先へずらすだけ
+    let idleChatterNextAt = 0;             // 0 = まだ予定を立てていない
+    const idleChatterLast = {};            // castId → 直前に話した文 (同じ人が同じ文を続けない)
+    function tickIdleChatter() {
+      try {
+        if (!window.DFCast || typeof allies === "undefined") return;
+        const now = Date.now();
+        if (!idleChatterNextAt) { idleChatterNextAt = now + IDLE_CHATTER_FIRST_MS + Math.random() * IDLE_CHATTER_SPAN_MS; return; }
+        if (now < idleChatterNextAt) return;
+        if (currentPhase !== "explore" || dialogPaused || gameOver) return;
+        const cands = allies.filter(a => a && a.alive && a.castId && speechOnScreen(a));
+        if (!cands.length) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; }
+        const a = cands[Math.floor(Math.random() * cands.length)];
+        const c = DFCast.byId(a.castId);
+        if (!c || !c.idle || !c.idle.length) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; }
+        let pool = c.idle.filter(t => t !== idleChatterLast[a.castId]);
+        if (!pool.length) pool = c.idle;
+        const text = pool[Math.floor(Math.random() * pool.length)];
+        if (!sayLine("idle.chatter", a, { text, ambient: true, prio: 0 })) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; }
+        idleChatterLast[a.castId] = text;
+        idleChatterNextAt = now + IDLE_CHATTER_MIN_MS + Math.random() * IDLE_CHATTER_SPAN_MS;
+      } catch (e) {}
+    }
+
     function pruneSpeechQueue(keep) {   // 未表示の予約だけ絞る (表示中には触らない)
       for (let i = speechQueue.length - 1; i >= 0; i--) if (!keep(speechQueue[i].key)) speechQueue.splice(i, 1);
     }
@@ -18098,6 +18135,7 @@
       renderLighting();
       updateGroundFx();
       updateSpeechBubbles();   // ★ speech-bubble: カメラ追従のため毎フレーム再配置
+      tickIdleChatter();       // ★[#117] 歩いている間の独り言 (castId を持つ仲間だけ・優先度 0)
       updateHoldRings();       // ★[#57] 金縛りの輪: 同上 (⛔ 3 本目の掃除ループを別の場所に作らない)
       updateClericSpirits();   // ★[#95] 守護霊の輪: 同上 (中心は僧侶の今のマス)
       // [隊商護衛] 護衛対象マーカーもカメラ追従なので毎フレーム更新する。
@@ -40011,6 +40049,8 @@
       ally.npcName = m.isHero ? null : (m.name || null);
       ally.npcTrait = m.trait || null;
       ally.npcLine  = m.line || null;
+      // ★#117: 固定キャストの id (酒場がキャスト ON のときだけ付ける)。⛔ npcName から引かない (罠 B)
+      ally.castId   = m.isHero ? null : ((typeof m.castId === "string" && m.castId) ? m.castId : null);
       // ティア連動レベル (酒場でスタンプ済): 主人公ally=永続Lv / NPC=ティア帯Lv。未設定は null
       ally.level   = (typeof m.level === "number" && m.level > 0) ? m.level : null;
       ally.variant = m.isHero ? 0 : (m.variant || 0);  // 主人公ally=正規、NPC=割当て変種

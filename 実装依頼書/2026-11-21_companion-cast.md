@@ -553,7 +553,59 @@
 - **案 1(推奨)**: 写しのキー名を `mercRoster` を含まない名前にする(例 `dragonfighters.preCastRoster`)。⇒ (3a)(3c) は言い直し不要。依頼書 §5-3 / §7 / §8 (2b)(2e)(5c) のキー名をそろえて書き換え、ここに理由を書く
 - 案 2: キー名は依頼書のまま、項目 4 で `verify_mercenary_roster` の (3a)(3c) を「名簿の本体キー `DFRoster.KEY` がちょうど 1 本」へ言い直す
 
-### 12-2. (項目 2 — 本体)
+### 12-2. 項目 2 — 本体(着手時 HEAD = `505f131`)
+
+生ログ・煙検査は `C:\Users\PC_User\.claude\dev-loop\r117\item2\`(`smoke_cast.js` / `smoke_final.log` / `run_golden.ps1` / `golden_raw.txt` / 各ドライバの `.log`)。
+
+#### (1) 入れたもの
+
+| ファイル | 中身 |
+|---|---|
+| `js/companion-cast.js`(新規) | `window.DFCast = { enabled, all, byId, ofClass, idOfName }`。§4 の 12 人を逐語で写した(§4 の文面 84 個 = 名前 12・id 12・trait 12・line 12・idle 36 を機械で突き合わせて 0 件の差)。localStorage には触らない |
+| `js/mercenary-roster.js` | `load()` の先頭で `migrateToCastOnce()`(条件 = キャスト ON かつ 名簿 ON かつ 写し `dragonfighters.mercRosterPreCast` が無い)。①名前と職の一致 → ②Lv/runs/id 順 / `id`・`level`・`runs` だけ引き継ぐ / `next` を保つ / 約束からキャスト外の名前を外す / 引き継ぎ 1 人以上で `dragonfighters.castNotice = "1"`。読み書き先は `activeKey()`(`?cast=0` で写しがあれば写し)。`PRECAST_KEY` / `NOTICE_KEY` を公開。頭書き 50–52 の「読み込んだだけでは書かない」を言い直した |
+| `tavern.html` | `<script src="js/companion-cast.js">` を `mercenary-roster.js` の前へ / `isCastOnTV()` / `castIdOfTV(name, classKey)` / `makeCastMember()` / `stampCastIdsTV()` / `showCastNoticeOnce()`(名簿パネルの一覧の上に 1 行・`.mrCastNotice`) |
+| `index.html` | `<script src="js/companion-cast.js">` / `ally.castId`(`m.castId` が文字列のときだけ・`npcName` からは引かない)/ `sayLine` の `opts.text`(`resolveSpeechLines` の前で効かせる)/ `tickIdleChatter()` を `updateSpeechBubbles();` の直後に 1 行 / `speechLog` の行に話し手の `castId` を足す(キャストのときだけ・既存の行の形は変えない) |
+| `js/changelog.js` | §10 の文案どおり 1 行 |
+
+#### (2) 設計からずらしたところ(理由つき)
+
+- ⚠⚠ **新顔の振り分けは `pickCompanion` の枝ではなく `makeNpcMember` の中で行う。** 最初は §5-2 の字面どおり枝の 4 行を `makeNewFace(...)` へ書き換えたが、`verify_mercenary_roster` が**起動時に exit 3**(計測シーム (a)〜(c) が `return makeNpcMember(classKey, usedNames);` の 4 行を**逐語で**注入するのでアンカーが腐る)。⇒ 枝の 4 行は 1 バイトも変えずに残し、`makeNpcMember` を「キャスト ON → `makeCastMember` / OFF → `makeTableNpcMember`(旧 `makeNpcMember` の本体を改名しただけ)」の振り分けにした。4 つの枝がすべてキャストを通るのは §5-2 の既定案と同じ。
+  - ⭐ 項目 3 の変異 `oldnewface` は「`makeNpcMember` の `isCastOnTV()` の枝を外す」と読み替えること(枝の行には当てない)
+  - 副作用: `makeNpcMember` を**直接**呼ぶドライバ(`verify_member_identity` / `verify_spell_off`)も、キャスト ON ではキャストの人物(`castId` 付き)を受け取る
+- **`castId` は出発の直前にもう 1 回付け直す**(`stampCastIdsTV` を `departToScenario` と `departAutoDebug` の `sessionStorage` 書き込みの直前に)。同行の約束 `DFRecruits` は人物をまるごと保存するので、ON のときに保存した約束を `?cast=0` で出すと古い `castId` がそのまま本体へ届く(罠 B の別ルート)。ON なら名前と職から付け直し、OFF なら消す
+- `castIdOfTV` は**名前と職の両方**が合うときだけ付ける(名簿へ別の職で同名の人が仕込まれても拾わない)
+- 切り替えは `?roster=0` でも走らない(`enabled()` も条件に入れた)。⚠ 名簿の `(6a)`「`?roster=0` でキーが 0 本」を守るため
+- 元の名簿のキーが**無い**ときは写し(空の名簿)だけを書き、`dragonfighters.mercRoster` は書かない(既存の「名簿が空なら本体キーが無い」を保つ)
+- `_wipe()`: キャスト ON では従来どおり `KEY` だけを消す(写しは消さない = 罠 C)。`?cast=0` で写しを読み書きしているときは、写しを**空の名簿で上書き**する(印は残して、いま見ている名簿だけを空にする)
+- 独り言の時計は吹き出しの行列と同じ `Date.now()`。最初の 1 本 = 最初の tick から 15〜35 秒後、以降 25〜45 秒(どれも遊んで動かす数値)。話し手がいない・行列が埋まっているときは 3 秒先へずらすだけ。全体を try で包む(`renderWorld` は `currentPhase` / `dialogPaused` の let より前に呼ばれ得る)
+
+#### (3) 煙検査(`node smoke_cast.js`・ポート 10881・実ブラウザのヘッドレス)= **22/22 PASS**
+
+A 新顔(卓 4 人 × 200 回すべてキャスト・職/castId/trait/line/variant 一致・12 人全員が出る・空の名簿は写しだけ書く・名簿にイレーナがいると新顔はミラだけ・名簿の枝にも castId が付くが名簿には保存されない)/ B 切り替え(§8 (2a) の盤面どおり ダグ→ダグ・ハルガン→ラスムーゼン・ブルム消える・アデラ→イレーナ・`next` 9 のまま / 写しが仕込みと完全一致 / 約束からトルガだけ外れる / 知らせは 1 回だけ / 開き直しても変わらない / 切り替え済みで `?cast=0` は写しを返す)/ C `?cast=0`(新顔は 90 人の表から・castId なし・切り替えなし)/ D 出発(本番の `departToScenario` で 3 人とも castId・`?cast=0` では無し)/ E 本体(仲間全員が castId・探索中に独り言が出て文面はその人の idle・予約は優先度 0・同名でも castId が無ければ話さない)/ Z コンソールエラーなし。
+⚠ 装置: E は `tryStartEncounter` を止めて時計を 4 秒ずつ進めるので、診断の `[DIAG][stall] 探索停滞` が鳴る。これは装置が作った音なので、その 1 種だけをエラーの数から外した。
+
+#### (4) golden 6 本(実装後・2026-11-21 21:19〜21:25 = **夜**)— 赤の集合を §12-1 の基準と比べる
+
+| ドライバ | 基準 | 実装後 | 新しい赤 | 判定 |
+|---|---|---|---|---|
+| `verify_mercenary_roster` | ∅ | 42/44 | (3a)(3c) | **想定内(罠 F)** — 写しのキー名 `mercRosterPreCast` が部分一致 `'mercRoster'` に当たって「名簿のキー 1 本」が 2 本になる。キー名は依頼書どおりのまま(決定済み)。項目 4 で「`DFRoster.KEY` がちょうど 1 本」へ言い直す |
+| `verify_member_identity` | ∅ | 22/28 | (3a)(3b)(3b')(3c)(3d)(4a) | **どれも仕様から来る赤**(下の表)。項目 4 で言い直す。⛔ 期待値は黙って書き換えていない |
+| `verify_party_promises` | ∅ | 35/35 | ∅ | ✅ |
+| `verify_recruit_talk` | ∅ | 25/25 | ∅ | ✅ |
+| `driver_speech_engine` | ∅ | 18/18 | ∅ | ✅ |
+| `driver_speech_v2` | {(A1)} | 45/46 | ∅(赤は (A1) のまま) | ✅ 基準と同じ |
+
+`verify_member_identity` の 6 件の中身:
+
+| 節 | 何が起きたか | 分類 |
+|---|---|---|
+| (3a) | 新顔の約 1/12 が名前表の外 = ラスムーゼン | **罠 E**(予告どおり)。「キャスト ON では `DFCast` のその職 / `?cast=0` では名前表」へ言い直す |
+| (3b) | 「どの職も表の 15 人を全部使う」が 2 人ずつになった(名前 → 職の単射そのものは緑 = 2 職に出た名前 0) | キャストは各職 2 人(§2-3)= 仕様の結果。「全部使う」の母集団を ON では `DFCast.ofClass` にする |
+| (3b') | 旧規則の顔(キャストと同じ名前を**別の職**で名簿へ。例 `cleric:イレーナ`・`elf:ミラ`)を仕込むと、戦士の新顔 2 人がどちらも「名簿にいる名前」になり、§5-2 の退避 ② で同名が出る | 各職 2 人しかいない以上は避けられない(§5-2 の ②③ は承認済みの退避)。本番では切り替えが名前を職ごとのキャストへ寄せるので、この盤面は「印を立ててから `enroll` で別の職に同名を入れる」テストの中にしか出ない。言い直すか `?cast=0` の腕で回す |
+| (3c) / (4a) ⑥ | `?namejob=0`(#72 の撤退)の腕でも新顔がキャストになる = 共有 16 人の表から出ない | 撤退の軸が別。§7 の撤退は `?cast=0` で、`?namejob=0` はキャストより下の層(90 人の表の引き方)のスイッチ。⇒ この腕は `?namejob=0&cast=0` で回すのが正しい(⚠ `?namejob=0` だけでキャストを外す作りにはしていない — 仕様に無い連動を足さないため) |
+| (3d) | 旧規則の名簿を**写しなしで** localStorage へ直接入れて開くので切り替えが走る(`r:false`) | **罠 C**(§12-1 (3) で予告済み)。仕込みに空の写しを足すか `?cast=0` の腕で回す |
+
+⇒ **想定外の退行は 0 件**。`verify_member_identity` の (3b)(3b')(3c)(4a) は §12-1 で数えていなかった赤だが、どれも「新顔が 12 人のキャストから出る」という承認済みの仕様そのものから来ていて、本番の振る舞いの退行ではない。項目 4 の言い直しの一覧に足す(上の表)。
 
 ### 12-3. (項目 3 — 受入)
 
