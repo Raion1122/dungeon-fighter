@@ -394,3 +394,50 @@ Lv の分を足すので正しい。**昇格の経路(`:22056`)には、その�
 `driver_heromark_signplate.js` / `verify_run_chronicle.js` は項目4(非退行)で走らせる。
 
 **依頼書と違った点**: なし(§4・§5 のコード例を、周囲に合わせて 4 桁 / 6 桁字下げして逐語で入れた)。
+
+### 12-3. 受入(項目3)
+
+**`tools/verify_promote_growth.js`(新規)= 14 判定・変異 5 本**。port 10830(素)/ 10831〜10835(変異)。
+骨組みは `verify_accessory_equip.js`(配信スナップショットの凍結・変異の検算・`--negative` / `--only` / `--mutate`)。
+
+| 実行 | 結果 | ログ(`C:\Users\PC_User\.claude\dev-loop\r115\item3\`) |
+|---|---|---|
+| `node tools/verify_promote_growth.js` × 3 回連続 | **14/14 ×3**(rc 0・各 約 21 秒) | `plain_1.log` 〜 `plain_3.log`(+ 初回 `run1.log`) |
+| `node tools/verify_promote_growth.js --negative` | 素の基準 14/14 + **負のコントロール 5/5 検出成功**・担当外の赤 0(rc 0・125 秒) | `negative.log` |
+| `--mutate <名>` × 5(担当表を実走で決めた) | 下の表 | `mutate_<名>.log` |
+
+**判定の中身**(例 E/F/G/H/C は §12-2 の煙検査と同じ種。昇格前に `nh.hp` を半分へ減らしてから `hp = 0; onHeadDowned('verify')`)
+
+- §0 (0a) 素 5 例 + 撤退 3 例の全 8 回で `onHeadDowned` が true・`heroIsHead`(C だけ true)・`leaderClassKey` が昇格した人の職・`PROMOTE_GROWTH_ON` が素 true / 撤退 false / (0b) 全例で `nh.maxHp > def.hpMax`・`nh.atkBonus > def.atkBonus` / (0c) E の `_dmgEnhDelta` 1・`_acEnhDelta` 2・武器 +1 / (0d) pageerror 0
+- §1 (1a) E/F/G/C / (1b)〜(1e)・(1g) 5 例 / (1f) H。⭐ **2 経路**: ① 昇格前の仲間の実効値 ② `CLASS_DEFS` の素の値 + **ドライバが持つ Lv の表**(`LV_TABLE` = 戦士 d10・BAB 良 / 盗賊 d6・3/4 / 魔法使い d4・1/2、4 Lv ごとに主能力 +1、戦士の STR は命中とダメージへ。本番の `LEVEL_PROGRESSION` は読まない)と XP(500×Lv×(Lv−1))から出した Lv。(1b) の ① は `nh.atkBonus + effectiveWeaponEnh("player")`(§2-4 の差を式に明示・E 11 + 1 = 12)。(1c) は E(二重計上なら 3)と G(修正前は 3)の両方で ①② 一致を要求
+- §2 (2a) E/G/C の起動時の頭(maxHp・hp・playerStats 全部・実効命中/ダメージ/AC)が素と `?promotegrowth=0` で JSON 一致
+- §3 (3a) 撤退で E/G は `CLASS_DEFS` の素の値(maxHp・atkBonus・dmgBonus・能力値 5 つ)、C は maxHp 54(主人公だけ引き継ぐ)/ (3b) 下の解釈
+
+**負のコントロール(実走で決めた担当)**
+
+| 変異 | 注入(メモリ上の配信スナップショットのみ・各 1 行) | §8 の予想 | 実際に赤 |
+|---|---|---|---|
+| `off` | `if (PROMOTE_GROWTH_ON) {   // ★#115` → `if (false) {` | (1a)(1b)(1d) | **(1a)(1b)(1c)(1d)(1f)(1g)** |
+| `dmgdouble` | `- (nh._dmgEnhDelta \| 0)` を消す | (1c) | (1c)(E 2 → 3) |
+| `accoverwrite` | `// ⛔ playerStats.ac は写さない` の行頭に `playerStats.ac = nh.ac;` | (1e) | (1e)(E 16 → 18) |
+| `hpdouble` | 22077 の `&& !PROMOTE_GROWTH_ON` を消す | (1f) | (1f)(H 84 → 92) |
+| `nohp` | `if (nh.maxHp > 0) maxHp = nh.maxHp;` を消す | (1a)(1f) | **(1a)(1f)(1g)** |
+
+予想より広く赤くなった分の理由(どれも本物の検出で、担当に含めた):
+- `off` の (1c) = G の戦士の dmgBonus が 5 → 3(Lv の STR 上昇の分)。(1f) = H の maxHp が 22(撤退スイッチの値は ON のままなので 22077 の装身具の足し直しも止まる)。(1g) = maxHp が素へ縮み、半分へ減らした現在 HP(E 38 / G 60 / H 42)が頭打ちされる
+- `nohp` の (1g) = 同じく現在 HP が素の maxHp で頭打ち
+
+**装置(起動時の検算・崩れたら exit 3)**: 注入点がそれぞれ原本でちょうど 1 か所・注入文字列が原本に無い・行数不変・各変異が書き換える行はちょうど 1 行。
+他ドライバとの重なりは 2 段で見る: (a) 自分のアンカーが他の `tools/*.js` に出てこない (b) 変異で書き換わる原本の行のコード部分(行末コメントを除く)が他の `tools/*.js` に出てこない
+= `verify_accessory_equip` の `promote`(22074)・`verify_class_line` の `headstale`(22112)の行を壊さない。⚠ 相手のアンカー文字列はこのファイルに書き写していない
+(写すと相手の罠E 検査が鳴る)。逆向きも確認: 罠E 検査を持つ既存の変異ドライバ 19 本(`verify_accessory_equip` / `verify_class_line` ほか)+ `verify_ambush_round` を `--browser` に存在しないパスを渡して起動し、
+全部が自分の装置行(重なり 0)まで通ることを見た(ブラウザ起動の手前で止まる)。
+
+**気づき**
+
+1. **(3b) の「部屋を 1 つ遷移」の解釈**: 部屋の移動は index のページ内で起き、`PROMOTE_GROWTH_ON` は読み込み時に 1 回だけ決まる ⇒ ページ内の部屋移動では撤退が消えようがない。
+   撤退スイッチが試されるのは「index をクエリなしで開き直したとき」なので、`?promotegrowth=0` で開いたタブで `index.html` をクエリなしで読み直し、
+   そのタブで E を昇格させて素の値(22 / 4 / dex 4)になることを見た(#114 (4b) と同じ形)。読み直しでは種を入れ直さない(`__v115Seeded` の印)
+2. **(1a) から H を外した**: H を (1a) に入れると `hpdouble` が (1a)(1f) の 2 節を赤くし、担当が §8 の表と割れない。装身具の HP は (1f) が ①② で測る
+3. (1e) は「実効 AC が昇格前と一致」に加え「`playerStats.ac` が `CLASS_DEFS` の素のまま」も要求(`accoverwrite` は実効 AC 18 で赤くなる)
+4. 製品側の欠陥は見つからなかった(`index.html` は無変更)
