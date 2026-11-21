@@ -432,4 +432,62 @@ function sayFind(scene, key, repUnit) {
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 着手前の実測(項目 1・2026-11-22 朝・HEAD `6732996`)
+
+コードは 1 バイトも変えていない。`6732996` は依頼書だけのコミットなので、`ad19da5` 時点の行番号がそのまま使える(ずれは下の 3 か所だけ・どれも起草時の書き間違い)。
+
+#### 測り直し(§2)
+
+| 節 | 主張 | HEAD の実測 | 判定 |
+|---|---|---|---|
+| 2-1 | 罠 `sayLine("find.trap")` `29128` / 宝箱 `29169` / 隠し扉 `applyRoomSearchDoors` `29141`(吹き出し無し)/ 低 HP `14319`・`14334` | 同じ行。隠し扉は `showBanner` + `showDMMessage`(`29149-29152`)だけ | ✅ |
+| 2-1 | `runLoreCheck` `31448`・成功のログ `31501` | 定義 `31448` は同じ。成功のログは **`31502`**(`31501` は `lines` を作る `})` の行) | ✅(行 +1) |
+| 2-1 | `applyRoomSearchResult` 定義 `29094`・呼び口 `28759` の 1 か所 | `grep -n "applyRoomSearchResult(" index.html` = 2 件(`28759` / `29094`) | ✅ |
+| 2-2 | `buildPerceptionParty` `28595` は `{classKey,name,isHero,skillBonus}` の新しいオブジェクト / 仲間の要素には `isHero` が無い | そのとおり(`28598` 主人公・`28605` 仲間) | ✅ |
+| 2-2 | `res.rep` は写しの要素そのもの | `js/skill-check.js:464` `var rep = selectRepresentative(...)`・`:475` `m === rep`(起草時の `:474` は **`:475`**)・結果へは `o.rep = rep`(`:484` / `:490` = 自動と手動の両方の道) | ✅(行 +1) |
+| 2-2 | `const party = buildPerceptionParty();` `28739` → `.then` `28758` | 作るのは **`28736`**(`28739` は `baseDc`)。待つのは `await` ではなく `dfSkillCheck(...).then((res) => …)`(`28748` → `28758`)。関数は `runRoomSearchCheck()`(`28689`・async ではない)で、呼び口は毎歩の `21248` と、隠し扉が残るときだけ `await` する `42488` の 2 本 | ⚠ 行の書き間違い(中身は同じ: `unitOf` は `28736` の直後で作る) |
+| 2-2 | 伝承の対応表 `31470-31475` | **`31467-31472`**(`all` → `units` → `unitOf`)。`res.rep` から `unit` を引くのは `31490`。表は技能ごとのループの中・`await dfSkillCheck`(`31484`)の前で作っている | ⚠ 行 −3(中身は同じ) |
+| 2-3 | `getLeaderName` `22064` が `headDisplayName` / 主人公は「あなた」(`8124` / `22182` / `40011`) | そのとおり | ✅ |
+| 2-4 | `speechPrio` `14112`・優先度 1 の行 = `combat.crit` / `combat.lowhp` / `phase.rest`(`14114`)・知らないキーは 2 | そのとおり。`ally.call` / `lore.share` / `find.door` はどこにも無い(`grep` 0 件) | ✅ |
+| 2-4 | `driver_speech_v2.js:309-325` が `combat.lowhp` の本数を数える | `(F3)` の本体 = `:309-330`。主人公の HP だけを動かす・直起動 = `castId` 無し ⇒ 罠 C を守れば `ally.call` は 1 本も積まれない | ✅ |
+| 2-5 | `driver_speech_v2.js:302` (F2) が `String(window.__speech.checkParty)` に `offsetWidth` 〜 `clientWidth` の 5 語が無いことを見る | `:302`。`__speech.checkParty = checkPartySpeech`(`14344`) | ✅ |
+| 2-5 | `speechOnScreen` はキャッシュしか読まない | `14141`・`lightCssW/H` と `camZ` だけ(`window.innerWidth` は未設定時の保険) | ✅ |
+| 2-6 | `sayLine` が文面なしなら `SPEECH_LINES` から選ぶ / `opts.text` の道 | `14166-14188`。`opts.text` があると `resolveSpeechLines` を飛ばす(`14168`)。予約は `{key,text,speaker,dropAfter,prio}` で **`meta` の欄はまだ無い**。`_renderBubble`(`14189`)の `logRow`(`14204-14205`)は `{key,text,kind,cry,at}` + キャストのときだけ `castId` | ✅(`meta` は項目 2 で足す) |
+| 2-6 | `SPEECH_LINES` のどの行にも `{` が無い | `13986` からの表に `{` で始まる差し込みは 0 件。`find.trap` 4 本・`find.chest` 4 本 | ✅ |
+| 2-7 | `copyOf` が名指しで写す(`voice` を落とす) | `js/companion-cast.js:100-103` `{ id, classKey, name, trait, line, variant, idle: c.idle.slice() }`・`all` / `byId` / `ofClass` が全部これを通る | ✅ |
+| 2-8 | `loreTraitText` `31428` が `、` でつなぐ | そのとおり(`31428-31442`)。⚠ **ログの行は `名前 (脅威度 X): 体質` の形**(`31500`・`loreCrText` が空なら括弧ごと無い)。受入 (2a) で体質を切り出すときは「最初の `: ` の後ろ」を取ること(名前の直後で切ると括弧が混ざる)。複数の種類は ` / ` でつながる | ✅(受入への注意) |
+| 2-10 | `SPEECH_MAX_QUEUE = 3` `14088` / `SPEECH_STALE_MS = 6000` `14087` / `0.25` `14101` / `0.40` `14102` | そのとおり | ✅ |
+| 2-10 | 「`tools/verify_*.js` で 10881 まで使用」 | ⚠ **崩れている**: `verify_pen_sample.js` が 11025、`verify_plaza_hours.js` が 11398 を使う(10 番台の上は 10881 まで)。ただし **10891〜10900 は `tools/` `scripts/` `js/` `*.html` のどこにも無い** ⇒ 採用値 素 10891 / 変異 10892〜10900 はそのまま使える | ⚠ 根拠の文だけ誤り・結論は有効 |
+| 2-11 | `check_changelog.py:32` `GAME_LOGIC = ("index.html","tavern.html","audio.js")` | `:32` に同じ定義(`:8` はドキュメント文字列の中の写し) | ✅ |
+| 2-9 | 探索・扉・伝承を読むドライバ 7 本は吹き出しを見ていない | 同じ 7 本。§2-9 と同じ grep(speech / sayLine / `'party'` の 3 語)= 6 本 0 件・`probe_s5s6_clear` だけ 1 件だが CSV の列名 `'party'` で吹き出しとは無関係 | ✅ |
+
+#### golden 13 本(HEAD `6732996`・直列・2026-11-22 06:28〜06:40 = 昼)
+
+ログ = `C:\Users\PC_User\.claude\dev-loop\r118\item1\`(`run_golden.ps1` / `golden_raw.txt` / 各 `<driver>.log`)。
+
+| ドライバ | 基準 | 今回 | 赤 | 備考 |
+|---|---|---|---|---|
+| `driver_speech_engine` | 18/18 | 18/18 | ∅ | |
+| `driver_speech_v2` | 45/46 | 45/46 | {(A1)} | 既知(敵種 9 つの鳴き声が無い・#118 の範囲外) |
+| `driver_speech_hooks` | 13/13 | 13/13 | ∅ | (4) の罠/宝箱は今回も出現せず = スキップ(判定成功依存) |
+| `driver_speech_boss` | 19/19 | 19/19 | ∅ | |
+| `verify_tower_mother_b` | 22/22 | 22/22 | ∅ | 339 秒 |
+| `driver_dev_gate2` | 62/62 | 62/62 | ∅ | `--baseline %TEMP%\df_cleanup2_base_r118i1` で回し、後で `git worktree remove` 済み(既定の `df_cleanup2_base` は壊れたまま・触っていない) |
+| `verify_companion_cast` | 24/24 | 24/24 | ∅ | |
+| `verify_goodberry` | 23/23 | 23/23 | ∅ | |
+| `driver_doors_p6` | (新) | **40/40** | ∅ | |
+| `driver_room_search_roll` | (新) | **39/39** | ∅ | 夜に固定する種まき(`plazaClock=21`)を自前で持つ |
+| `verify_lore_check` | (新) | **26/26** | ∅ | ⚠ 1 回目は 25/26 {(0e)}: `Failed to load resource: net::ERR_NO_BUFFER_SPACE`(直前のドライバ終了の 1 秒後に起動・Windows のソケット枯渇)。単独で再走して 26/26(`verify_lore_check.rerun.log`)。コードの赤ではない |
+| `verify_corner_check` | (新) | **20/20** | ∅ | |
+| `verify_ambush_round` | (新) | **18/18** | ∅ | |
+
+**赤の集合 = { `driver_speech_v2` (A1) }**(#117 §12-4 と同じ)。
+
+#### 項目 2 への注意
+
+1. 行番号は上の表の HEAD の値を使う(とくに `party` は `28736`、伝承の対応表は `31467-31472`、伝承の成功ログは `31502`)。
+2. `unitOf` は `28736` の直後・`28737` の `return` より後で作り、`.then` の中の `applyRoomSearchResult(...)`(`28759`)へ渡す。`42488` は `runRoomSearchCheck()` の戻り値を待つだけなので引数は変わらない。
+3. `sayLine` の予約にも `logRow` にも `meta` の欄は無い ⇒ 項目 2 で予約と `_renderBubble` の `logRow` の両方へ足す(渡さない呼び口では欄ごと付けない = `castId` と同じ作法にすると既存ドライバの行の形が変わらない)。
+4. 受入 (2a) の 2 経路目は `📜 …は伝承を思い出した — ` の後ろを ` / ` で割り、各要素の**最初の `: ` の後ろ**を体質の文とする(`(脅威度 X)` が名前と `:` の間に入る)。
+5. 新しい受入のポート 10891〜10900 は空いている(§2-10 の根拠の文だけが誤り)。
+6. golden を続けて回すとき、短いドライバの直後に `ERR_NO_BUFFER_SPACE` が出ることがある ⇒ 赤が出たら単独で 1 回再走してから判断する。
