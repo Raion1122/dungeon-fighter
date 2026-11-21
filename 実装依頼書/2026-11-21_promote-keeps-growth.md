@@ -294,4 +294,59 @@ Lv の分を足すので正しい。**昇格の経路(`:22056`)には、その�
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 着手前の測り直し(373f59a)
+
+**結論: §4〜§8 の設計どおりに進められる。** 崩れた前提は無い(§2-5 に補足が 1 件。設計には響かない)。
+
+**行番号**: `91e275f..373f59a` の差分は依頼書と `実装依頼書/README.md` の 2 ファイルだけで、**`index.html` は同一**。
+§2〜§5 の行番号はすべてそのまま当たる(中身も実測で照合)。
+
+| 依頼書の行 | 373f59a | 何 |
+|---|---|---|
+| 22051 / 22052 / 22054 | 同じ | `tryPromoteNewHead` / `pickNextHeadIndex()` / `const nh = allies[ni];` |
+| 22056 | 同じ | `applyLeaderStats(leaderClassKey);` |
+| 22057 / 22058 | 同じ | 主人公の maxHp 引き継ぎ(`1a44ac8`)/ 現在 HP の復元 |
+| 22059 | 同じ | `if (ACC_EQUIP_ON && Array.isArray(nh.accessoryIndices)) {` |
+| 22061 / 22062 | 同じ | `getAccessoryHpBonus("player")` / `if (pb > 0 && !nh.isHero) { maxHp += pb; … }` |
+| 22113 / 22118 / 22119 | 同じ | `onHeadDowned` / `if (heroIsHead) return false;` / `return tryPromoteNewHead(context);` |
+| 22461 | 同じ | `applyLeaderStats`(22465-22479 で str/dex/con/wis/int・atkBonus・ac・dmgBonus を `def` から、`maxHp = def.hpMax`・`hp = maxHp`) |
+| 39887 / 40031 / 40048 / 40053 | 同じ | 起動時の `applyLeaderStats` / `applyInitialLevels` / `applyAccessoryHpBonus` / 仲間へ装身具の HP を足す行 |
+| 28648 | 同じ | `const AMBUSH_ROUND_ON = (function () {` |
+| 15626 / 14806 / 14808 / 14809 / 14811 | 同じ | `createAlly` の `maxHp: cd.hpMax` / `applyLevelUpToUnit` の仲間側 maxHp・atkBonus・dmgBonus・能力値 |
+| 25669 / 25672 / 25673 | 同じ | `ally._dmgEnhDelta = …` / `ally.dmgBonus += dmgEnhDelta` / `ally.ac += acEnhDelta` |
+| 25977 / 25984 / 25993 / 25999 / 26011 | 同じ | `effectiveAllyDmgBonus` / `currentPlayerAtkBonus` / `currentPlayerDmgBonus` / `currentPlayerAc` / `currentAllyAc` |
+| 30561 | 同じ | 仲間の命中 `ally.atkBonus + allyAtkBuff(ally)`(武器の +N を足さない = §2-4) |
+| 16651 | 同じ | `getLeaderWeaponIdx` |
+| `check_changelog.py:32` | 同じ | `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` |
+
+**§2 の主張の照合**
+
+| 主張 | 実測 |
+|---|---|
+| §2-1 症状表 E/F/G/C | ✅ **ヘッドレスで再現**(`driver_measure_promote.js` を 373f59a で再走・pageerror 0。ログ `measure_promote.log`)。E: 76/11/2/dex6/AC16 → maxHp 22・atk 4・dmg 1・dex 4・実効 AC 16 / F: 40/7/dex5 → 22/4/4 / G: 120/15/5/str5 → 30/4/3/3 / C: 54/6 → 54/**1**。⭐ 補足: E の頭の**実効**命中 `currentPlayerAtkBonus()` は 5(素 4 + 武器 +1)、実効ダメージ `currentPlayerDmgBonus()` は 2(1 + 1)= 仲間のときの `effectiveAllyDmgBonus` 2 と一致 ⇒ **E ではダメージは今も失われていない**(表の「失ったもの」欄にダメージが無いのと整合。盗賊は Lv10 でも dmgBonus が伸びない)。ダメージの喪失が見えるのは G(5 → 3) |
+| §2-2 `applyLeaderStats` は素の値 | ✅ 22465-22479。`applyLevelUpToUnit` の player 側(14797〜)が足す分は昇格経路に無い |
+| §2-3-1 `_dmgEnhDelta` の焼き込み | ✅ 書き手は 25669 の 1 か所のみ(grep)。E の実測 `nh.dmgBonus 2` / `nh._dmgEnhDelta 1` / `effectiveAllyDmgBonus(nh) 2` |
+| §2-3-2 AC を写さない | ✅ E で `nh.ac 16`(`_acEnhDelta 2` 込み)・昇格後 `playerStats.ac 14` + 鎧の +2 = 実効 16 |
+| §2-3-3 装身具の HP | ✅ 40053 `a.maxHp += ab`。22062 は `!nh.isHero` のときだけ足し直す |
+| §2-5 呼び口 | ✅ `tryPromoteNewHead(` 本番 1(22119)/ `applyLeaderStats(` 本番 2(22056 / 39887。ほか 21589 / 21658 はコメント) |
+| §2-5 ドライバのアンカー | ✅ ただし**補足 1 件**: `verify_accessory_equip.js:101` 変異 `promote` は 22059 の**行全体(行末コメント `// ★#113 新しい頭は…` 込み)**を逐語で持つ。さらに `verify_class_line.js:151` 変異 `headstale` が同じ関数の **22097** `paintHeadClassLine(!nh.isHero && !!nh.npcName, nh.classKey);` をアンカーにしている(§2-5 の「アンカーは 22059 だけ」は 22056〜22062 の範囲に限れば正しい)。どちらも逐語一致なので、行の挿入で番号がずれても効く。⛔ 22097 の行も変えない |
+| 新しい名前 | ✅ `PROMOTE_GROWTH_ON` / `promotegrowth` / `promoteGrowthOff` / `verify_promote_growth` は `index.html` / `tools` / `js` に未出 |
+| ポート 10830〜10835 | ✅ `tools/*.js` に `1083x` / `1084x` は 0 件(近くの使用は 10780 / 10790 / 10810 / 10819)。Chrome の制限ポートにも当たらない |
+| §5 の `nh[k] \| 0` | ✅ 仲間の str/dex/con/wis/int は `createAlly`(15635)が必ず持つ(`int: cd.int \|\| 0`)。`applyLeaderStats` も `def.* \|\| 0` なので、値の無いキーが 0 になる振る舞いは同じ。仲間の能力値・atkBonus の書き手は `applyLevelUpToUnit` 以外に無い(grep) |
+
+**実装で気をつける点(§1〜§11 には書かれていない)**
+
+1. **(1c) の E は修正前でも緑になる**: E のダメージは今も 2 === 2(上の §2-1 の補足)。(1c) が「直ったか」を見分けるのは **G(3 が 5 に戻る)**。変異 `dmgdouble` は E で 3 になるので赤くできる。⇒ (1c) は E と G の両方で判定すること。
+2. **`currentPlayerDmgBonus` は `getAccessoryDmgBonus("player")` も足す**。`effectiveAllyDmgBonus` も装身具のダメージを足す(25979)うえ、`nh.dmgBonus` には入っていない ⇒ 二重にならない。例 H でダメージ系の装身具を持たせても (1c) の式はそのまま成り立つ見込み(コードを読んだ推定。未測定)。
+
+**golden 5 本の基準(2026-11-21 09:31〜09:38 に実行。HEAD 373f59a = `index.html` は 91e275f と同一。ログ = `C:\Users\PC_User\.claude\dev-loop\r115\item1\`)**
+
+| ドライバ | 実測 | rc | 所要 | §8 の記録との比較 |
+|---|---|---|---|---|
+| `node tools/verify_accessory_equip.js` | 32/32 | 0 | 147 秒 | 同じ(32/32) |
+| `node tools/verify_class_line.js` | 18/18 | 0 | 14 秒 | (記録なし) |
+| `node tools/driver_heromark_signplate.js` | 46/46 | 0 | 14 秒 | (記録なし) |
+| `node tools/verify_run_chronicle.js` | 74 PASSED / 0 FAILED | 0 | 223 秒 | (記録なし) |
+| `node tools/verify_ambush_round.js` | 18/18 | 0 | 6 秒 | 同じ(18/18) |
+
+赤は 0 本。時間帯: **昼(09 時台)に走らせた結果**。`verify_accessory_equip` の走行中に §2-1 の計測ドライバ(port 10795)を並走させた(所要秒が数秒伸びた可能性があるだけで、判定には響かない)。
