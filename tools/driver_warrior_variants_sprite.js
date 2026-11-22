@@ -200,11 +200,11 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       /assets\/warrior_walk\.png\?v=8/.test(wire.sets[0].walk), wire.sets[0].walk);
     check('(G1.3) 変種 0 の attack も無改変 = warrior_attack.png?v=11',
       /assets\/warrior_attack\.png\?v=11/.test(wire.sets[0].attack), wire.sets[0].attack);
-    check('(G1.4) 変種 1-3 が warrior_npcfemale_walk.png を共有',
-      [1, 2, 3].every(v => /assets\/warrior_npcfemale_walk\.png/.test(wire.sets[v].walk)),
+    check('(G1.4) 変種 1-3 が warrior_npcfemale_walk.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(v => /assets\/warrior_npcfemale_walk\.png/.test(wire.sets[v].walk)) && /assets\/warrior_castmira_walk\.png/.test(wire.sets[2].walk),
       JSON.stringify(wire.sets.slice(1).map(s => s.walk)));
-    check('(G1.5) 変種 1-3 が warrior_npcfemale_attack.png を共有',
-      [1, 2, 3].every(v => /assets\/warrior_npcfemale_attack\.png/.test(wire.sets[v].attack)),
+    check('(G1.5) 変種 1-3 が warrior_npcfemale_attack.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(v => /assets\/warrior_npcfemale_attack\.png/.test(wire.sets[v].attack)) && /assets\/warrior_castmira_attack\.png/.test(wire.sets[2].attack),
       JSON.stringify(wire.sets.slice(1).map(s => s.attack)));
     check('(G1.6) 変種 1-3 に旧 chibi (heavy/female/knight) が残っていない',
       [1, 2, 3].every(v => !/warrior_(heavy|female|knight)_/.test(wire.sets[v].walk + wire.sets[v].attack)),
@@ -354,14 +354,14 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       ['dwarf', 'cleric', 'mage', 'elf', 'rogue'].every(k => port.lens[k] === 4), JSON.stringify(port.lens));
     check('(G6.3) warrior[0] が warrior_walk.png (正規は無改変)',
       port.warrior[0] === 'assets/warrior_walk.png', port.warrior[0]);
-    check('(G6.4) warrior[1..3] が warrior_npcfemale_walk.png を共有',
-      port.warrior.slice(1).every(u => u === 'assets/warrior_npcfemale_walk.png'),
+    check('(G6.4) warrior[1..3] が warrior_npcfemale_walk.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(i => port.warrior[i] === 'assets/warrior_npcfemale_walk.png') && port.warrior[2] === 'assets/warrior_castmira_walk.png',
       JSON.stringify(port.warrior.slice(1)));
     check('(G6.5) ポートレートは ?v= を付けない (明文ルール)',
       port.warrior.every(u => !/\?/.test(u)), JSON.stringify(port.warrior));
     check('(G6.6) 直前の差替 (盗賊) が回帰していない',
       port.rogue[0] === 'assets/rogue_walk.png'
-        && port.rogue.slice(1).every(u => u === 'assets/rogue_male_walk.png'), JSON.stringify(port.rogue));
+        && [1, 3].every(i => port.rogue[i] === 'assets/rogue_male_walk.png') && port.rogue[2] === 'assets/rogue_castknut_walk.png', JSON.stringify(port.rogue));
     const loaded = await page.evaluate(async (urls) => {
       const r = [];
       for (const u of urls) {

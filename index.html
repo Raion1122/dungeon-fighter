@@ -18622,7 +18622,9 @@
         // ⚠ tavern.html の PARTY_PORTRAIT_SPRITES は同じ PNG を **素パス** で参照する (あちらは
         //   「?v= を付けない」が明文ルール = tavern.html の該当コメント参照)。差替時は両方を見ること。
         { walk: 'url("assets/warrior_npcfemale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_npcfemale_attack.png")', attackSize: "480px 384px", label: "重戦士" },
-        { walk: 'url("assets/warrior_npcfemale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_npcfemale_attack.png")', attackSize: "480px 384px", label: "女戦士" },
+        // ★#117 変種 2 = 固定キャスト 2 人目の専用シート (2026-11-22 codex1 納品)。1・3 は従来の共有シートのまま。
+        //   新規ファイル名なので ?v= 不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] と同期。
+        { walk: 'url("assets/warrior_castmira_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_castmira_attack.png")', attackSize: "480px 384px", label: "女戦士" },
         { walk: 'url("assets/warrior_npcfemale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_npcfemale_attack.png")', attackSize: "480px 384px", label: "騎士" },
       ],
       dwarf: [
@@ -18635,7 +18637,9 @@
         // ⚠ tavern.html の PARTY_PORTRAIT_SPRITES は同じ PNG を **素パス** で参照する (あちらは
         //   「?v= を付けない」が明文ルール = tavern.html の該当コメント参照)。差替時は両方を見ること。
         { walk: 'url("assets/dwarf_warrior_walk.png?v=4")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png?v=4")', attackSize: "480px 384px", label: "バーサーカー" },
-        { walk: 'url("assets/dwarf_warrior_walk.png?v=4")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png?v=4")', attackSize: "480px 384px", label: "盾の守り手" },
+        // ★#117 変種 2 = 固定キャスト 2 人目の専用シート (2026-11-22 codex1 納品)。1・3 は従来の共有シートのまま。
+        //   新規ファイル名なので ?v= 不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] と同期。
+        { walk: 'url("assets/dwarf_castdag_walk.png")', walkSize: "576px 384px", attack: 'url("assets/dwarf_castdag_attack.png")', attackSize: "480px 384px", label: "盾の守り手" },
         { walk: 'url("assets/dwarf_warrior_walk.png?v=4")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png?v=4")', attackSize: "480px 384px", label: "ルーンスミス" },
       ],
       cleric: [
@@ -18657,8 +18661,10 @@
         //   「?v= を付けない」が明文ルール = tavern.html の該当コメント参照)。差替時は両方を見ること。
         { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png?v=2")', attackSize: "480px 384px",
           cast: CLERIC_NPCMALE_CAST_URL, castSize: CLERIC_CAST_SIZE, label: "老神官" },
-        { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png?v=2")', attackSize: "480px 384px",
-          cast: CLERIC_NPCMALE_CAST_URL, castSize: CLERIC_CAST_SIZE, label: "女神官" },
+        // ★#117 変種 2 = 固定キャスト 2 人目の専用シート (2026-11-22 codex1 納品)。1・3 は従来の共有シートのまま。
+        //   新規ファイル名なので ?v= 不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] と同期。
+        { walk: 'url("assets/cleric_castgawain_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_castgawain_attack.png")', attackSize: "480px 384px",
+          cast: 'url("assets/cleric_castgawain_cast.png")', castSize: CLERIC_CAST_SIZE, label: "女神官" },
         { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png?v=2")', attackSize: "480px 384px",
           cast: CLERIC_NPCMALE_CAST_URL, castSize: CLERIC_CAST_SIZE, label: "戦僧" },
       ],
@@ -18667,7 +18673,9 @@
         // 変種 1-3 は codex1 "ウィザード" 1 枚を共有する (2026-07-28 差替。旧 chibi 3 種は
         // assets/mage_{old,crimson,dark}_* に残置)。dwarf と同じ扱い = label は内部識別子。
         { walk: 'url("assets/mage_wizard_walk.png")', walkSize: "576px 384px", attack: 'url("assets/mage_wizard_attack.png")', attackSize: "480px 384px", label: "老魔術師" },
-        { walk: 'url("assets/mage_wizard_walk.png")', walkSize: "576px 384px", attack: 'url("assets/mage_wizard_attack.png")', attackSize: "480px 384px", label: "紅の魔道士" },
+        // ★#117 変種 2 = 固定キャスト 2 人目の専用シート (2026-11-22 codex1 納品)。1・3 は従来の共有シートのまま。
+        //   新規ファイル名なので ?v= 不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] と同期。
+        { walk: 'url("assets/mage_castbernt_walk.png")', walkSize: "576px 384px", attack: 'url("assets/mage_castbernt_attack.png")', attackSize: "480px 384px", label: "紅の魔道士" },
         { walk: 'url("assets/mage_wizard_walk.png")', walkSize: "576px 384px", attack: 'url("assets/mage_wizard_attack.png")', attackSize: "480px 384px", label: "黒衣の魔道士" },
       ],
       elf: [
@@ -18680,7 +18688,9 @@
         //   2026-07-30 にユーザーが「標準を女にする」を選択した結果の割り当て。
         // ⚠ 新規ファイル名 (elf_male_*) なので ?v= は不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES も同期要。
         { walk: 'url("assets/elf_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/elf_male_attack.png")', attackSize: "480px 384px", label: "ハイエルフの射手" },
-        { walk: 'url("assets/elf_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/elf_male_attack.png")', attackSize: "480px 384px", label: "森の女狩人" },
+        // ★#117 変種 2 = 固定キャスト 2 人目の専用シート (2026-11-22 codex1 納品)。1・3 は従来の共有シートのまま。
+        //   新規ファイル名なので ?v= 不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] と同期。
+        { walk: 'url("assets/elf_castbran_walk.png")', walkSize: "576px 384px", attack: 'url("assets/elf_castbran_attack.png")', attackSize: "480px 384px", label: "森の女狩人" },
         { walk: 'url("assets/elf_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/elf_male_attack.png")', attackSize: "480px 384px", label: "闇森の影射手" },
       ],
       rogue: [
@@ -18692,7 +18702,9 @@
         // ⚠ tavern.html の PARTY_PORTRAIT_SPRITES は同じ PNG を **素パス** で参照する
         //   (あちらは「?v= を付けない」が明文ルール)。差替時は両方を見ること。
         { walk: 'url("assets/rogue_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/rogue_male_attack.png")', attackSize: "480px 384px", label: "アサシン" },
-        { walk: 'url("assets/rogue_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/rogue_male_attack.png")', attackSize: "480px 384px", label: "軽業師" },
+        // ★#117 変種 2 = 固定キャスト 2 人目の専用シート (2026-11-22 codex1 納品)。1・3 は従来の共有シートのまま。
+        //   新規ファイル名なので ?v= 不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] と同期。
+        { walk: 'url("assets/rogue_castknut_walk.png")', walkSize: "576px 384px", attack: 'url("assets/rogue_castknut_attack.png")', attackSize: "480px 384px", label: "軽業師" },
         { walk: 'url("assets/rogue_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/rogue_male_attack.png")', attackSize: "480px 384px", label: "影の斥候" },
       ],
       // ── 闇市 召喚ユニット (M8): 専用 96px×6F シート (walk 576×384 / attack 480×384) ──

@@ -225,14 +225,14 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       /assets\/cleric_attack\.png\?v=5/.test(wire.sets[0].attack), wire.sets[0].attack);
     check('(G1.4) 変種 0 の cast = cleric_cast.png?v=5',
       /assets\/cleric_cast\.png\?v=5/.test(wire.sets[0].cast || ''), wire.sets[0].cast);
-    check('(G1.5) 変種 1-3 が cleric_npcmale_walk.png を共有',
-      [1, 2, 3].every(v => /assets\/cleric_npcmale_walk\.png/.test(wire.sets[v].walk)),
+    check('(G1.5) 変種 1-3 が cleric_npcmale_walk.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(v => /assets\/cleric_npcmale_walk\.png/.test(wire.sets[v].walk)) && /assets\/cleric_castgawain_walk\.png/.test(wire.sets[2].walk),
       JSON.stringify(wire.sets.slice(1).map(s => s.walk)));
     check('(G1.6) 変種 1-3 が cleric_npcmale_attack.png?v=2 を共有 (melee 差替で同名上書きになり ?v= を新規付与)',
-      [1, 2, 3].every(v => /assets\/cleric_npcmale_attack\.png\?v=2/.test(wire.sets[v].attack)),
+      [1, 3].every(v => /assets\/cleric_npcmale_attack\.png\?v=2/.test(wire.sets[v].attack)) && /assets\/cleric_castgawain_attack\.png/.test(wire.sets[2].attack),
       JSON.stringify(wire.sets.slice(1).map(s => s.attack)));
-    check('(G1.7) ⭐ 変種 1-3 が **自分の** cast (cleric_npcmale_cast.png) を持つ',
-      [1, 2, 3].every(v => /assets\/cleric_npcmale_cast\.png/.test(wire.sets[v].cast || '')),
+    check('(G1.7) ⭐ 変種 1-3 が **自分の** cast (cleric_npcmale_cast.png) を持つ (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(v => /assets\/cleric_npcmale_cast\.png/.test(wire.sets[v].cast || '')) && /assets\/cleric_castgawain_cast\.png/.test(wire.sets[2].cast || ''),
       JSON.stringify(wire.sets.slice(1).map(s => s.cast)));
     check('(G1.8) ⭐ 正規と変種の cast が別シート (詠唱の瞬間に正規へ化けない)',
       !!wire.sets[0].cast && wire.sets[0].cast !== wire.sets[1].cast,
@@ -385,8 +385,8 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G8.1) updateAllySprite を偽 ally で駆動できている', !castApplied.err, castApplied.err);
     check('(G8.2) ⭐ 正規 (variant 0) の詠唱で cleric_cast.png が適用される',
       /cleric_cast\.png/.test(castApplied.urls[0] || ''), castApplied.urls[0]);
-    check('(G8.3) ⭐ 変種 1-3 の詠唱で cleric_npcmale_cast.png が適用される (正規へ化けない)',
-      [1, 2, 3].every(v => /cleric_npcmale_cast\.png/.test(castApplied.urls[v] || '')),
+    check('(G8.3) ⭐ 変種 1-3 の詠唱で cleric_npcmale_cast.png が適用される (正規へ化けない) (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(v => /cleric_npcmale_cast\.png/.test(castApplied.urls[v] || '')) && /cleric_castgawain_cast\.png/.test(castApplied.urls[2] || ''),
       JSON.stringify(castApplied.urls.slice(1)));
     check('(G8.4) 正規と変種で実際に別 URL が出ている',
       !!castApplied.urls[0] && castApplied.urls[0] !== castApplied.urls[1],
@@ -499,16 +499,16 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       ['warrior', 'dwarf', 'mage', 'elf', 'rogue'].every(k => port.lens[k] === 4), JSON.stringify(port.lens));
     check('(G6.3) cleric[0] が cleric_walk.png (正規)',
       port.cleric[0] === 'assets/cleric_walk.png', port.cleric[0]);
-    check('(G6.4) cleric[1..3] が cleric_npcmale_walk.png を共有',
-      port.cleric.slice(1).every(u => u === 'assets/cleric_npcmale_walk.png'),
+    check('(G6.4) cleric[1..3] が cleric_npcmale_walk.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(i => port.cleric[i] === 'assets/cleric_npcmale_walk.png') && port.cleric[2] === 'assets/cleric_castgawain_walk.png',
       JSON.stringify(port.cleric.slice(1)));
     check('(G6.5) ポートレートは ?v= を付けない (明文ルール)',
       port.cleric.every(u => !/\?/.test(u)), JSON.stringify(port.cleric));
     check('(G6.6) 直前の差替 (戦士 / 盗賊) が回帰していない',
       port.warrior[0] === 'assets/warrior_walk.png'
-        && port.warrior.slice(1).every(u => u === 'assets/warrior_npcfemale_walk.png')
+        && [1, 3].every(i => port.warrior[i] === 'assets/warrior_npcfemale_walk.png') && port.warrior[2] === 'assets/warrior_castmira_walk.png'
         && port.rogue[0] === 'assets/rogue_walk.png'
-        && port.rogue.slice(1).every(u => u === 'assets/rogue_male_walk.png'),
+        && [1, 3].every(i => port.rogue[i] === 'assets/rogue_male_walk.png') && port.rogue[2] === 'assets/rogue_castknut_walk.png',
       JSON.stringify([port.warrior, port.rogue]));
     const loaded = await page.evaluate(async (urls) => {
       const r = [];
@@ -536,7 +536,7 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     const headPort = headLine ? (headLine.match(/assets\/cleric[a-z_]*\.png/g) || []) : [];
     check('(N6.2) ⭐ 差替前と作業ツリーで cleric ポートレート 4 URL が完全一致 = 第2段はポートレート配線を触っていない',
       headPort.length === 4 && port.cleric.length === 4 &&
-      headPort.every((u, i) => port.cleric[i] === u),
+      [0, 1, 3].every(i => port.cleric[i] === headPort[i]) && port.cleric[2] === 'assets/cleric_castgawain_walk.png', // ★#117: [2] だけ固定キャスト 2 人目へ
       JSON.stringify([headPort, port.cleric]));
     check('(N6.3) HEAD 側にも ?v= が付いていない (素パスの明文ルールが第1段から維持されている)',
       !!headLine && !/cleric[a-z_]*\.png\?v=/.test(headLine), (headLine || '').trim().slice(0, 140));

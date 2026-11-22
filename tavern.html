@@ -9305,13 +9305,14 @@
   // ⚠ PARTY_PORTRAIT_SPRITES は index.html の SPRITE_VARIANTS (歩行シート url) と二重定義=要同期。
   //   歩行シート 576×384 (6列×4行 96px)・row3=右向き・col0=静止 を円形に切り抜く (CSS .pmPortrait)。
   //   ?v= キャッシュバスタは付けない (素パスで解決 → バージョン取り違えによる 404 を回避)。
+  //   ★#117: [2] = 固定キャスト 2 人目の専用シート (ミラ/ダグ/ガウェイン/ベルント/ブラン/クヌート)。[1][3] は従来の共有。
   const PARTY_PORTRAIT_SPRITES = {
-    warrior: ["assets/warrior_walk.png", "assets/warrior_npcfemale_walk.png", "assets/warrior_npcfemale_walk.png", "assets/warrior_npcfemale_walk.png"],
-    dwarf:   ["assets/dwarf_walk.png",   "assets/dwarf_warrior_walk.png",   "assets/dwarf_warrior_walk.png", "assets/dwarf_warrior_walk.png"],
-    cleric:  ["assets/cleric_walk.png",  "assets/cleric_npcmale_walk.png",  "assets/cleric_npcmale_walk.png", "assets/cleric_npcmale_walk.png"],
-    mage:    ["assets/mage_walk.png",    "assets/mage_wizard_walk.png",     "assets/mage_wizard_walk.png",   "assets/mage_wizard_walk.png"],
-    elf:     ["assets/elf_walk.png",     "assets/elf_male_walk.png",        "assets/elf_male_walk.png",      "assets/elf_male_walk.png"],
-    rogue:   ["assets/rogue_walk.png",   "assets/rogue_male_walk.png",      "assets/rogue_male_walk.png",    "assets/rogue_male_walk.png"],
+    warrior: ["assets/warrior_walk.png", "assets/warrior_npcfemale_walk.png", "assets/warrior_castmira_walk.png", "assets/warrior_npcfemale_walk.png"],
+    dwarf:   ["assets/dwarf_walk.png",   "assets/dwarf_warrior_walk.png",   "assets/dwarf_castdag_walk.png", "assets/dwarf_warrior_walk.png"],
+    cleric:  ["assets/cleric_walk.png",  "assets/cleric_npcmale_walk.png",  "assets/cleric_castgawain_walk.png", "assets/cleric_npcmale_walk.png"],
+    mage:    ["assets/mage_walk.png",    "assets/mage_wizard_walk.png",     "assets/mage_castbernt_walk.png", "assets/mage_wizard_walk.png"],
+    elf:     ["assets/elf_walk.png",     "assets/elf_male_walk.png",        "assets/elf_castbran_walk.png",  "assets/elf_male_walk.png"],
+    rogue:   ["assets/rogue_walk.png",   "assets/rogue_male_walk.png",      "assets/rogue_castknut_walk.png", "assets/rogue_male_walk.png"],
   };
   /* ════════════ #54 STEP2: 今日の卓の顔ぶれ ════════════════════════════════
      酒場の卓に座る 4 人 (patronA-D) を、**酒場を開くたびに**引き直す。

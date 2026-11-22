@@ -593,6 +593,68 @@
       "walk_dir": "lizardman/lizardman-walk-right-6",
       "attack_dir": "lizardman/lizardman-walk-right-6",
       "note": "#100 地下街の住人。敵 lizardWarrior の歩き 6 コマ (lizardman-walk-right-6 の safe-frame) を住人の形式 (576x384・段 3) へ畳み直した流用 (codex1 発注なし・ユーザー決定)。char_ratio 0.78 = 戦闘の背丈 73px (= 80/96 x displaySize 88) を再現: 0.79 出発で体高 74/72/74/75/74/74 = 中央値 74 → 0.78 で 73/71/72/74/73/72 = 中央値 73。H_max(walk)=366px / scale 0.2046 / fit left=1 right=86 top=16 (尾が左へ伸びるが 96px セルに収まる)。主人公 warrior_walk の 57px より頭ひとつ大きい = 戦闘と同じ比。⚠ lizardWarrior_anim.png を住人に直接当てると段 3 = 攻撃で歩く。attack_out を持たない。"
+    },
+    {
+      "key": "cast-mira", "out": "assets/warrior_castmira_walk.png",
+      "attack_out": "assets/warrior_castmira_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6008, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "cast-mira/cast-mira-walk-attack-right-6-v3-aligned/*walk*frame-*.png",
+      "attack_dir": "cast-mira/cast-mira-walk-attack-right-6-v3-aligned/*attack*frame-*.png",
+      "note": "★#117 固定キャスト 2 人目 (SPRITE_VARIANTS の変種 index 2 だけに当てる。1・3 は従来の warrior_npcfemale のまま)。2026-11-22 codex1 納品・受け取り側で原本 validate / pose を走らせて採用。char_ratio は同職 1 人目の出力 walk の bbox 高 中央値 57.5px に揃える逆算値 (= 画面上の背丈を 1 人目と同じにする)。素材は aligned 済み (anchor f01 ≒ 0) なので attack_scale 1.0。新規ファイル名なので ?v= は不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] (素パス) も同じ walk へ同期済み。採用版 = v3 (v1 = 背丈ずれ / v2 = 顔の穴と格子切り)。"
+    },
+    {
+      "key": "cast-dag", "out": "assets/dwarf_castdag_walk.png",
+      "attack_out": "assets/dwarf_castdag_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6042, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "cast-dag/cast-dag-walk-attack-right-6-aligned/*walk*frame-*.png",
+      "attack_dir": "cast-dag/cast-dag-walk-attack-right-6-aligned/*attack*frame-*.png",
+      "note": "★#117 固定キャスト 2 人目 (SPRITE_VARIANTS の変種 index 2 だけに当てる。1・3 は従来の dwarf_warrior (ラスムーゼン) のまま)。2026-11-22 codex1 納品・受け取り側で原本 validate / pose を走らせて採用。char_ratio は同職 1 人目の出力 walk の bbox 高 中央値 58px に揃える逆算値 (= 画面上の背丈を 1 人目と同じにする)。素材は aligned 済み (anchor f01 ≒ 0) なので attack_scale 1.0。新規ファイル名なので ?v= は不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] (素パス) も同じ walk へ同期済み。兜の角を含む bbox 高で揃えるので、角の分だけ顔はラスムーゼンより低く見える。"
+    },
+    {
+      "key": "cast-gawain", "out": "assets/cleric_castgawain_walk.png",
+      "attack_out": "assets/cleric_castgawain_attack.png",
+      "cast_out": "assets/cleric_castgawain_cast.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.5979, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "cast-gawain/cast-gawain-walk-melee-right-6-v2-aligned/*walk*frame-*.png",
+      "attack_dir": "cast-gawain/cast-gawain-walk-melee-right-6-v2-aligned/*-melee-right-aligned-safe-frame-*.png",
+      "cast_dir": "cast-gawain/cast-gawain-walk-cast-right-6-v2-aligned/*-cast-right-aligned-safe-frame-*.png",
+      "note": "★#117 固定キャスト 2 人目 (SPRITE_VARIANTS の変種 index 2 だけに当てる。1・3 は従来の cleric_npcmale のまま)。2026-11-22 codex1 納品・受け取り側で原本 validate / pose を走らせて採用。char_ratio は同職 1 人目の出力 walk の bbox 高 中央値 57px に揃える逆算値 (= 画面上の背丈を 1 人目と同じにする)。素材は aligned 済み (anchor f01 ≒ 0) なので attack_scale 1.0。新規ファイル名なので ?v= は不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] (素パス) も同じ walk へ同期済み。採用版 = v2 (v1 = 縁に暗い緑の点)。⚠⚠ cast_dir の明示が必須 (npc-male-cleric の note 参照)。melee / cast の 2 aligned フォルダの walk はバイト同一。"
+    },
+    {
+      "key": "cast-bernt", "out": "assets/mage_castbernt_walk.png",
+      "attack_out": "assets/mage_castbernt_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6188, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "cast-bernt/cast-bernt-walk-attack-right-6-aligned/*walk*frame-*.png",
+      "attack_dir": "cast-bernt/cast-bernt-walk-attack-right-6-aligned/*attack*frame-*.png",
+      "note": "★#117 固定キャスト 2 人目 (SPRITE_VARIANTS の変種 index 2 だけに当てる。1・3 は従来の mage_wizard (オズ) のまま)。2026-11-22 codex1 納品・受け取り側で原本 validate / pose を走らせて採用。char_ratio は同職 1 人目の出力 walk の bbox 高 中央値 59px に揃える逆算値 (= 画面上の背丈を 1 人目と同じにする)。素材は aligned 済み (anchor f01 ≒ 0) なので attack_scale 1.0。新規ファイル名なので ?v= は不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] (素パス) も同じ walk へ同期済み。"
+    },
+    {
+      "key": "cast-bran", "out": "assets/elf_castbran_walk.png",
+      "attack_out": "assets/elf_castbran_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6066, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "cast-bran/cast-bran-walk-attack-right-6-aligned/*walk*frame-*.png",
+      "attack_dir": "cast-bran/cast-bran-walk-attack-right-6-aligned/*attack*frame-*.png",
+      "note": "★#117 固定キャスト 2 人目 (SPRITE_VARIANTS の変種 index 2 だけに当てる。1・3 は従来の elf_male のまま)。2026-11-22 codex1 納品・受け取り側で原本 validate / pose を走らせて採用。char_ratio は同職 1 人目の出力 walk の bbox 高 中央値 58px に揃える逆算値 (= 画面上の背丈を 1 人目と同じにする)。素材は aligned 済み (anchor f01 ≒ 0) なので attack_scale 1.0。新規ファイル名なので ?v= は不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] (素パス) も同じ walk へ同期済み。"
+    },
+    {
+      "key": "cast-knut", "out": "assets/rogue_castknut_walk.png",
+      "attack_out": "assets/rogue_castknut_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.5872, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "cast-knut/cast-knut-walk-attack-right-6-v2-aligned/*walk*frame-*.png",
+      "attack_dir": "cast-knut/cast-knut-walk-attack-right-6-v2-aligned/*attack*frame-*.png",
+      "note": "★#117 固定キャスト 2 人目 (SPRITE_VARIANTS の変種 index 2 だけに当てる。1・3 は従来の rogue_male のまま)。2026-11-22 codex1 納品・受け取り側で原本 validate / pose を走らせて採用。char_ratio は同職 1 人目の出力 walk の bbox 高 中央値 57.5px に揃える逆算値 (= 画面上の背丈を 1 人目と同じにする)。素材は aligned 済み (anchor f01 ≒ 0) なので attack_scale 1.0。新規ファイル名なので ?v= は不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES の [2] (素パス) も同じ walk へ同期済み。採用版 = v2 (v1 = 幅の 6 等分で切って刃先が隣コマへ)。attack frame-04 は短剣の踏み込みで素材キャンバス 420px 幅いっぱい。1 人目に揃える 0.6117 だと刃先がセル右へ 2px はみ出す → feet-fit は歩きの体が中心から 15px 左へずれる (当たり判定とずれる) ので採らず、0.6117 x 0.96 = 0.5872 で中心のまま収めた (背丈は 1 人目より約 2px 低い = 前かがみの役どころに合う)。fit の right を必ず見ること。"
     }
   ]
 }

@@ -223,11 +223,11 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       /assets\/elf_walk\.png\?v=3/.test(wire.sets[0].walk), wire.sets[0].walk);
     check('(G1.3) 変種 0 の attack = elf_attack.png?v=4',
       /assets\/elf_attack\.png\?v=4/.test(wire.sets[0].attack), wire.sets[0].attack);
-    check('(G1.4) 変種 1-3 が elf_male_walk.png を共有',
-      [1, 2, 3].every(v => /assets\/elf_male_walk\.png/.test(wire.sets[v].walk)),
+    check('(G1.4) 変種 1-3 が elf_male_walk.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(v => /assets\/elf_male_walk\.png/.test(wire.sets[v].walk)) && /assets\/elf_castbran_walk\.png/.test(wire.sets[2].walk),
       JSON.stringify(wire.sets.slice(1).map(s => s.walk)));
-    check('(G1.5) 変種 1-3 が elf_male_attack.png を共有',
-      [1, 2, 3].every(v => /assets\/elf_male_attack\.png/.test(wire.sets[v].attack)),
+    check('(G1.5) 変種 1-3 が elf_male_attack.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(v => /assets\/elf_male_attack\.png/.test(wire.sets[v].attack)) && /assets\/elf_castbran_attack\.png/.test(wire.sets[2].attack),
       JSON.stringify(wire.sets.slice(1).map(s => s.attack)));
     // ⚠ ?v= は「同名上書きの時だけ」付ける。機械的に全部へ付けるものではない。
     check('(G1.6) 変種 1-3 には ?v= を付けていない (新規ファイル名なので不要)',
@@ -412,8 +412,8 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G8.2) 正規 (variant 0) に elf_walk.png が適用される',
       /elf_walk\.png/.test(applied.urls[0] || '') && !/elf_male_walk\.png/.test(applied.urls[0] || ''),
       applied.urls[0]);
-    check('(G8.3) 変種 1-3 に elf_male_walk.png が適用される (正規へ化けない)',
-      [1, 2, 3].every(v => /elf_male_walk\.png/.test(applied.urls[v] || '')),
+    check('(G8.3) 変種 1-3 に elf_male_walk.png が適用される (正規へ化けない) (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(v => /elf_male_walk\.png/.test(applied.urls[v] || '')) && /elf_castbran_walk\.png/.test(applied.urls[2] || ''),
       JSON.stringify(applied.urls.slice(1)));
     check('(G8.4) 正規と変種で実際に別 URL が出ている',
       !!applied.urls[0] && applied.urls[0] !== applied.urls[1],
@@ -540,17 +540,17 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       ['warrior', 'dwarf', 'cleric', 'mage', 'rogue'].every(k => port.lens[k] === 4), JSON.stringify(port.lens));
     check('(G7.3) elf[0] が elf_walk.png (正規 = 女エルフ)',
       port.elf[0] === 'assets/elf_walk.png', port.elf[0]);
-    check('(G7.4) elf[1..3] が elf_male_walk.png を共有',
-      port.elf.slice(1).every(u => u === 'assets/elf_male_walk.png'), JSON.stringify(port.elf.slice(1)));
+    check('(G7.4) elf[1..3] が elf_male_walk.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(i => port.elf[i] === 'assets/elf_male_walk.png') && port.elf[2] === 'assets/elf_castbran_walk.png', JSON.stringify(port.elf.slice(1)));
     check('(G7.5) ポートレートは ?v= を付けない (明文ルール)',
       port.elf.every(u => !/\?/.test(u)), JSON.stringify(port.elf));
     check('(G7.6) 作業ツリーでは旧 chibi 参照が消えている',
       !port.elf.some(u => /elf_(high|huntress|shadow)_/.test(u)), JSON.stringify(port.elf));
     check('(G7.7) 直前の差替 (僧侶 / 盗賊) が回帰していない',
       port.cleric[0] === 'assets/cleric_walk.png'
-        && port.cleric.slice(1).every(u => u === 'assets/cleric_npcmale_walk.png')
+        && [1, 3].every(i => port.cleric[i] === 'assets/cleric_npcmale_walk.png') && port.cleric[2] === 'assets/cleric_castgawain_walk.png'
         && port.rogue[0] === 'assets/rogue_walk.png'
-        && port.rogue.slice(1).every(u => u === 'assets/rogue_male_walk.png'),
+        && [1, 3].every(i => port.rogue[i] === 'assets/rogue_male_walk.png') && port.rogue[2] === 'assets/rogue_castknut_walk.png',
       JSON.stringify([port.cleric, port.rogue]));
     const loaded = await page.evaluate(async (urls) => {
       const r = [];
@@ -577,7 +577,7 @@ window.__sprMeasure = async function (url, cell, cols, row) {
         && /elf_huntress_walk/.test(headPort[2] || '') && /elf_shadow_walk/.test(headPort[3] || ''),
       JSON.stringify(headPort));
     check('(N6.3) ⭐ 作業ツリーでは 3 枠が elf_male_walk.png へ収束している (HEAD とは違う)',
-      port.elf.slice(1).every(u => u === 'assets/elf_male_walk.png')
+      [1, 3].every(i => port.elf[i] === 'assets/elf_male_walk.png') && port.elf[2] === 'assets/elf_castbran_walk.png'
         && !headPort.slice(1).every(u => u === 'assets/elf_male_walk.png'),
       JSON.stringify([headPort, port.elf]));
     check('(N6.4) HEAD 側にも ?v= が付いていない (素パスの明文ルールが維持されている)',

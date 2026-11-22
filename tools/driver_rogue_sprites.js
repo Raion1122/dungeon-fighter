@@ -193,11 +193,11 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       /rogue_walk\.png\?v=3/.test(wire.sets[0].walk), wire.sets[0].walk);
     check('(G1.4) 変種 0 の attack に ?v=3 が付く',
       /rogue_attack\.png\?v=3/.test(wire.sets[0].attack), wire.sets[0].attack);
-    check('(G1.5) 変種 1-3 が rogue_male_walk.png を共有',
-      [1, 2, 3].every(v => /assets\/rogue_male_walk\.png/.test(wire.sets[v].walk)),
+    check('(G1.5) 変種 1-3 が rogue_male_walk.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(v => /assets\/rogue_male_walk\.png/.test(wire.sets[v].walk)) && /assets\/rogue_castknut_walk\.png/.test(wire.sets[2].walk),
       JSON.stringify(wire.sets.slice(1).map(s => s.walk)));
-    check('(G1.6) 変種 1-3 が rogue_male_attack.png を共有',
-      [1, 2, 3].every(v => /assets\/rogue_male_attack\.png/.test(wire.sets[v].attack)),
+    check('(G1.6) 変種 1-3 が rogue_male_attack.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(v => /assets\/rogue_male_attack\.png/.test(wire.sets[v].attack)) && /assets\/rogue_castknut_attack\.png/.test(wire.sets[2].attack),
       JSON.stringify(wire.sets.slice(1).map(s => s.attack)));
     check('(G1.7) 変種 1-3 に旧 chibi (assassin/acrobat/scout) が残っていない',
       [1, 2, 3].every(v => !/rogue_(assassin|acrobat|scout)/.test(wire.sets[v].walk + wire.sets[v].attack)),
@@ -325,8 +325,8 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G6.2) 他 5 職の要素数 4 も維持 (回帰なし)',
       ['warrior', 'dwarf', 'cleric', 'mage', 'elf'].every(k => port.lens[k] === 4), JSON.stringify(port.lens));
     check('(G6.3) rogue[0] が rogue_walk.png', port.rogue[0] === 'assets/rogue_walk.png', port.rogue[0]);
-    check('(G6.4) rogue[1..3] が rogue_male_walk.png を共有',
-      port.rogue.slice(1).every(u => u === 'assets/rogue_male_walk.png'), JSON.stringify(port.rogue.slice(1)));
+    check('(G6.4) rogue[1..3] が rogue_male_walk.png を共有 (★#117: 変種 2 = 固定キャスト 2 人目の専用シート)',
+      [1, 3].every(i => port.rogue[i] === 'assets/rogue_male_walk.png') && port.rogue[2] === 'assets/rogue_castknut_walk.png', JSON.stringify(port.rogue.slice(1)));
     check('(G6.5) ポートレートは ?v= を付けない (明文ルール)',
       port.rogue.every(u => !/\?/.test(u)), JSON.stringify(port.rogue));
     const loaded = await page.evaluate(async (urls) => {

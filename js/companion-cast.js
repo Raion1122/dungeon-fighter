@@ -22,7 +22,7 @@
  *   - ⚠ 本体 (index.html) は enabled() を **読まない**。酒場が ON のときだけ人物に castId を付け、
  *       本体は castId があるときだけキャストとして扱う (依頼書 §2-7 罠 B / §7)。
  *       ⛔ 本体で npcName からキャストを引かない (?cast=0 の 90 人の表には同名の「ダグ」「ヨナ」がいる)。
- *   - variant: 1 人目 = 1 (いまの NPC の絵)、2 人目 = 2 (codex1 の納品までは 1 人目と同じ絵)。
+ *   - variant: 1 人目 = 1 (いまの NPC の絵)、2 人目 = 2 (2026-11-22 から codex1 の専用シート *_cast<名前>_* = SPRITE_VARIANTS[職][2])。
  *
  * 公開API: window.DFCast
  *   enabled() / all() / byId(id) / ofClass(classKey) / idOfName(name)
