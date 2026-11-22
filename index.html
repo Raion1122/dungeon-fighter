@@ -16210,6 +16210,8 @@
     // candidates: [{label: string, ...}, ...] / 返り値: 選択された index (0..N-1) または null
     // opts.autoSkipMs > 0: 一定時間タップが無ければ自動でキャンセル(null)へスキップする。
     //   ロール判定の自動ロール(js/skill-check.js AUTO_ROLL_MS)と同一パターン。既定(0)は無効=従来通り無期限待ち。
+    // opts.autoSkipTo: ★#119 時間切れで返す添字 (既定 = null = キャンセルと同じ・召喚の呼び口はこれ)。
+    //   ⚠ 罠 B: `opts.autoSkipTo || null` と書かない (0 が null になる)。
     function showCharChoice(message, candidates, cancelLabel = "持ち帰る (Esc)", opts = {}) {
       // Phase 2-K: autoplay 時は 1 番目の候補を自動選択
       if (window.__autoplay && candidates && candidates.length > 0) {
@@ -16279,8 +16281,9 @@
         // 一定時間タップが無ければ自動でキャンセル(=null)へスキップ。
         // ロール判定の自動ロールと同じ start→cancel(cleanup)→default パターン。入力時は cleanup() でタイマー解除。
         const autoSkipMs = (opts && opts.autoSkipMs > 0) ? opts.autoSkipMs : 0;
+        const autoSkipTo = (opts && Number.isInteger(opts.autoSkipTo)) ? opts.autoSkipTo : null;   // ★#119
         if (autoSkipMs > 0) {
-          autoTimer = setTimeout(() => { cleanup(); resolve(null); }, autoSkipMs);
+          autoTimer = setTimeout(() => { cleanup(); resolve(autoSkipTo); }, autoSkipMs);
         }
       });
     }
@@ -41405,6 +41408,101 @@
       return out;
     }
 
+    /* ══════════ ★#119 分かれ道で仲間が道を勧める (依頼書 #119 §5-3) ══════════
+     * 知覚判定をした本人 (castId を持つ生きた仲間) が、羊皮紙に見えている kind で道を 1 本勧め、
+     * 主人公が「わかった / 自分で選ぶ」で返事をする。時間切れ (AUTO_ROLL_MS) = わかった。
+     * ⚠ 呼び口は chooseExit の `if (!window.__autoplay)` の内側だけ (?autoplay / ?graph=auto では 1 命令も走らない)。
+     * 撤退スイッチ ?advise=0 (呼ぶたびに読む・banterOn と同じ作法)。 */
+    function adviceOn() {
+      try { return new URLSearchParams(window.location.search).get("advise") !== "0"; } catch (e) { return true; }
+    }
+    // 見えている kind (羊皮紙) の順位。高いほど勧める。⚠ 罠 D: 本当の行き先の kind で選ばない
+    //   寄り道を先に勧める (loot / rest / search / event) → 戦闘 → ボスは最後。start (来た道) は候補にしない。
+    const ADVICE_KIND_RANK = { loot: 5, rest: 4, search: 3, event: 2, combat: 1, boss: 0 };
+    const ADVICE_DIR_WORD  = { up: "奥", down: "手前", left: "西", right: "東" };
+    const adviceLog = [];   // 検証用の輪 (長さ 20)
+    // 勧める出口 1 本 or null (純関数・乱数を引かない)
+    function pickAdviceExit(node, opts) {
+      if (!node || !Array.isArray(opts)) return null;
+      const cands = opts.filter(o => o && !o.back && !o.spot && !(nodeState[o.to] && nodeState[o.to].visited));
+      if (cands.length < 2) return null;                         // 道が 1 本なら勧めるまでもない
+      let best = null, bestRank = -1;
+      for (const o of cands) {
+        const h = hintForExit(node, o);
+        if (!h || !h.kind) continue;                             // fail = ぼかした文 (kind: null) は勧めない
+        const r = ADVICE_KIND_RANK[h.kind];
+        if (r === undefined) continue;
+        if (r > bestRank) { best = o; bestRank = r; }            // 同順位は opts の並びで先のもの
+      }
+      return best;
+    }
+    // 声の文。advise は {dir} / {hint} を差し込んでから fillVoice (fillVoice 本体は変えない)。yes / no は o / h 無しで引ける
+    function adviceText(unit, scene, o, h) {
+      if (!unit || typeof unit !== "object" || !unit.castId) return null;
+      if (!(window.DFCast && typeof window.DFCast.byId === "function")) return null;
+      const c = window.DFCast.byId(unit.castId);
+      let lines = c && c.voice && c.voice[scene];
+      if (!Array.isArray(lines) || !lines.length) return null;
+      if (scene === "advise") {
+        const dir = o ? ADVICE_DIR_WORD[o.dir] : null;
+        const hint = (h && typeof h.text === "string") ? h.text.split(" — ")[0].replace(/。$/, "") : "";
+        if (!dir || !hint) return null;
+        lines = lines.map(l => (typeof l === "string") ? l.split("{dir}").join(dir).split("{hint}").join(hint) : l);
+      }
+      return fillVoice(lines, {});
+    }
+    // 返事の後のひと言。⚠ 罠 A (§12-1 注意 2): 「自分で選ぶ」の後はすぐ矢印 (dialogPaused) になり、
+    //   updateSpeechBubbles を 1 回呼ぶだけでは表示中の吹き出し / speechBusyUntil で空振りする。
+    //   ⇒ no のときは予約をその場で取り出し、残っている吹き出しを片付けてから直接描く (矢印を選ぶまで残る)。
+    function sayAdviceReply(advisor, yes, o) {
+      const scene = yes ? "yes" : "no";
+      const key = "advice." + scene;
+      const text = adviceText(advisor, scene, o, null);
+      if (!text) return false;
+      const meta = { scene, to: o ? o.to : null };
+      const queued = sayLine(key, advisor, { text, meta });
+      if (yes) return queued;                                    // 「わかった」= ダイアログが閉じて歩き出すので普通に出る
+      let entry = null;
+      for (let i = speechQueue.length - 1; i >= 0; i--) {
+        if (speechQueue[i].key === key && speechQueue[i].speaker === advisor) { entry = speechQueue.splice(i, 1)[0]; break; }
+      }
+      if (!entry) entry = { key, text, speaker: advisor, dropAfter: Date.now() + SPEECH_STALE_MS, prio: speechPrio(key), meta };
+      for (const b of speechBubbles) b.el.remove();
+      speechBubbles.length = 0;
+      speechBusyUntil = 0;
+      return _renderBubble(entry);
+    }
+    // 本体。選ばれた出口 or null (null = 今までどおり矢印へ)
+    async function offerPathAdvice(node, opts) {
+      if (!adviceOn()) return null;                              // ?advise=0
+      if (!node) return null;
+      const st = nodeState[node.id];
+      if (!st || st.adviceDone || !st.adviceBy) return null;     // 1 部屋 1 回 / 判定した本人がキャストの仲間でない
+      const advisor = (typeof allies !== "undefined") ? allies.find(a => a && a.alive && a.castId === st.adviceBy) : null;
+      if (!advisor) return null;                                 // 判定の後で倒れた
+      const o = pickAdviceExit(node, opts);
+      if (!o) return null;
+      const h = hintForExit(node, o);
+      const text = adviceText(advisor, "advise", o, h);
+      if (!text) return null;
+      st.adviceDone = true;                                      // 出したら返事に関係なく 1 回で終わり
+      const msg = advisor.npcName + "「" + text + "」";          // ⚠ 罠 A: 吹き出しではなくダイアログの文面
+      const autoMs = (window.SkillCheck && SkillCheck.AUTO_ROLL_MS) || 0;
+      const idx = await showCharChoice(msg, [{ label: "わかった、そっちに進もう" }], "いや、自分で選ぶ (Esc)",
+        { autoSkipMs: autoMs, autoSkipTo: 0 });                  // 時間切れ = わかった (罠 B)
+      const yes = (idx === 0);
+      sayAdviceReply(advisor, yes, o);
+      adviceLog.push({ node: node.id, castId: advisor.castId, to: o.to, kind: h.kind, wrong: !!h.wrong, yes, msg });
+      if (adviceLog.length > 20) adviceLog.shift();
+      return yes ? o : null;
+    }
+    window.__advice = {
+      on: adviceOn, pick: pickAdviceExit, text: adviceText, offer: offerPathAdvice, reply: sayAdviceReply, log: adviceLog,
+      rank: ADVICE_KIND_RANK, dir: ADVICE_DIR_WORD,
+      state: (id) => { const st = nodeState[id || currentNodeId]; return st ? { by: (st.adviceBy === undefined ? null : st.adviceBy), done: !!st.adviceDone } : null; },
+      setBy: (castId, id) => { const st = nodeState[id || currentNodeId]; if (st) { st.adviceBy = castId; st.adviceDone = false; } },   // 検証専用 (forcedTier は本人を残さないため)
+    };
+
     /* ★出口選択の**唯一の入口**。P3 の矢印 UI はこの関数の中に 1 行足すだけで載っている:
      *     if (!RUN.auto && !window.__autoplay)
      *       return await showExitArrows(node, opts);
@@ -41426,6 +41524,9 @@
        *     旧条件では**実機で矢印が一度も出なかった** (= 企画の本命が iPad 級でしか見られない)。
        *     狭幅は「矢印を出さない」ではなく **コンパクトな矢印レイアウト**で受ける
        *     (updateExitArrowPositions の縁クランプ + CSS body.ui-compact の縮小)。 */
+      /* ★#119 勧め (⚠ `!window.__autoplay` の内側 = ?autoplay / ?graph=auto では 1 命令も走らない)。
+       *   ⚠ 矢印の 1 行は 1 文字も変えずに残す (driver_graph_arrows の変異 compactdialog / noautoguard のアンカー)。 */
+      if (!window.__autoplay) { const advised = await offerPathAdvice(node, opts); if (advised) return advised; }
       if (!window.__autoplay) return await showExitArrows(node, opts);
       const head = opts.length === 1 ? "道は 1 本きりだ。" : "分かれ道だ。どちらへ進む?";
       const idx = await showCharChoice(head, opts.map(o => ({ label: exitChoiceLabel(node, o) })),
@@ -41885,6 +41986,13 @@
       if (eyeByExit) tier = "crit";
       if (!tier) {
         const party = (window.SkillCheck && SkillCheck.resolveSkillCheck) ? buildPerceptionParty() : [];
+        /* ★#119 罠 C: res.rep は写し = castId を持たない。#118 の探索判定と同じく、party と**同じ瞬間に**
+         *   同じ並び (生きている主人公 → 生きている仲間) で対応表を作り、本物の判定者を引く。 */
+        const adviceUnits = [];
+        if (hp > 0 && !gameOver) adviceUnits.push("player");
+        for (const a of allies) if (a.alive) adviceUnits.push(a);
+        const adviceUnitOf = new Map();
+        party.forEach((m, k) => adviceUnitOf.set(m, adviceUnits[k]));
         if (!party.length) {
           tier = "fail";                       // エンジン未読込 / 全滅 → 何も分からない (安全側)
         } else {
@@ -41906,6 +42014,10 @@
           } catch (e) { res = null; }
           finally { skillCheckActive = false; dialogPaused = false; }
           tier = exitHintTier(res);
+          /* ★#119 勧める人 = 判定した本人 (キャストの仲間のときだけ)。覚えるのは castId だけ (勧める瞬間に生きた ally を引き直す)。
+           *   ⚠ hintsRevealed には書かない (driver_graph_arrows が JSON で比べている = §2-7)。 */
+          const repUnit = (res && res.rep) ? (adviceUnitOf.get(res.rep) || null) : null;
+          st.adviceBy = (repUnit && repUnit !== "player" && repUnit.castId) ? repUnit.castId : null;
         }
       }
       const byExit = Object.create(null);

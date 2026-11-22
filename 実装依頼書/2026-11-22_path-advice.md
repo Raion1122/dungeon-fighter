@@ -540,3 +540,50 @@ window.__advice = {
 4. `verify_witch_hut` (6b) は `showCharChoice` のソースを基準の版と比べる ⇒ 項目 2 で `autoSkipTo` を足すと `showCharChoice` も `same:false` になる。項目 4 では (6b) の `same:false` の関数が {`allyShadowStep`} → {`allyShadowStep`, `showCharChoice`} に増えるのを #119 由来として説明し、それ以外が増えないことを見る(FAILED の集合は {(6b)} のまま)。
 5. 項目 4 の golden は上の表から `probe_party_size` を外す。`driver_field_step6` は `--baseline-dir` に別名が要り 28 分・`driver_grid_p9` は 8 分。
 6. iPhone の確認(§9-5)はラスムーゼンではなくイレーナ / ヨナ / クヌートの勧めで見る(最長 46〜47 文字)。
+
+### 12-2. 本体 + changelog(項目 2・2026-11-22・基準 HEAD `e96d2eb`)
+
+触ったファイル = `js/companion-cast.js` / `index.html` / `js/changelog.js` の 3 本だけ(`tavern.html` / `js/mercenary-roster.js` は開いていない)。
+
+#### やったこと
+
+| 節 | 内容 | 場所(変更後の行) |
+|---|---|---|
+| 5-1 | 12 人の `voice` に `advise` / `yes` / `no` を 2 本ずつ = **72 本**。⭐ 手で写さず、§4 の本文をスクリプトで読んで差し込んだ(写経の誤りが入らない)。`copyOf` に 3 場面(罠 E)・ヘッダに #119 の行 | `js/companion-cast.js` 各人の `call:` の直後・`copyOf` |
+| 5-2 | `showCharChoice` に `opts.autoSkipTo`(`Number.isInteger` で読む・罠 B)。渡さない呼び口は今までどおり null | `index.html` `16215` の関数内 |
+| 5-3 (a) | `revealExitHints` の知覚判定の枝で、`party` と同じ瞬間・同じ並びの対応表 `adviceUnitOf` を作り、`st.adviceBy` = 本物の判定者の `castId`(主人公 / castId 無しなら null)。魔法の眼・`forcedTier`・判定する人がいない枝では書かない。`hintsRevealed` には足していない | `41974` の関数内 |
+| 5-3 (b)(c) | `adviceOn` / `ADVICE_KIND_RANK` / `ADVICE_DIR_WORD` / `adviceLog`(輪 20)/ `pickAdviceExit` / `adviceText` / `sayAdviceReply` / `offerPathAdvice` | `41416`〜`41497` |
+| 5-3 (d) | `chooseExit` に勧めを足した(下の「依頼書と違うところ ①」) | `41529-41530` |
+| 5-3 (e) | 検証シーム `window.__advice = { on, pick, text, offer, reply, log, rank, dir, state, setBy }`(`__banter` と同じく dev ゲートの外。`state().by` は未設定なら null を返す) | `41499` |
+| 10 | `py tools/add_changelog.py`(§10 の文面のまま・4 件に保つ) | `js/changelog.js` |
+
+#### 依頼書と違うところ(どれも挙動は同じ)
+
+1. **`chooseExit` の矢印の 1 行は 1 文字も変えず、その上に 1 行足した**:
+   `if (!window.__autoplay) { const advised = await offerPathAdvice(node, opts); if (advised) return advised; }` → 元の `if (!window.__autoplay) return await showExitArrows(node, opts);`。
+   理由 = 元の行は `driver_graph_arrows.js:81-84` の変異 `compactdialog` / `noautoguard` のアンカー。§5-3 (d) のとおり `{ }` で包むとアンカーが消え、その 2 変異が空振りになる。勧めは同じく `!window.__autoplay` の内側だけで走る(`RUN.auto` はさらに前で return)ので、項目 3 の変異 `autoplay`(勧めをこの if の外へ出す)もそのまま書ける。
+2. **罠 A(§12-1 注意 2)は `updateSpeechBubbles()` を 1 回呼ぶのではなく `sayAdviceReply` で確実に出す**: 「自分で選ぶ」のときは `sayLine("advice.no", …)` で予約した後、その予約を行列から取り出し、表示中の吹き出しを片付け `speechBusyUntil = 0` にしてから `_renderBubble` で直接描く(行列があふれて `sayLine` が false でも同じ形の予約を作って描く)。⇒ 他の吹き出しが表示中でも、矢印が出ている間に必ず出る。「わかった」のほうは普通の予約(ダイアログが閉じて歩き出すので出る)。
+   - 乱数: `adviceText` の `fillVoice` で 1 回 + `sayLine` で 1 回(文面を渡しても 1 回引く)= 勧め 1 回 + 返事 2 回 = **1 部屋で 3 回**。勧めの順位付けは乱数を引かない。
+
+#### 手元の確認(受入ドライバではない・スクラッチの `check_advice.js`)
+
+`?diag=1&graphtest=1&secret=0`(`?autoplay` なし)を実ブラウザ(puppeteer-core・ヘッドレス)で開き、`partyMembers` にキャスト 3 人(ファルケ / ラスムーゼン / イレーナ)を入れて n0(出口 3 本)で測った = **17/17**:
+(0a)(0b)(0d) 装置 / (1a) 本物の知覚判定 → `by = "falke"` / (2a) ダイアログ `ファルケ「静かに。東だ。金属の匂いがする。こっちへ行こう。」` + ボタン 2 つ / (2b) 勧めた出口 = 見えている kind で選び直した出口(n2・loot)/ (3a) わかった → n2 を返す・`advice.yes` 1 本(ファルケの yes の文)/ (3b) 放置 → 約 2 秒で閉じて n2(`yes: true`)/ (3c) **他の吹き出しを表示中にしてから**「自分で選ぶ」→ 矢印 3 本・`advice.no` が `speechLog` と DOM の両方に出ている / (4a) 留まる → 再提示はダイアログ無し・log 不変 / (2d) fail → ダイアログ無し / (2c) fumble → n1(見えている kind = rest・`wrong: true`)/ (3d) `autoSkipMs` だけ → null / (6a) `?advise=0` → すぐ矢印 / (5a) `?autoplay=30` → 候補 0 を即返し・log 0 / (5b) castId 無し → `by: null`・ダイアログ無し / pageerror・console.error 0 件。
+
+#### 非退行(項目 1 の値と比べる)
+
+| ドライバ | 項目 1 | 今回 |
+|---|---|---|
+| `driver_graph_arrows` | 80/80 | **80/80** |
+| `driver_graph_run` | 99/99 | **99/99** |
+| `driver_speech_engine` | 18/18 | **18/18** |
+| `driver_scroll_autoskip` | 9/9 | **9/9** |
+
+#### 項目 3・4 への注意
+
+1. シーム = `window.__advice`(上の表)+ `window.__graphRun`(`.reveal(tier)` / `.hints()` / `.choose()` / `.clearHints()`)。撤退 = `?advise=0`(`offerPathAdvice` の先頭で毎回読む)。
+2. ⚠ `__advice.log` の行は**返事の後**に積む(ダイアログが開いている間は増えない)。「勧めた出口」は返事を押した後に読むこと。
+3. ⚠ 矢印は `ARROW_TAP_GATE`(500ms)の間は Esc も効かない。矢印を開いてすぐ Esc を送ると閉じず、次の `choose()` がぶつかる(手元確認で踏んだ)。
+4. §12-1 注意 2 の「(3c) は `__speech.clear` の後の盤面で測る」は要らなくなった。「自分で選ぶ」の吹き出しは表示中の吹き出しを片付けて出すので、他の吹き出しが出ている盤面でも (3c) は緑になる(手元確認はその盤面で測った)。
+5. `verify_witch_hut` (6b): `showCharChoice` の中身が変わった(コメント 2 行・`autoSkipTo` の 1 行・`resolve(null)` → `resolve(autoSkipTo)`)ので、`same:false` の関数が {`allyShadowStep`} → {`allyShadowStep`, `showCharChoice`} に増える見込み(#119 由来)。項目 4 で確かめる。
+6. `driver_graph_arrows` の変異 `compactdialog` / `noautoguard` のアンカーは残してある(上の ①)ので、言い直しは要らない見込み。
