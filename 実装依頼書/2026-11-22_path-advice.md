@@ -660,3 +660,67 @@ window.__advice = {
 1. golden の表に `verify_path_advice` を足す(21/21・約 43 秒)。`--negative` は 8 分。
 2. ポート 10901〜10911 を使う(`tools/` で他に 0 件)。
 3. 本体を触っていないので、§12-2 の非退行の見込み(`verify_witch_hut` (6b) の `same:false` が {`allyShadowStep`, `showCharChoice`} に増える件など)はこの項目で変わらない。
+
+### 12-4. 非退行 + 文書(項目 4・着手時 HEAD = `5364946`・2026-11-22)
+
+**結論: §12-1 の golden 29 本(`probe_party_size` を除く)+ 受入 `verify_path_advice` = 30 本を走らせ、赤の集合は着手前の基準 { `driver_speech_v2` (A1) / `verify_egg_parent` (6a) / `verify_frost_hold` (6b) / `verify_witch_hut` (6b) } と同じ。** 言い直したドライバは 0 本(乱数の回数を数える `verify_lore_check` (1j) も 26/26 のまま = 勧めは `graph=0` / `?autoplay` の装置では走らない・§2-8 のとおり)。製品の退行は見つからなかった(本番ファイルは 1 バイトも触っていない = changelog 不要)。
+
+実行 = 2026-11-22 10:45〜12:00(昼 = §12-1 の基準と同じ帯)/ HEAD `5364946`(作業ツリー無変更)/ 直列に 1 回ずつ・各ドライバの後に 4 秒の間 / ログ = `C:\Users\PC_User\.claude\dev-loop\r119\item4\`(`run_golden.ps1` / `golden_raw.txt` / 各ドライバの `.log`)。着手時に同じフォルダや他のドライバで走っている node / chrome が無いことを確かめた(MCP サーバだけ)。今回は `ERR_NO_BUFFER_SPACE` も重複ワーカーも出なかった = 再走は不要。
+
+#### (1) golden の表 — 赤の集合を §12-1 の基準と比べる
+
+| ドライバ | 項目 1(§12-1・`7d009a4`) | この項目(`5364946`) | 所要 | 差の説明 |
+|---|---|---|---|---|
+| `verify_path_advice`(受入・素) | —(§12-3 で 21/21) | **21/21** | 47 秒 | §12-3 と同じ |
+| `driver_speech_engine` | 18/18 | 18/18 | 43 秒 | — |
+| `driver_speech_v2` | 45/46 {(A1)} | 45/46 {(A1)} | 50 秒 | 基準と同じ赤(敵種の鳴き声・#119 と無関係) |
+| `driver_speech_hooks` | 13/13 | 13/13 | 54 秒 | — |
+| `driver_speech_boss` | 19/19 | 19/19 | 20 秒 | — |
+| `verify_tower_mother_b` | 22/22 | 22/22 | 338 秒 | — |
+| `driver_dev_gate2` | 62/62 | 62/62 | 32 秒 | `--baseline %TEMP%\df_cleanup2_base_r119i4` で回し、終わった後に `git worktree remove` 済み(既定の `df_cleanup2_base` は壊れたまま・触っていない) |
+| `verify_companion_cast` | 24/24 | 24/24 | 38 秒 | — |
+| `verify_goodberry` | 23/23 | 23/23 | 13 秒 | — |
+| `driver_doors_p6` | 40/40 | 40/40 | 44 秒 | — |
+| `driver_room_search_roll` | 39/39 | 39/39 | 5 秒 | — |
+| `verify_lore_check` | 26/26 | 26/26 | 8 秒 | 乱数の回数の (1j) も緑 = 言い直し不要 |
+| `verify_corner_check` | 20/20 | 20/20 | 85 秒 | — |
+| `verify_ambush_round` | 18/18 | 18/18 | 10 秒 | — |
+| `verify_banter_callouts` | 20/20 | 20/20 | 13 秒 | — |
+| `driver_graph_arrows` | 80/80 | 80/80 | 19 秒 | 変異 `compactdialog` / `noautoguard` のアンカー(矢印の 1 行)は残っている(§12-2 ①) |
+| `driver_graph_kinds` | 66/66 | 66/66 | 42 秒 | — |
+| `driver_graph_run` | 99/99 | 99/99 | 58 秒 | — |
+| `driver_graph_sce1` | 106/106 | 106/106 | 279 秒 | — |
+| `driver_grid_p9` | 52/52 | 52/52 | 413 秒 | — |
+| `driver_field_step6` | 65/65 | 65/65 | 1674 秒 | `--baseline-dir %TEMP%\df_step6_baseline_r119i4` で回し、後で `git worktree remove` 済み(既定の `df_step6_baseline` は壊れたまま・触っていない)。`?graph=auto`(`RUN.auto`)の経路で勧めが 1 命令も走らないことの非退行 |
+| `driver_scroll_autoskip` | 9/9 | 9/9 | 8 秒 | 召喚の自動スキップ(`autoSkipTo` を渡さない呼び口)は今までどおり null |
+| `driver_choice_logslot` | 29/29 | 29/29 | 9 秒 | — |
+| `verify_mage_hand` | 32/32 | 32/32 | 142 秒 | — |
+| `verify_mage_hand_reach` | 11/11 | 11/11 | 18 秒 | — |
+| `verify_arcane_eye` | 34/34 | 34/34 | 70 秒 | 魔法の眼の枝では `adviceBy` を書かない(§12-2 5-3 (a)) |
+| `verify_egg_parent` | 25/26 {(6a)} | 25/26 {(6a)} | 104 秒 | 基準と同じ赤: `runEncounter` 21906 → 22068(#114 `9034fc7` 由来)だけが違う |
+| `verify_frost_hold` | 27/28 {(6b)} | 27/28 {(6b)} | 129 秒 | 基準と同じ赤: `runEncounter` 21906 → 22068 だけが違う |
+| `verify_silent_tomb` | 24/24 | 24/24 | 272 秒 | — |
+| `verify_witch_hut` | 28/29 {(6b)} | 28/29 {(6b)} | 464 秒 | FAILED の集合は同じ。⚠ (6b) の `same:false` の関数が {`allyShadowStep` 4549→4555} → {`allyShadowStep` 4549→4555, **`showCharChoice` 3043→3157**} に増えた = **#119 由来**(項目 2 が `showCharChoice` に `opts.autoSkipTo` を足し、時間切れを `resolve(null)` → `resolve(autoSkipTo)` にした。渡さない呼び口は null のまま = 挙動は同じ)。増えたのはこの 1 関数だけ(他の 8 関数 = `initSwampNovice` / `tryApproachNovice` / `runNoviceDialog` / `applyNoviceResult` / `pickShadowStepTile` / `spawnShadowPuff` / `inflictWoundsTouch` / `checkDungeonClear` は `same:true`) |
+| `probe_party_size` | 装置ごと故障 | **対象外**(走らせていない) | — | #21 `8b1b126` 以降、`departToScenario()` の行き先が `world.html` になって `index.html` に一度も着地しない(§12-1)= 勧めの非退行の役に立たない。`RUN.auto` の経路は `driver_field_step6` が見る |
+
+**赤の集合 = { `driver_speech_v2` (A1) / `verify_egg_parent` (6a) / `verify_frost_hold` (6b) / `verify_witch_hut` (6b) } = 基準と一致。** 30 本のうち緑 26 本・赤 4 本(全部 #119 より前から)。
+
+#### (2) 言い直し
+
+なし。§8 の想定(既存ドライバでは勧めが出ない = 期待値は変わらない)どおり。`verify_witch_hut` (6b) は FAILED の集合が変わらないので言い直していない(この節は #114 の `allyShadowStep` で既に赤い。直すなら基準の版を取り直す別チケット = 下の (4))。
+
+#### (3) 残る §9 の実機確認(ここが本当の受入・ユーザーが行う・未)
+
+1. 酒場から出発し、分かれ道で気配を読んだ仲間がその人の口調で道を勧めるか。返事の後のひと言が出るか
+2. 時間切れの 2 秒で、文を読んで「自分で選ぶ」を押せるか(短すぎたら別チケット)
+3. 直前の判定パネルを閉じたタップが、勧めのボタンまで突き抜けないか
+4. 「自分で選ぶ」の後、ひと言の吹き出しが矢印や羊皮紙と重なって読めなくならないか
+5. iPhone: いちばん長い勧め(イレーナ / ヨナ / クヌートの「奥」= 46〜47 文字・§12-1 注意 6)がダイアログに収まるか
+
+#### (4) 別チケット候補
+
+- `verify_witch_hut` (6b) / `verify_egg_parent` (6a) / `verify_frost_hold` (6b) — 「触らない約束の関数」の基準の版が古い(#114 の `runEncounter` / `allyShadowStep`、#119 の `showCharChoice`)。基準の版を今の HEAD へ取り直すか、比べる関数を絞る
+- `driver_speech_v2` (A1) — 敵種 9 つに `enemy.cry.<type>` が無い(#117 の前から)
+- `probe_party_size` — #21 以降の導線(酒場→ワールドマップ→`index.html`)へ直す
+- `driver_dev_gate2` / `driver_field_step6` — 既定の `%TEMP%` の baseline 作業木(`df_cleanup2_base` / `df_step6_baseline`)が壊れたまま(毎回別名が要る)
+- §11 の「勧めに従った結果への反応」・時間切れの長さ・`showCharChoice` の連打よけ(§9 の 2・3 の結果しだい)
