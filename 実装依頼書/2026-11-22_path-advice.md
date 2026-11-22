@@ -462,4 +462,81 @@ window.__advice = {
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 着手前の実測(項目 1・2026-11-22 朝・HEAD `7d009a4`)
+
+コードは 1 バイトも変えていない。`7d009a4` は `3ccd5cb` に依頼書と README の 2 ファイルを足しただけ(`git diff --stat 3ccd5cb 7d009a4`)なので、§2 の行番号はそのまま使える。ずれは下の表のとおり(どれも起草時の書き間違い・中身は同じ)。
+
+#### 測り直し(§2)
+
+| 節 | 主張 | HEAD の実測 | 判定 |
+|---|---|---|---|
+| 2-1 | `chooseExit` `41415`・`RUN.auto` `41418`・矢印の 1 行 `41429`・`revealExitHints` `41873`(再入場で振り直さない `41877`)・`buildExitHint` `41830`・`exitsWithReturn` `41378`・`tickNodeChoice` から `42589-42590` | 同じ行 | ✅ |
+| 2-1 | `chooseExit(` の呼び口は 2 か所(`42590` / `44385` 検証シーム `__graph.choose`) | `index.html` `js/*.js` `*.html` の grep = 定義 `41415` + 呼び口 `42590` / `44385` の 2 か所。⚠ シームの名前は **`window.__graphRun`**(`44374` で定義)。`__graph.choose` / `__graph.reveal` / `__graph.hints` という名前はどこにも無い(`driver_graph_arrows.js:279` も `const g = window.__graphRun`)。§8 本文の `__graph.hints()` / `__graph.reveal(tier)` も **`__graphRun.*`** と読み替える(`reveal` `44423`・`hints` `44424`) | ⚠ 名前の書き間違い |
+| 2-2 | `dialogPaused` で `moveEnemies` `20614` が早めに return・`renderWorld` → `updateSpeechBubbles` `18225` | `moveEnemies` の定義は **`20611`**(return は `20614`)・`18225` は同じ | ✅ |
+| 2-2 | 「自分で選ぶ」の直後に `updateSpeechBubbles()` を 1 回直接呼べば出る | ⚠ **条件付き**: `updateSpeechBubbles` は `14230` で `if (speechBubbles.length \|\| now < speechBusyUntil) return;` = **他の吹き出しが表示中か、直前の吹き出しから `SPEECH_MS + SPEECH_GAP_MS`(2000+260ms)以内だと何も出さない**。勧めのダイアログは知覚判定の直後に開くので、その前に出た吹き出し(`find.*` / `lore.share` など)が残っていると、「no」のひと言は矢印が閉じるまで行列で待つ(6000ms で捨てられる) | ⚠ 罠 A の補足(注意 2) |
+| 2-3 | `showCharChoice` `16213`・時間切れ `resolve(null)` `16283`・召喚の呼び口 `16064` | 同じ行(`autoSkipMs` の grep = `16064` / `16211` / `16236` / `16281-16283` のみ・`tavern.html` は 0 件)。`?autoplay` の即返しは `16215-16216`(`chooseExit` の注記にある `index.html:10288` は古い行番号) | ✅ |
+| 2-4 | `revealExitHints` の知覚判定 `41898`・`buildPerceptionParty` `28683` が `{classKey,name,isHero?,skillBonus}` の写し | 同じ(主人公 `28686`・仲間 `28693`)。#118 の対応表 `unitOf` は `28826-28833` | ✅ |
+| 2-5 | 勧める道は `hintForExit(node,o).kind` | `hintForExit` `41923`・`EXIT_HINTS` `41474`・`EXIT_HINT_WRONG_KINDS`(boss なし)`41490` | ✅ |
+| 2-6 | `copyOf` `js/companion-cast.js:186-191` が `voice` を場面ごとに名前で写す | `copyOf` `186`・`voice: { trap, chest, door, lore, call }` は `190-191` | ✅ |
+| 2-7 | 「留まる」の後に再提示 `:42601` | **`42598`** `if (!chosen) { nodeChoiceCooldownUntil = Date.now() + NODE_CHOICE_COOLDOWN_MS; return; }`(`NODE_CHOICE_COOLDOWN_MS = 6000` `41027`・再提示の門 `42560`) | ⚠ 行 −3 |
+| 2-7 | `driver_graph_arrows.js` が `JSON.stringify(g.hints())` を 7 か所で比べる | `.hints(` の grep = `481` / `518` / `521` / `539` / `541` / `544` / `721` / `1082` の 8 行(`539-544` が 3 行)・ほかのドライバは 0 件。`newNodeState` `40994` に `adviceBy` / `adviceDone` の欄はまだ無い | ✅ |
+| 2-8 | `probe_party_size` は `RUN.auto = true`(`:864`) | **`:865`**。⚠ ただしこの probe は装置ごと壊れていて `index.html` に一度も着地しない(下の golden の表)= 勧めの非退行の役に立たない | ⚠ 行 +1・装置ごと故障 |
+| 2-8 | `verify_egg_parent` / `verify_frost_hold` / `verify_silent_tomb` / `verify_witch_hut` の `castId` = 0 件 | 4 本とも `castId` の grep = 0 件 | ✅ |
+| 2-8 | `verify_banter_callouts` / `verify_companion_cast` は `?autoplay=15` で `chooseExit` を通らない | 両方とも `?diag=1&scen=goblin-mine&graph=0&autoplay=15`(`verify_banter_callouts.js:332`)= **`graph=0` で `RUN` 自体が無い**ので分かれ道に入らない(`tickNodeChoice` の先頭 `if (!RUN) return`) | ✅(理由はさらに強い) |
+| 2-8 | `castId` を持つドライバ | `grep -ln castId tools/*.js` = `verify_banter_callouts.js` / `verify_companion_cast.js` の 2 本だけ | ✅ |
+| 2-8 | 召喚の自動スキップを測るドライバ | `grep -ln "召喚しない\|autoSkipMs" tools/*.js` = **4 本**(`driver_scroll_autoskip` / `driver_choice_logslot` / `verify_mage_hand` / `verify_mage_hand_reach`)= 下の golden に入れた | ✅ |
+| 2-9 | ヒント文 = `EXIT_HINTS` の sure 9 本(`start` 除く)+ 著者の `hint.text` 8 本・最長「北の石段が、霧の向こうの祠へ続いている」19 文字・「。」で終わるもの 0 本 | sure は `start` を除いて 9 本 ✅。`hint: { text:` の grep は 8 件だが **1 件は `js/df-mapdef.js:2922` の注記の `hint:{text:"…"}`** = 著者の実文は 7 本。最長 19 文字・「。」終わり 0 本は ✅。最長の文は `index.html:43587`(`dir: "up"` = `{dir}` は「奥」) | ✅(件数の注記だけ) |
+| 2-9/4 | 画面での見え方の例「いちばん長いもの」= ラスムーゼン 39 文字(§4 末尾・§9-5) | ⚠ **崩れている**。§4 の `advise` 24 本 × ヒント 12 種 × 方角 4 語を全部差し込んで数えると、最長は **イレーナ「手前の道を勧めます。北の石段が、霧の向こうの祠へ続いている。こちらへ参りましょう。」= 47 文字**(名前と括弧込み)。次がヨナ・クヌートの 46。ラスムーゼンは最長でも 42(「手前」)。最長のヒントは実際には `dir: "up"`(「奥」)にしか付かないので、実在する組み合わせの最長はイレーナ「奥」の 46 文字 | ⚠ 例の人選が誤り(承認済みの文面は変えない・注意 6) |
+| 2-10 | `AUTO_ROLL_MS = 2000` `js/skill-check.js:86`・`SPEECH_MS` `14086`・`SPEECH_STALE_MS` `14088`・`ARROW_TAP_GATE = 500` `41952` | `SPEECH_MS = 2000` `14086`・`SPEECH_GAP_MS = 260` `14087`・`SPEECH_STALE_MS = 6000` `14088`・`ARROW_TAP_GATE` `41952`・`AUTO_ROLL_MS` `86` | ✅ |
+| 2-10 | ポートの最大 = 10900・素 10901 / 変異 10902〜10911 | `grep -rhoE "\b109[0-9]{2}\b" tools/*.js` の最大 = 10900。10901〜10911 は `tools/` に 0 件 | ✅ |
+| 2-11 | `check_changelog.py:32` `GAME_LOGIC` | `:32` に同じ定義 | ✅ |
+| — | 新しい名前(`adviceBy` / `adviceDone` / `autoSkipTo` / `__advice` / `ADVICE_DIR_WORD`)が既にあるか | `index.html` `js/*.js` で 0 件 | ✅ |
+
+#### golden(HEAD `7d009a4`・直列・2026-11-22 08:21〜09:30 + 再走 09:30〜10:02 = 昼)
+
+ログ = `C:\Users\PC_User\.claude\dev-loop\r119\item1\`(`run_golden.ps1` / `golden_raw.txt` / `golden_rerun.txt` / 各 `<driver>.log` / 再走は `<driver>.rerun.log`)。
+⚠ 08:22 に同じ項目の重複ワーカーが同じフォルダで走り、`run_golden.ps1` の上書き・`golden_raw.txt` の見出しと engine 行の消失・`driver_speech_engine.log` / `driver_speech_v2.log` の上書き・`driver_speech_hooks` の同時実行が起きた(リポは無変更)。⇒ **この 3 本は単独で走らせ直した値を基準にする**(下の表の「再走」)。
+
+| ドライバ | 起草時の記録 | 今回 | 赤 | 備考 |
+|---|---|---|---|---|
+| `driver_speech_engine` | 18/18 | **18/18**(再走) | ∅ | |
+| `driver_speech_v2` | 45/46 | **45/46**(再走) | {(A1)} | 既知(#117 の前から・敵種の鳴き声) |
+| `driver_speech_hooks` | 13/13 | **13/13**(再走) | ∅ | |
+| `driver_speech_boss` | 19/19 | 19/19 | ∅ | |
+| `verify_tower_mother_b` | 22/22 | 22/22 | ∅ | 339 秒 |
+| `driver_dev_gate2` | 62/62 | 62/62 | ∅ | `--baseline %TEMP%\df_cleanup2_base_r119i1` で回し、後で `git worktree remove` 済み(既定の `df_cleanup2_base` は壊れたまま・触っていない) |
+| `verify_companion_cast` | 24/24 | 24/24 | ∅ | |
+| `verify_goodberry` | 23/23 | 23/23 | ∅ | |
+| `driver_doors_p6` | 40/40 | 40/40 | ∅ | |
+| `driver_room_search_roll` | 39/39 | 39/39 | ∅ | |
+| `verify_lore_check` | 26/26 | 26/26 | ∅ | |
+| `verify_corner_check` | 20/20 | 20/20 | ∅ | |
+| `verify_ambush_round` | 18/18 | 18/18 | ∅ | |
+| `verify_banter_callouts` | 20/20 | 20/20 | ∅ | |
+| `driver_graph_arrows` | (新) | **80/80** | ∅ | |
+| `driver_graph_kinds` | (新) | **66/66** | ∅ | |
+| `driver_graph_run` | (新) | **99/99** | ∅ | |
+| `driver_graph_sce1` | (新) | **106/106** | ∅ | 192 秒 |
+| `driver_grid_p9` | (新) | **52/52** | ∅ | 486 秒 |
+| `driver_field_step6` | (新) | **65/65**(再走) | ∅ | ⚠ 1 回目は rc=3(装置の故障): 既定の baseline `%TEMP%\df_step6_baseline`(`ad6f648`)の作業木が壊れていて `index.html` が無く、`git worktree add` が「already exists」で落ちた。`--baseline-dir %TEMP%\df_step6_baseline_r119i1` で別名を作って 65/65・後で `git worktree remove` 済み(既定のほうは触っていない)。**1694 秒(28 分)** |
+| `probe_party_size` | (新) | **装置ごと故障**(§0〜§7 で NG 21 / OK 20 の時点で止めた) | (対象外) | §1 (1e) で `departToScenario()` の行き先が `world.html` になり `index.html` に一度も着地しない(#21 `8b1b126` で酒場→ワールドマップ→`index.html` の導線になった後、この probe(#14)は直されていない)⇒ 以降の (2a)〜(7e) は全部その連鎖(人数 0・TIMEOUT)。実プレイ §8 は 1 腕 60 秒の TIMEOUT が続くので 1296 秒で止めた。**#119 の非退行には使えない**(`RUN.auto` の行に届かない)。`RUN.auto` の経路は `driver_field_step6`(`?graph=auto` の装置)が通る |
+| `driver_scroll_autoskip` | (新) | **9/9** | ∅ | 召喚の自動スキップ (2a)〜(2c) |
+| `driver_choice_logslot` | (新) | **29/29** | ∅ | |
+| `verify_mage_hand` | (新) | **32/32** | ∅ | `showCharChoice` を包んで `autoSkipMs` を外す装置 |
+| `verify_mage_hand_reach` | (新) | **11/11** | ∅ | |
+| `verify_arcane_eye` | (新) | **34/34** | ∅ | `revealExitHints` の `crit` 経路(項目 2 が同じ関数の近くに手を入れる) |
+| `verify_egg_parent` | (新) | **25/26** | {(6a)} | 既知: 触らない約束の `runEncounter` の長さ 21906 → 22068 = #114 `9034fc7` 由来(#116 の別チケ候補 ①) |
+| `verify_frost_hold` | (新) | **27/28** | {(6b)} | 既知: 同じく `runEncounter`(基準 `0298eca`)が #114 で変わった。#109 §12 の記録 {(6b)} と同じ集合(当時の理由は `defeatEnemy`・今は基準が `614270e` へ直され `runEncounter` だけが違う) |
+| `verify_silent_tomb` | (新) | **24/24** | ∅ | |
+| `verify_witch_hut` | (新) | **28/29** | {(6b)} | 既存の赤(新しく見つかった): 写し元の関数のうち `allyShadowStep` だけ 4549 → 4555 文字。`git blame` = #114 `9034fc7`(11-10)の 1 行。#111 §12(11-07)では 29/29 ⇒ #114 から赤いまま。⚠ この (6b) は `showCharChoice` のソースも基準の版と比べている(今は 3043 → 3043 で同じ) |
+
+**赤の集合 = { `driver_speech_v2` (A1) / `verify_egg_parent` (6a) / `verify_frost_hold` (6b) / `verify_witch_hut` (6b) }** + `probe_party_size` は装置ごと故障(対象外)。どれも #119 より前から・#119 に帰属しない。
+
+#### 項目 2〜4 への注意
+
+1. 検証シームは **`window.__graphRun`**(`.choose()` `.reveal(tier, id)` `.hints(id)`)。§8 の `__graph.*` は全部これに読み替える。
+2. 罠 A の「`updateSpeechBubbles()` を直接 1 回呼ぶ」は、表示中の吹き出しか `speechBusyUntil` があると空振りする(`14230`)。項目 2 はそれを承知で書き、受入の変異 `bubble` は吹き出しの無い盤面(`__speech.clear` の後)で測る。
+3. 「留まる」後の再提示は `42598` → `42560` の門 → `42590`。`adviceBy` / `adviceDone` は nodeState の別の欄(`newNodeState` `40994` に足すか、使う所で `=== true` だけを見る)。`hintsRevealed` には書かない。
+4. `verify_witch_hut` (6b) は `showCharChoice` のソースを基準の版と比べる ⇒ 項目 2 で `autoSkipTo` を足すと `showCharChoice` も `same:false` になる。項目 4 では (6b) の `same:false` の関数が {`allyShadowStep`} → {`allyShadowStep`, `showCharChoice`} に増えるのを #119 由来として説明し、それ以外が増えないことを見る(FAILED の集合は {(6b)} のまま)。
+5. 項目 4 の golden は上の表から `probe_party_size` を外す。`driver_field_step6` は `--baseline-dir` に別名が要り 28 分・`driver_grid_p9` は 8 分。
+6. iPhone の確認(§9-5)はラスムーゼンではなくイレーナ / ヨナ / クヌートの勧めで見る(最長 46〜47 文字)。
