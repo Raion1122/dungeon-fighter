@@ -587,3 +587,76 @@ window.__advice = {
 4. §12-1 注意 2 の「(3c) は `__speech.clear` の後の盤面で測る」は要らなくなった。「自分で選ぶ」の吹き出しは表示中の吹き出しを片付けて出すので、他の吹き出しが出ている盤面でも (3c) は緑になる(手元確認はその盤面で測った)。
 5. `verify_witch_hut` (6b): `showCharChoice` の中身が変わった(コメント 2 行・`autoSkipTo` の 1 行・`resolve(null)` → `resolve(autoSkipTo)`)ので、`same:false` の関数が {`allyShadowStep`} → {`allyShadowStep`, `showCharChoice`} に増える見込み(#119 由来)。項目 4 で確かめる。
 6. `driver_graph_arrows` の変異 `compactdialog` / `noautoguard` のアンカーは残してある(上の ①)ので、言い直しは要らない見込み。
+
+### 12-3. 受入 `tools/verify_path_advice.js`(項目 3・2026-11-22・基準 HEAD `6e56491`)
+
+新規ファイル 1 本だけ(本体 `index.html` / `js/*` は 1 バイトも変えていない・`git status` = `?? tools/verify_path_advice.js` のみ)。手本 = `verify_banter_callouts.js`(配信スナップショットの凍結・変異のメモリ注入・注入点の検算・他ドライバとのアンカー重なり検査・出力書式は同じ)。
+
+#### 作り
+
+- 起動 = `/index.html?diag=1&graphtest=1&secret=0`(`?autoplay` なし)。`partyMembers` = 主人公 戦士 + ファルケ / ラスムーゼン / イレーナ(node 側で `DFCast` を評価して作る)。分かれ道 = graphtest の `n0`(出口 `n1`/up・`n2`/right・`n4`/down)。
+- 入口は本番の `window.__graphRun.choose()`(= `chooseExit`)。ダイアログの DOM・`__advice.log`・`speechQueue.push` の記録・`__speech.log` を読む。乱数は mulberry32 で固定、(1a)(1b)(5b) の本物の判定だけ出目 0.97。
+- 期待値はドライバが自分で持つ(2 経路): 順位表 `{loot:5, rest:4, search:3, event:2, combat:1, boss:0}` と方角の語 `{up:奥, down:手前, left:西, right:東}` を§5-3 (b)・§2-9 から写し、`hints().byExit` の見えている kind で選び直す。文はページの `DFCast.byId()` の実体に差し込んだ集合。(1a) の判定者は `SkillCheck.resolveSkillCheck` を包んで受け取った `party` / `res.rep` をドライバの並び(生きている主人公 → 生きている仲間)で本物へ戻す。⛔ §4 の 72 本は写経していない。
+- 矢印は 700ms 待ってから Esc(`ARROW_TAP_GATE`)・次の `choose()` の前に必ず前を解決させる(`settle`)= §12-2 注意 2・3。
+- 判定 = §8 の 20 節 + **(0e) 全ページで pageerror 0 件**(手本の (0d) と同じ役。§8 の (0d) は声の装置なので別の番号にした)= **21 判定**。母集団ガード = (0a)(0b)(0c)(素で赤なら exit 3)。
+
+#### 判定一覧(素・21/21)
+
+| 節 | 何を見るか | 素の実測 |
+|---|---|---|
+| (0a) | `n0` に未踏の出口 2 本以上・`?autoplay` ではない | n1 / n2 / n4 |
+| (0b) | `castId` を持つ生きた仲間 2 人以上・主人公 = 戦士 | falke / rasmussen / irena |
+| (0c) | fumble で「見えている順位の出口 ≠ 本当の順位の出口」 | 見えている = n1(rest!)・本当 = n2(loot)= `n0` で成立(他の部屋を探す必要は無かった) |
+| (0d) | 12 人すべての `byId().voice` に advise / yes / no が 2 本ずつ・advise は `{dir}` `{hint}` を含む | 12 人・欠け 0 |
+| (0e) | pageerror 0 件 | 0 |
+| (1a) | 本物の `revealExitHints` → `by` = ドライバが引き直した判定者の `castId` | `falke`(party の 1 番・tier crit) |
+| (1b) | 仲間を倒れたことにして本物の判定 → `by` = null(先に `falke` を入れておき、書かれたことを見る)→ ダイアログ無しで矢印 | null・矢印 3 |
+| (2a) | success + `setBy(falke)` → 文面 = `ファルケ「…」` の集合のどれか・ボタン 2 つ・矢印 0 | `ファルケ「東の道だ。金属の匂いがする。こっちに進もう。」` |
+| (2b) | log の最後の `to` = 見えている kind で選び直した出口 | n2(loot) |
+| (2c) | fumble → 見えている kind で選ぶ・`wrong: true`・本当の順位の出口と違う | n1(rest!)≠ n2 |
+| (2d) | fail → ダイアログ無し・矢印・log 不変 | ✓ |
+| (2e) | n2 を訪れた印にする → 勧めは別の出口(ドライバが訪れた出口を除いて選び直したもの)・引き返す口でもない | n4(search) |
+| (2f) | crit → ダイアログの文面と、「— N 体」の付いた出口すべてで `__advice.text` を直叩きして「体ばかり」「 — 」が無い | n1「— 3 体」/ n4「— 1 体」とも落ちている |
+| (3a) | 「わかった」→ 勧めた出口を返す・`advice.yes` 1 本・話し手 falke・yes の文 | 「わかった。足元に気をつけろ。」 |
+| (3b) | 放置 → `AUTO_ROLL_MS`(ページから読む)−100〜+500ms で閉じ、勧めた出口・矢印 0 | 2002ms・n2・`yes: true` |
+| (3c) | 他の吹き出しを表示中にしてから「自分で選ぶ」→ 矢印・`speechLog` と DOM に `advice.no`(irena・no の文) | 「……わかりました。ご判断に従います。」 |
+| (3d) | `autoSkipMs` だけの `showCharChoice` → null | null(312ms) |
+| (4a) | (3c) の後に Esc → もう一度 `choose()` → ダイアログ無し・log 不変・`state().done` | log 3 → 3 |
+| (5a) | `?autoplay=15` → `choose()` = 候補 0・log 0・ダイアログ無し | n1 = opts[0] |
+| (5b) | `castId` の無い直起動 → 本物の判定でも `by` null・勧め無し | ✓ |
+| (6a) | `?advise=0` → `__advice.on()` = false・ダイアログ無し・矢印・log 0 | ✓ |
+
+#### 実走(PowerShell から直列・各回の間に 4 秒)
+
+ログ = `C:\Users\PC_User\.claude\dev-loop\r119\item3\`(`plain1.log` / `negative1.log` / `plain2.log`)。
+
+| 実行 | 結果 | 所要 |
+|---|---|---|
+| `node tools/verify_path_advice.js`(1 回目) | **21/21 PASSED**・exit 0 | 43 秒 |
+| `node tools/verify_path_advice.js --negative` | 素の基準 **21/21** + **負のコントロール 10 / 10 が検出成功**・exit 0 | 479 秒 |
+| `node tools/verify_path_advice.js`(2 回目) | **21/21 PASSED**・exit 0 | 43 秒 |
+
+⇒ 素は 3 回(1 回目・`--negative` の基準・2 回目)とも 21/21 = flaky ではない。
+
+#### 変異ごとの落ちた判定の集合(`--negative` 実走)
+
+| 変異 | 注入した欠陥 | 担当 | 実際に赤 | 担当外 |
+|---|---|---|---|---|
+| `autoplay` | 勧めを `if (!window.__autoplay)` の外へ | (5a) | **{(5a)}** | — |
+| `zero` | `autoSkipTo` を `(opts && opts.autoSkipTo) \|\| null` で読む | (3b) | **{(3b)}** | — |
+| `bubble` | ダイアログの文面を「分かれ道だ。」にし、勧めの文は `sayLine` の吹き出しへ | (2a) | **{(2a)}** | — |
+| `copyrep` | `st.adviceBy = res.rep.castId`(写しから引く) | (1a) | **{(1a)}** | — |
+| `copyof` | `copyOf` から `advise` を落とす | (0d)(2a) | **{(0d)(2a)(2b)(2c)(2e)(2f)(3a)(3b)(3c)(4a)}** | (2b)(2c)(2e)(2f)(3a)(3b)(3c)(4a) = 勧めが一度も出ないので、勧めの後を見る節が全部連鎖で赤(`NEG_ALSO` に記録・合否には使わない) |
+| `truekind` | 順位を `RUN.byId[o.to].kind` で付ける | (2c) | **{(2c)}** | — |
+| `failadvise` | `kind` が null の出口も順位 0 で残す | (2d) | **{(2d)}** | — |
+| `seen` | 訪れた出口を候補から外さない | (2e) | **{(2e)}** | — |
+| `again` | `st.adviceDone = true` を書かない | (4a) | **{(4a)}** | — |
+| `switch` | `adviceOn()` が常に true | (6a) | **{(6a)}** | — |
+
+`copyof` 以外の 9 本は**担当の 1 節だけ**が落ちる(節がきれいに分かれている)。注入点は 10 本とも原本でちょうど 1 件・行数不変・他の `tools/*.js` のアンカー / 書き換え行と重なり 0(起動時の検算)。逆向き(他ドライバの文字列リテラルのうち `index.html` / `js/companion-cast.js` に実在するコード片が、このドライバの本文に出てこない)もスクラッチの走査で 0 件 = `driver_graph_arrows` の `compactdialog` / `noautoguard` のアンカー(矢印の 1 行)にも触れていない。
+
+#### 項目 4 への注意
+
+1. golden の表に `verify_path_advice` を足す(21/21・約 43 秒)。`--negative` は 8 分。
+2. ポート 10901〜10911 を使う(`tools/` で他に 0 件)。
+3. 本体を触っていないので、§12-2 の非退行の見込み(`verify_witch_hut` (6b) の `same:false` が {`allyShadowStep`, `showCharChoice`} に増える件など)はこの項目で変わらない。
