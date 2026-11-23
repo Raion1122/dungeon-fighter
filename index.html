@@ -2573,7 +2573,38 @@
       background: rgba(241,226,187,0.92);
       border: 1px solid var(--parchment-border);
       border-radius: 2px;
+      /* 項目8: 画面端で文字が切れていた → ビューポート内に収め、長い行は折り返す */
+      max-width: calc(100vw - 16px);
+      box-sizing: border-box;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
+
+    /* 目標バナー (上部中央)。クリア条件を常時表示する (項目3)。 */
+    #objectiveHud {
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      color: var(--parchment-ink);
+      font-size: 12px;
+      padding: 4px 12px;
+      position: fixed;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: min(74vw, 460px);
+      box-sizing: border-box;
+      text-align: center;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 1.35;
+      z-index: 10;
+      background: rgba(241,226,187,0.94);
+      border: 1px solid var(--parchment-border);
+      border-left: 3px solid #a3341f;
+      border-right: 3px solid #a3341f;
+      border-radius: 3px;
+      pointer-events: none;
+    }
+    #objectiveHud b { color: #7a2718; }
 
     #inventory {
       font-family: 'Cinzel', serif;
@@ -3411,7 +3442,7 @@
     <div id="startBox">
       <div id="startTitle">廃坑のゴブリンの巣窟</div>
       <div id="startFlavor" style="font-size:14px;opacity:0.8;margin-bottom:12px;letter-spacing:1px;"></div>
-      <div id="startText">クリックで開始<br>英雄は自動で探索・戦闘します<br><span style="font-size:14px;opacity:0.75;">[ I ] キーでインベントリ確認</span></div>
+      <div id="startText">画面をクリック / タップ / 何かキーで開始<br>英雄は自動で探索・戦闘します (AUTO PILOT)<br><span style="font-size:14px;opacity:0.75;">戦闘も自動進行 ／ [ I ] キーでインベントリ確認</span></div>
       <!-- Phase 2-G DEBUG: 残影回避モードのトグル (装備中のみ反映)。
            既定は CSS (#debugEvadeRow) で非表示。body.dev-mode のときだけ display:flex で現れる。
            ⚠ display:flex をインラインに戻さないこと (CSS ゲートに勝ってしまい常時表示に逆戻りする)。 -->
@@ -3464,6 +3495,8 @@
   <div id="hpMiniBar"></div>
   <div id="combatLog"></div>
   <div id="info"></div>
+  <!-- 目標 (クリア条件) バナー。startGame で currentScenario.flavor から文面を入れて常時表示する (項目3)。 -->
+  <div id="objectiveHud" style="display:none;"></div>
   <div id="battleBanner"></div>
 
   <!-- クリア/敗北オーバーレイ -->
@@ -10602,12 +10635,12 @@
         sheetW: 576, sheetH: 480,
         frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
         displaySize: 66,
-        hp: 8, speed: 0.95,
+        hp: 10, speed: 0.95,   // #balance: 8→10 (序盤の雑魚が通常攻撃一発で溶けすぎるのを緩和。41dmg級の仲間は依然一撃)
         hasAttackAnim: true,
         meleeRange: 120, hitRange: 190,
         attackDuration: 28, attackHitFrame: 12, attackCooldown: 35,
-        dex: 1, atkBonus: 2, ac: 14,
-        dmgDice: "1d6", dmgBonus: 0, critRange: 20, critMult: 2,
+        dex: 1, atkBonus: 4, ac: 14,                              // #balance: 命中 +2→+4 (序盤の敵がミス/ファンブルばかりで緊張感が無かった)
+        dmgDice: "1d6", dmgBonus: 1, critRange: 20, critMult: 2,  // #balance: ダメージ +0→+1
         range: "melee",
         xp: 100,
       },
@@ -16082,6 +16115,16 @@
       startScreen.style.display = "none";
       updateInfo("ゲームスタート！");
       setPhase("explore");
+      // 目標 (クリア条件) を画面上部に常時表示 (項目3: ボス到達/クリア条件が分からない問題への対応)。
+      //   文面はシナリオの flavor (例: 廃坑=「首領グリクスとその一党を討て」) をそのまま使う。
+      try {
+        const objEl = document.getElementById("objectiveHud");
+        if (objEl && typeof currentScenario !== "undefined" && currentScenario) {
+          const goal = currentScenario.flavor || currentScenario.title || "ダンジョンの敵をすべて討て";
+          objEl.innerHTML = "<b>⚔ 目標</b> ― " + goal;
+          objEl.style.display = "block";
+        }
+      } catch (e) { /* 目標表示は本体を止めない */ }
       tryGoodberryOnEntry();   // ★[#116] 最初の部屋で 1 回だけグッドベリー (同期・乱数を引かない)
       tryArcaneEyeOnEntry();   // ★[#79] ① 最初の部屋で魔法の眼 (await しない。旗は関数の頭で同期に立つ)
     }
@@ -17493,8 +17536,12 @@
         // 武器表記の +N は STR + 武器エンハ込みの総ダメージボーナス (酒場の表示と統一)
         const weaponDisplayBonus = playerStats.dmgBonus + ((weapon && weapon.enhancement) || 0)
           + getAccessoryDmgBonus("player");   // 第5弾 豪傑の武具: 装備アクセの近接ダメージ + を武器行に映して「効いてるのが見える」ように
-        // 頭の実効レベル: leaderLevel (主人公=永続Lv / NPC頭=ティア帯Lv)。未設定時は XP 由来
-        const headLv = leaderLevel || ((typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1);
+        // 頭の実効レベル: 主人公が頭のときは XP 由来 (レベルアップがカードに即反映される)。
+        //   NPC 頭は従来どおり leaderLevel (ティア帯 Lv)。未設定時のみ XP 由来へフォールバック。
+        //   ⚠ 以前は leaderLevel (永続Lv=起点のまま) を無条件で優先したため、主人公が頭だと
+        //     レベルアップ後もカードが Lv1 のまま固まっていた (仲間は a.level 未設定で XP 由来=正しく上がる)。
+        const headLvXp = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1;
+        const headLv = heroIsHead ? Math.max(leaderLevel || 1, headLvXp) : (leaderLevel || headLvXp);
         const nextXp = (typeof getNextLevelXP === "function") ? getNextLevelXP(currentTotalXp) : 1000;
         // 盾行 (装備あり時のみ表示)
         const shieldLine = (shield && shield.enhancement > 0)
@@ -17556,8 +17603,9 @@
             (lowHp ? " lowhp" : "") +
             (a.isHero ? " heroBox" : "");
           const hpText = a.alive ? `<b>${a.hp}</b>/${a.maxHp}` : `<b>倒</b>`;
-          // 仲間の実効レベル: a.level (主人公ally=永続Lv / NPC=ティア帯Lv)。未設定時は XP 由来
-          const allyLv = a.level || ((typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1);
+          // 仲間の実効レベル: 主人公 ally は XP 由来 (レベルアップがカードに即反映)。NPC は a.level (ティア帯 Lv)。
+          const allyLvXp = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1;
+          const allyLv = a.isHero ? Math.max(a.level || 1, allyLvXp) : (a.level || allyLvXp);
           const skillNames = a.equippedSkills.map(id => {
             const sk = getSkill(id);
             return sk ? sk.name : id;
@@ -19474,6 +19522,18 @@
       // XP 加算
       if (typeof gainXP === "function") {
         gainXP(enemy.def.xp || 0, nm);
+      }
+      // #gold (項目5): 戦闘報酬の金貨。所持金がずっと 0G のままで武器防具屋の品が買えない、という
+      //   試遊の指摘への対応。固定の礼金 (currentScenario.clearGold) を持たないダンジョン/生成クエストでのみ、
+      //   倒した敵から少額の金貨を得て所持金 coins に加算し、画面(右上ヒント)に入手を明示する。
+      //   coins は休憩チェックポイント / クリア / 撤退で localStorage(dragonfighters.gold) へ永続化される。
+      //   ⚠ 礼金を持つ特別シナリオ (塔の母・本筋外の行き先・街道の襲撃) は従来どおり 0 のまま
+      //     (verify_road_ambush / verify_clear_chests が「礼金=0・敵は金貨を落とさない」前提で金貨額を
+      //      逐語で握っている。clearGold の有無でゲートすると、それらの特別シナリオだけ素通しできる)。
+      if (!roadAmbushRun && !(currentScenario && currentScenario.clearGold > 0)) {
+        const goldDrop = Math.max(2, Math.round((enemy.def.xp || 0) / 20));
+        coins += goldDrop;
+        updateInfo(`💰 ${nm}から金貨 +${goldDrop} (所持 ${coins}G)`);
       }
     }
 
@@ -24144,6 +24204,12 @@
     // 初期検知: 各敵の射程 (engagePx) に基づいて判定
     // 増援検知: 同じく各敵の射程 + 少し余裕 (同室の敵を拾う)
     const REINFORCE_MARGIN_PX = 160;
+    /* 項目3: 1戦闘で「⚠ REINFORCEMENT ⚠」の大バナーを出すのは最初の合流の一度だけにする。
+     *   掃討合流で敵を倒すたびに大バナーが繰り返し出て「増援がいつまでも続く」体感を強めていた。
+     *   ⚠ 合流そのもの (encounterEnemyIndices / units への参戦・イニシアチブ) は 1 バイトも変えない。
+     *     mopup 不変条件 (休憩の瞬間に detectReinforcements()===0) は merge を止めないので保たれる。
+     *   finally (戦闘終了) で false に戻す = 次の戦闘では再び一度だけ出る。 */
+    let reinforceAnnouncedThisEncounter = false;
     /* ★[#13 / 2026-08-23] 「参加者が全滅した瞬間の掃討合流」の撤退スイッチ (?mopup=0)。
      * ⚠ dev チートではなく退避口なので __dfDevCheat では包まない (?minefold=0 と同じ扱い)。 */
     const MOPUP_OFF = (() => {
@@ -24220,7 +24286,10 @@
     async function mergeReinforcements(list, units, sortUnits) {
       if (!list || !list.length) return;
       const names = list.map(i => enemies[i].def.name).join("、");
-      showBanner("⚠ REINFORCEMENT ⚠", 1200);
+      if (!reinforceAnnouncedThisEncounter) {   // 項目3: 大バナーは 1 戦闘につき 1 回だけ
+        showBanner("⚠ REINFORCEMENT ⚠", 1200);
+        reinforceAnnouncedThisEncounter = true;
+      }
       updateInfo(`敵の増援が合流! (${names})`);
       await sleepMs(900);
       for (const i of list) {
@@ -24926,6 +24995,27 @@
           showBanner("VICTORY", 1200);
           setPhase("rest");
           updateInfo("敵を撃破!");
+          // #save (項目1): 休憩チェックポイント。部屋を1つ片付けるたびに主人公の XP/金貨/装備を
+          //   localStorage へ書き出し、酒場・街・キャラシートがダンジョンの現在値を即座に映すようにする。
+          //   ⚠ 従来はクリア/撤退の瞬間しか永続化されず、途中でページを離れると XP=0・装備が初期値へ
+          //     巻き戻って見えた (試遊で「レザー+1 / XP1210 なのに酒場では粗布・XP0」と報告された根因。
+          //     増援が続いて戦闘が終わらない間は撤退も押せず、保存の機会そのものが無かった)。
+          //   冪等: 書く値はすべて現在値から再計算 (persistent.gold=起点の定数・coins=累積・HWM は
+          //   dfReturnEquipValues が max を取る) なのでクリア/撤退時の保存と二重計上しない。
+          //   敗北時 (hp<=0||gameOver) はこのブロックに入らない = 既存の「死亡で未保存」はそのまま。
+          try {
+            const cpEq = dfReturnEquipValues();
+            localStorage.setItem("dragonfighters.gold",           String(persistent.gold + coins));
+            localStorage.setItem("dragonfighters.xp",             String(currentTotalXp));
+            localStorage.setItem("dragonfighters.weaponIdx",      String(cpEq.weaponIdx));
+            localStorage.setItem("dragonfighters.armorIdx",       String(cpEq.armorIdx));
+            localStorage.setItem("dragonfighters.shieldIdx",      String(cpEq.shieldIdx));
+            localStorage.setItem("dragonfighters.equipWeaponIdx", String(cpEq.equipWeaponIdx));
+            localStorage.setItem("dragonfighters.equipArmorIdx",  String(cpEq.equipArmorIdx));
+            localStorage.setItem("dragonfighters.equipShieldIdx", String(cpEq.equipShieldIdx));
+            if (typeof savePersistentAccessoryStock === "function") savePersistentAccessoryStock();
+            if (typeof saveInventoryBag === "function") saveInventoryBag();
+          } catch (e) { /* localStorage 失敗は無視 (チェックポイント) */ }
           // 闇市 呪われた曲刀 (M9): バフ消去の前にリーダー HP 減少の代償を適用
           applyCursedBladeEndCost();
           // 戦闘専用バフ (シールド・オブ・フェイス等の AC バフ、攻撃バフ、ダメ軽減) を消去
@@ -24996,6 +25086,7 @@
       } finally {
         encounterEnemyIndices = [];
         encounterActive = false;
+        reinforceAnnouncedThisEncounter = false;   // 項目3: 次の戦闘で増援バナーを再び一度だけ出せるようにする
         dfSheetRefresh();   // ★#89 K8: setPhase は gameOver / dungeonCleared で呼ばれないのでここで描き直す
         camFocus = null;            // 要望②終了処理: 戦闘注視点を解除 → 探索の主人公センタリングへ滑らかに復帰
         updatePositions();          // 解除を即反映してカメラを主人公へグライドさせ始める
