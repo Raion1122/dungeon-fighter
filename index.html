@@ -14936,6 +14936,28 @@
       try { return new URLSearchParams(window.location.search).get("slotscarcity") !== "0"; }
       catch (e) { return true; }
     })();
+    /* ★[A4 縮小版] 撤退判断と死亡の重み (開発会議 2026-11-23 §A4)。① 撤退ライン = 出発前に酒場の
+     *   マッチング画面で選んだ「HP がこの割合を切ったら自動で引き上げる」ラインを、ラン中に監視して
+     *   手動撤退 (#retreatBtn) と同じ経路で発動する。② 死亡の重み = 全滅後の蘇生費 (金貨) は酒場側で払う。
+     *   ⭐ 既定 = 「設定しない」(0)。従来どおり手動撤退だけの挙動を 1 バイトも変えない opt-in。
+     *   ⛔ ロスト (永久喪失) は会議結論どおり見送り = 仲間は失わない。
+     *   撤退スイッチ ?autoretreat=0 で機能ごと無効化。?retreatline=N (0/25/50) で localStorage を上書き (検証用)。 */
+    const AUTO_RETREAT_ON = (() => {
+      try { return new URLSearchParams(window.location.search).get("autoretreat") !== "0"; }
+      catch (e) { return true; }
+    })();
+    /* 撤退ラインの現在値 (0/25/50)。⭐ 呼ぶたびに読む (酒場で変えた直後・ドライバ仕込みに追従)。
+       URL ?retreatline=N が在ればそれを優先 (検証の決定論用・localStorage を汚さない)。 */
+    function getRetreatLinePct() {
+      try {
+        const q = new URLSearchParams(window.location.search).get("retreatline");
+        if (q != null) { const n = parseInt(q, 10); return [0, 25, 50].includes(n) ? n : 0; }
+      } catch (e) {}
+      try {
+        const n = parseInt(localStorage.getItem("dragonfighters.retreatLine") || "0", 10);
+        return [0, 25, 50].includes(n) ? n : 0;
+      } catch (e) { return 0; }
+    }
     /* ★[#69] 撤退スイッチ ?holdpair=0 — ホールド・パーソンを 1 体だけに戻す (2026-09-16 以前)。
      * ⭐⭐⭐ **URL を読むのはこの 1 箇所だけ**。適用点 (allyHoldPerson の 2 体目選択 /
      *   CLERIC_SKILLS の flavor) は全部この const を参照する。
@@ -45510,6 +45532,7 @@
     // ── 撤退機能 (探索中のみ・ペナルティなしで酒場へ戻る) ──
     const retreatBtnEl = document.getElementById("retreatBtn");
     let retreatInProgress = false;
+    let autoRetreatFiring = false;   // ★[A4] 自動撤退で click を発火した時だけ true (バナー文言の出し分け用)
     if (retreatBtnEl) {
       retreatBtnEl.addEventListener("click", async () => {
         if (retreatInProgress) return;
@@ -45520,7 +45543,10 @@
         retreatInProgress = true;
         retreatBtnEl.disabled = true;
         sfx("button");
-        showBanner("…やむなし。君たちは撤退を選んだ。", 2000);
+        /* ★[A4] 自動撤退のときだけ理由を告げる新しい一行 (既存の手動時の台詞はそのまま温存)。 */
+        showBanner(autoRetreatFiring
+          ? "⚠ パーティの HP が撤退ラインを下回った —— 深追いせず引き上げる。"
+          : "…やむなし。君たちは撤退を選んだ。", 2000);
         updateInfo("撤退する…");
         await sleepMs(2100);
         showBanner("生きて戻ることもまた勇気。傷を癒し、再び挑め。", 2000);
@@ -45582,6 +45608,36 @@
     }
     setInterval(updateRetreatBtnState, 250);
     updateRetreatBtnState();
+
+    /* ★[A4 縮小版] 撤退ラインの監視 (開発会議 2026-11-23 §A4 ①)。
+     *   パーティ (隊列先頭 hp + 生存している仲間) の合算 HP 割合が、出発前に選んだラインを
+     *   下回ったら、手動撤退と同じ #retreatBtn 経路で自動的に引き上げる。
+     *   ⭐ 発動は手動撤退と同じ間合い = 探索中のみ (戦闘中・リザルト中・塔の母の随伴中は撤退不可)。
+     *      これは安全網 —— 全滅して酒場で蘇生費を払う前に自衛できる。
+     *   ⛔ autoplay / 自動巡回 (headless) では完全休眠 = 検証の決定論を壊さない。
+     *   ⛔ 撤退ロジックは二重化しない —— 既存ハンドラを click で呼ぶだけ。 */
+    function partyHpRatio() {
+      let cur = 0, max = 0;
+      if (hp > 0) { cur += hp; max += maxHp; }              // 隊列先頭 (生存時のみ)
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i];
+        if (a && a.alive) { cur += Math.max(0, a.hp); max += (a.maxHp || 0); }
+      }
+      return max > 0 ? (cur / max) : 1;                     // 全員死亡なら 1 (= 発動しない。gameOver 側が処理)
+    }
+    setInterval(() => {
+      if (!AUTO_RETREAT_ON) return;
+      if (window.__autoplay || window.__diagEnabled) return;   // headless/自動巡回は休眠 (決定論)
+      if (!gameStarted || gameOver || dungeonCleared) return;
+      if (encounterActive || encounterRunning) return;         // 戦闘中は撤退できない (手動と同じ間合い)
+      if (retreatInProgress || autoRetreatFiring) return;
+      if (towerMotherActive()) return;                          // ★[#83] 塔の母の随伴中は撤退不可
+      const line = getRetreatLinePct();
+      if (line <= 0) return;                                    // 「設定しない」(既定) は何もしない
+      if (partyHpRatio() > line / 100) return;
+      autoRetreatFiring = true;                                 // バナーを自動撤退用の文言に切替
+      if (retreatBtnEl && !retreatBtnEl.disabled) retreatBtnEl.click();
+    }, 400);
 
     // ── Phase4: スマホ ドロワー開閉 + 下部HPミニバーのタップ委譲 (F/E) ──
     // openDrawer/closeDrawer は関数宣言 → onViewportResize から先行参照されてもホイスティングで安全。
