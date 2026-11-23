@@ -24,7 +24,10 @@
  *   - 乱数は固定しない。(1c)「砦まで 4 本で塔の母が卓に入りうる」は確率的 ⇒ 回数で偽赤の確率を抑える:
  *       drawBoard (tavern.html) は本筋 (神殿) を必ず入れ、残り 1 枠を「解放済み 6 件 − 本筋」= 5 件から一様に引く。
  *       ⇒ 1 回の引きで塔の母が出る確率 p = 1/5、N 回で 1 度も出ない (= 素が偽赤になる) 確率 = 0.8^N。
- *       N = 42 で 0.8^42 = 8.5e-5 (< 1e-4)。⛔ 依頼書の「8 回」は 0.8^8 = 16.8% で偽赤になるので採らない (§12-2)。
+ *       N = 42 で 0.8^42 = 8.5e-5 (< 1e-4)。
+ *     ★[#120] 上の 1/5 は #83 の時点の値で、#103〜#107 で古くなっていた (砦までの解放済み = 本筋 5 + side 5 = 10 件、
+ *       本筋を除く 9 件から引く)。さらに #120 で卓の依頼が 3 件 (自由枠 2) になった ⇒ p = 1 − C(8,2)/C(9,2) = 2/9、
+ *       N = 42 で (7/9)^42 ≈ 2.6e-5 (< 1e-4)。定数は実測の母集団へ直した (依頼書 #120 §12-1 / §12-4)。⛔ 依頼書の「8 回」は 0.8^8 = 16.8% で偽赤になるので採らない (§12-2)。
  *       OFF 腕 (?tower=0) は塔の母が scenarios に居ない = 何回引いても 0 回 (決定的)。N_OFF = 8。
  *   - 強さ (⑤) は assert にしない (別の道具で記録する。依頼書 §12-2)。
  *
@@ -102,7 +105,7 @@ const CLEARED_KEY = 'dragonfighters.cleared';
 const VIEW = { width: 1280, height: 800 };
 /* 回数。⭐ N_1C_ON は偽赤の確率 0.8^N < 1e-4 となる最小の N (= 42)。下げると素が確率で赤くなる */
 const N_1C_ON = 42, N_1C_OFF = 8;
-const P_TOWER_PER_DRAW = 1 / 5;
+const P_TOWER_PER_DRAW = 2 / 9;   /* ★[#120] 自由枠 2 / 母集団 9 件 (旧 1/5 は #83 時点の値) */
 const FALSE_RED = Math.pow(1 - P_TOWER_PER_DRAW, N_1C_ON);
 if (!(FALSE_RED < 1e-4)) { console.error('[vet] ⛔ N_1C_ON=' + N_1C_ON + ' では偽赤の確率 ' + FALSE_RED + ' が 1e-4 以上'); process.exit(3); }
 const ENC_START_WAIT_MS = 90000;   // K14: 入室の語りの待ちで 23 秒前後
@@ -507,7 +510,7 @@ async function runSuite(browser, port, mutKey, label) {
       { allMain: on.allMain, main: on.main });
     const indepOn = indepFrontier(on.scen, MAIN4);
     const towerN = onDraws.filter((s) => Array.isArray(s) && s.indexOf(TOWER) >= 0).length;
-    const frontierEvery = onDraws.every((s) => Array.isArray(s) && s.length === 2 && s.indexOf(indepOn) >= 0);
+    const frontierEvery = onDraws.every((s) => Array.isArray(s) && s.length === 3 && s.indexOf(indepOn) >= 0   /* ★[#120] 卓の依頼は 3 件 */);
     const c1On = towerN >= 1;
     R.check('(1c)', 'cleared=砦まで → ' + N_1C_ON + ' 回の引きで塔の母が 1 回以上・毎回本筋 (独立計算) が卓に在り、本番の本筋も同じ',
       c1On && frontierEvery && indepOn === mainIds[MAIN4.length] && on.frontier === indepOn,

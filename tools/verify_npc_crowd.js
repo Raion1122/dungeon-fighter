@@ -137,18 +137,21 @@ const NPC_SETTLE_MS = 1500;
  * ⚠ ここが動いたら「マスクを 1 文字も変えない」(依頼書 §2-5) が破れている。 */
 /* ⭐ #81: 酒場の札は「盤面の卓 (戻るたびに入れ替わる依頼) + 扉 2 枚 (町へ出る / 武器防具屋)」。
  *   卓の枚数は **ページの __TAVERN_TV.board() から導出**する (⛔ 4 を焼かない)。
- *   ⚠ 盤面は newPage() で {t1:廃坑, t2:森} を種まきして決定的にしてある
- *     (乱数の席のままだと desktop / compact で札の並びが変わり (4d) の id 一致が揺れる)。 */
+ *   ⚠ 盤面は newPage() で {t1:廃坑, t2:巣穴, t3:??? 森} を種まきして決定的にしてある
+ *     (乱数の席のままだと desktop / compact で札の並びが変わり (4d) の id 一致が揺れる)。
+ *   ★[#120] 卓の依頼は 3 件。⚠ 旧種 {t1:廃坑, t2:森} は #103 (巣穴が最初から解放済み) の時点で既に不正
+ *     (解放済み 2 件 = BOARD_SIZE なので「次の未解放」を許さない) → 毎回捨てられて無作為に引き直され、
+ *     (1a)(4d) が揺れていた (依頼書 #120 §12-1)。⇒ 新規状態で妥当な 3 席へ言い直した。 */
 const POP = {
   tavern: { blocked: 87,  walkable: 63,  doors: 2 },
   town:   { blocked: 216, walkable: 129, signs: 3 },
 };
-const QUEST_BOARD_SEED = { v: 1, seats: { t1: 'goblin-mine', t2: 'bandits-forest' }, nonce: 'SEED-npc' };
-/* ⚠⚠ #81 で札が出る卓は 3 席のうち 2 席だけになった。(1a) の「札と NPC が交差しない」は **3 席すべて**で
+const QUEST_BOARD_SEED = { v: 1, seats: { t1: 'goblin-mine', t2: 'kobold-warren', t3: 'bandits-forest' }, nonce: 'SEED-npc' };
+/* ⚠⚠ #81 で札が出る卓は 3 席のうち 2 席だけになった (★[#120] 3 件に戻り 3 席すべてに札が出るが、盤面 B は席の割り当てを並べ替えた別の面として残す)。(1a) の「札と NPC が交差しない」は **3 席すべて**で
  *   守られていないといけない (本番はどの 2 席も引き得る) ⇒ (1a) 専用に、残る席 t3 を含む盤面の
  *   酒場ページ (desktop / compact) を足して測る。⛔ これを外すと変異 strollsign (t3 の席札 (9,3) と
  *   巡回経路 (8,3) が交差) が空振りする (#81 項目2 で実測)。 */
-const QUEST_BOARD_SEED_B = { v: 1, seats: { t3: 'goblin-mine', t2: 'bandits-forest' }, nonce: 'SEED-npc-B' };
+const QUEST_BOARD_SEED_B = { v: 1, seats: { t1: 'bandits-forest', t2: 'kobold-warren', t3: 'goblin-mine' }, nonce: 'SEED-npc-B' };
 /* 期待する札の枚数。酒場 = そのページで測った盤面の卓数 + 扉。盤面が測れなければ NaN (= 必ず赤) */
 function wantSigns(pop, p) {
   if (pop.doors === undefined) return pop.signs;
@@ -442,7 +445,7 @@ async function newPage(browser, view, seedBoard) {
       kill2.forEach(k => sessionStorage.removeItem(k));
       localStorage.setItem('dragonfighters.prologueSeen', '1');
       localStorage.setItem('dragonfighters.partyComposition', JSON.stringify(['warrior']));
-      /* #81: 卓の盤面を種まき (新規状態で妥当な盤面 = 本筋の廃坑 + 次の未解放の森) */
+      /* #81: 卓の盤面を種まき (新規状態で妥当な盤面 = ★[#120] 本筋の廃坑 + 巣穴 + 次の未解放の森 の 3 件) */
       localStorage.setItem('dragonfighters.questBoard', seed);
     } catch (e) {}
   }, JSON.stringify(seedBoard || QUEST_BOARD_SEED));

@@ -151,7 +151,7 @@ const SIGN_STANDS = ['title', ST_SITE, STEP_GUARD];
 const BOARD_KEY = 'dragonfighters.questBoard';
 const CLEARED_KEY = 'dragonfighters.cleared';
 const VIEW = { width: 1280, height: 800 };
-const N_1C = 8;                      // (1c) 引き直しの回数 (解放済みが 2 件 = 決定的)
+const N_1C = 8;                      // (1c) 引き直しの回数 (★[#120] 盤面 3 件 = 解放済み 2 件 + 次の未解放の森 = 全部強制で決定的)
 const BOSS_TURNS = 3;                // §3 の戦闘でボスの手番を何回見るか
 const GUARD_TURNS = 2;               // (0c) n0 の番人の手番を何回見るか
 const ENC_START_WAIT_MS = 90000;
@@ -848,12 +848,13 @@ async function runSuite(browser, port, mutKey, label) {
         && J(on0.main) === J(mainIds) && mainIds.length === 6 && mainIds.indexOf(ST) < 0 && sideIds.indexOf(ST) >= 0
         && !!c6.facts && !!cAll.facts && c6.facts.frontier === null && cAll.facts.frontier === null,
       { allMain: on0.allMain, main: on0.main, side: sideIds, c6: c6.facts && c6.facts.frontier, cAll: cAll.facts && cAll.facts.frontier });
-    const pairIs = (s, a, b) => Array.isArray(s) && s.length === 2 && s.indexOf(a) >= 0 && s.indexOf(b) >= 0;
+    /* ★[#120] 卓の依頼は 3 件。開始直後は {廃坑, 巣穴, ??? 森} の 3 件で全部強制 = 決定的なまま (2 件の組 pairIs から言い直し) */
+    const tripleIs = (s, a, b, c) => Array.isArray(s) && s.length === 3 && s.indexOf(a) >= 0 && s.indexOf(b) >= 0 && s.indexOf(c) >= 0;
     const wayLook = (w) => !!w && /\bworldNode-way\b/.test(w.cls || '') && w.sign === null && !w.title;
     const srt = (a) => J((a || []).slice().sort());
-    R.check('(1c)', 'cleared=[] → 卓は「' + MINE + ' + 巣穴」・本筋は ' + MINE + '・' + N_1C + ' 回引き直しても変わらない / cleared=[' + MINE + '] → 解放済み 4 件のまま (' + [MINE, FOREST, WARREN, CARGO].join('・') + ') / どちらも world.html の ' + ST_SITE + ' は中継点の見た目',
+    R.check('(1c)', 'cleared=[] → 卓は「' + MINE + ' + 巣穴 + ??? ' + FOREST + '」(★[#120] 3 件)・本筋は ' + MINE + '・' + N_1C + ' 回引き直しても変わらない / cleared=[' + MINE + '] → 解放済み 4 件のまま (' + [MINE, FOREST, WARREN, CARGO].join('・') + ') / どちらも world.html の ' + ST_SITE + ' は中継点の見た目',
       !!on0.facts && srt(on0.facts.unlocked) === srt([MINE, WARREN]) && on0.facts.frontier === MINE
-        && onDraws.length === N_1C && onDraws.every((d) => pairIs(d, MINE, WARREN))
+        && onDraws.length === N_1C && onDraws.every((d) => tripleIs(d, MINE, WARREN, FOREST))
         && !!on1.facts && srt(on1.facts.unlocked) === srt([MINE, FOREST, WARREN, CARGO]) && wayLook(w0) && wayLook(w1),
       { facts0: on0.facts, draws: onDraws, facts1: on1.facts && on1.facts.unlocked, world0: { cls: w0.cls, sign: w0.sign, title: w0.title }, world1: { cls: w1.cls, sign: w1.sign, title: w1.title } });
     const D1 = (s, w, offFacts) => !!s.facts && (s.facts.unlocked || []).indexOf(ST) >= 0 && (s.facts.unlocked || []).indexOf(SWAMP) >= 0

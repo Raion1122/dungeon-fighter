@@ -114,7 +114,7 @@ const BOARD_KEY = 'dragonfighters.questBoard';
 const CLEARED_KEY = 'dragonfighters.cleared';
 const LAST_RESULT_KEY = 'dragonfighters.lastResult';
 const VIEW = { width: 1280, height: 800 };
-const N_1C = 8;                      // (1c) 引き直しの回数 (解放済みが 2 件 = 決定的。依頼書 §8 の 8 回)
+const N_1C = 8;                      // (1c) 引き直しの回数 (★[#120] 盤面 3 件 = 解放済み 2 件 + 次の未解放の森 = 全部強制で決定的。依頼書 §8 の 8 回)
 const CHIEF_TURNS = 3;               // §3 の戦闘で族長の手番を何回見るか ((3b) は 2 回目以降)
 const ENC_START_WAIT_MS = 90000;
 const ENC_END_WAIT_MS = 120000;
@@ -541,10 +541,13 @@ async function runSuite(browser, port, mutKey, label) {
       { allMain: on.allMain, main: on.main, mainIds });
     const MINE = mainIds[0], FOREST = mainIds[1];
     const pairIs = (s, a, b) => Array.isArray(s) && s.length === 2 && s.indexOf(a) >= 0 && s.indexOf(b) >= 0;
+    /* ★[#120] 卓の依頼は 3 件。開始直後 (cleared=[]) は {廃坑, 巣穴, ??? 森} の 3 件で全部強制 = 決定的なまま。
+       ⚠ (4b) の ?warren=0 は上限 2 (廃坑 + ??? 森) なので pairIs (2 件の組) のまま。C1(off) は巣穴が無いので偽になる。 */
+    const tripleIs = (s, a, b, c) => Array.isArray(s) && s.length === 3 && s.indexOf(a) >= 0 && s.indexOf(b) >= 0 && s.indexOf(c) >= 0;
     const C1 = (s, draws) => !!s.facts && J((s.facts.unlocked || []).slice().sort()) === J([MINE, KW].sort()) && s.facts.frontier === MINE
-      && draws.length === N_1C && draws.every((d) => pairIs(d, MINE, KW));
+      && draws.length === N_1C && draws.every((d) => tripleIs(d, MINE, KW, FOREST));
     const c1On = C1(on, onDraws);
-    R.check('(1c)', 'cleared=[] → 卓は「' + MINE + ' + 巣穴」・本筋は ' + MINE + '・' + N_1C + ' 回引き直しても変わらない',
+    R.check('(1c)', 'cleared=[] → 卓は「' + MINE + ' + 巣穴 + ??? ' + FOREST + '」(★[#120] 3 件)・本筋は ' + MINE + '・' + N_1C + ' 回引き直しても変わらない',
       c1On, { facts: on.facts, draws: onDraws });
     R.check('(1d)', 'cleared = 本筋 6 本 (と +巣穴) → 本筋は null (巣穴を本筋にしない)',
       !!c6.facts && !!c7.facts && c6.facts.frontier === null && c7.facts.frontier === null,

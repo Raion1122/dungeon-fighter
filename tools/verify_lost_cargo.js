@@ -135,7 +135,7 @@ const SIGN_VIEWS = [{ w: 1440, h: 900, mobile: false }, { w: 390, h: 844, mobile
 const BOARD_KEY = 'dragonfighters.questBoard';
 const CLEARED_KEY = 'dragonfighters.cleared';
 const VIEW = { width: 1280, height: 800 };
-const N_1C = 8;                      // (1c) 引き直しの回数 (解放済みが 2 件 = 決定的)
+const N_1C = 8;                      // (1c) 引き直しの回数 (★[#120] 盤面 3 件 = 解放済み 2 件 + 次の未解放の森 = 全部強制で決定的)
 const BOSS_TURNS = 3;                // §3 の戦闘でボスの手番を何回見るか
 const ENC_START_WAIT_MS = 90000;
 const ENC_END_WAIT_MS = 120000;
@@ -740,11 +740,12 @@ async function runSuite(browser, port, mutKey, label) {
         && J(on0.main) === J(mainIds) && mainIds.length === 6 && mainIds.indexOf(LC) < 0
         && !!c6.facts && !!c8.facts && c6.facts.frontier === null && c8.facts.frontier === null,
       { allMain: on0.allMain, main: on0.main, c6: c6.facts && c6.facts.frontier, c8: c8.facts && c8.facts.frontier });
-    const pairIs = (s, a, b) => Array.isArray(s) && s.length === 2 && s.indexOf(a) >= 0 && s.indexOf(b) >= 0;
+    /* ★[#120] 卓の依頼は 3 件。開始直後は {廃坑, 巣穴, ??? 森} の 3 件で全部強制 = 決定的なまま (2 件の組 pairIs から言い直し) */
+    const tripleIs = (s, a, b, c) => Array.isArray(s) && s.length === 3 && s.indexOf(a) >= 0 && s.indexOf(b) >= 0 && s.indexOf(c) >= 0;
     const wayLook = (w) => !!w && /\bworldNode-way\b/.test(w.cls || '') && w.sign === null && !w.title;
-    R.check('(1c)', 'cleared=[] → 卓は「' + MINE + ' + 巣穴」・本筋は ' + MINE + '・' + N_1C + ' 回引き直しても変わらない・world.html の ' + LC_SITE + ' は中継点の見た目 (札・title なし)',
+    R.check('(1c)', 'cleared=[] → 卓は「' + MINE + ' + 巣穴 + ??? ' + FOREST + '」(★[#120] 3 件)・本筋は ' + MINE + '・' + N_1C + ' 回引き直しても変わらない・world.html の ' + LC_SITE + ' は中継点の見た目 (札・title なし)',
       !!on0.facts && J((on0.facts.unlocked || []).slice().sort()) === J([MINE, WARREN].sort()) && on0.facts.frontier === MINE
-        && onDraws.length === N_1C && onDraws.every((d) => pairIs(d, MINE, WARREN)) && wayLook(w0),
+        && onDraws.length === N_1C && onDraws.every((d) => tripleIs(d, MINE, WARREN, FOREST)) && wayLook(w0),
       { facts: on0.facts, draws: onDraws, world: { cls: w0.cls, sign: w0.sign, title: w0.title } });
     const D1 = (s, w) => !!s.facts && J((s.facts.unlocked || []).slice().sort()) === J([MINE, FOREST, WARREN, LC].sort())
       && !!w && /\bworldNode-site\b/.test(w.cls || '') && !!w.sign && w.sign.indexOf(PLACE) >= 0;

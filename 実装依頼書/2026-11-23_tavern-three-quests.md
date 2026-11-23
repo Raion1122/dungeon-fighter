@@ -1,6 +1,6 @@
 # #120 酒場の依頼を 3 件へ(空いていた卓にも依頼人を座らせる)
 
-- **起草**: 2026-11-23(計画窓) / **ステータス**: **承認済**(2026-11-23 ユーザー承認)
+- **起草**: 2026-11-23(計画窓) / **ステータス**: **完了**(2026-11-23 ユーザー承認 → 同日 項目 1〜4 完了。残 = §9 実機 4 点・未実施)
 - **起草時 HEAD**: `90bbcbf`(作業ツリー clean・`origin/main..HEAD` = 0 本 = 並走窓なし)
 - **会議**: `dev-meetings/2026-11-23_tavern-more-quests.md`(第 1 段 候補① → 第 2 段 開発計画書)
 - **触るファイル**: `tavern.html`(盤面の件数・件数関数・撤退・コメント)/ `js/changelog.js`(1 行)/ `tools/verify_quest_draw.js`(言い直し)/ §2-5 の表の検証ドライバ
@@ -509,3 +509,93 @@
 1. 項目 4 の golden の `verify_quest_draw` の基準は **19/19**(項目 1 の 18/18 ではない)。
 2. `verify_tavern_map` の (2a)(5b)(5c) と `verify_npc_crowd` の種は、§12-1 の表どおり 3 席の種へ言い直す。
 3. 落とした #81 の変異 5 本(上の「変異の扱い」)は、要るなら別チケットで足す。
+
+### 12-4. 非退行 + 文書(項目 4・2026-11-23 夜・基準 HEAD `98ac2f9`)
+
+**結論: §2-5 の「2 件」前提のドライバ 6 本を、§12-1 の「§2-5 の扱い」の表どおりに言い直した(assert は 1 つも緩めていない)。そのうえで golden 39 本を走らせ、赤の集合は基準 { `driver_speech_v2` (A1) / `verify_egg_parent` (6a) / `verify_frost_hold` (6b) / `verify_witch_hut` (6b) } と同じ(増えていない)。着手前から揺れていた `verify_npc_crowd` は、種を 3 席に直した後 4 回とも 33/33 で緑のまま安定した。** 本番ファイル(`tavern.html` / `index.html` / `js/*`)は 1 バイトも触っていない = changelog 不要・フックも鳴らない。
+
+#### (1) 言い直したドライバ(改行は 6 本とも LF のまま)
+
+| ドライバ | どの判定を | 扱い | 中身 |
+|---|---|---|---|
+| `verify_tavern_map` | 種 `QUEST_BOARD_SEED`・(2a)・(5b)・(5c) | **3 件の組へ** | 種 = {t1 廃坑, t2 巣穴, t3 森(未解放 = ???)}(nonce `SEED-vtm` のまま)。(2a)(5b)(5c) は枚数 `n` を種の席数から導くのでコードは追従し、(2a)(5b) の文面だけ「3 枚」へ |
+| 〃 | `QUEST_BOARD_SEED_OFF`・(2d) | **そのまま**(`?warren=0` の上限 2) | 2 席の種 {廃坑, ??? 森} は今も妥当で採用される(素で緑)。`boardCount` を外す罠(変異 `fixedcount`)が入るとこの種が捨てられて (2d) が赤 = 罠の番人を兼ねる、とコメントに書いた |
+| 〃 | `:521`〜`:524` のコメント・(2d) の文面(旧 `:1320`) | **#103 の ??? 判定を裏返した** | 「★[#103] 開始直後の解放済みが 2 件になり ??? は出ない」→「★[#120] 既定の世界でも 3 卓目に ??? の森が出る(#103 の前提は裏返った)。(2d) は `?warren=0` の 2 件の世界のまま測る」。⚠ 期待値の反転は無い(コメントと文面だけ)。既定の世界の ??? を測る判定は足していない(`verify_quest_draw` (1a) が森の `.locked` と `???` を 6 回測っている = 二重に持たない) |
+| `verify_npc_crowd` | 種 `QUEST_BOARD_SEED`・`QUEST_BOARD_SEED_B` | **3 件の組へ** | 種 = {t1 廃坑, t2 巣穴, t3 森}・B = 並べ替えた {t1 森, t2 巣穴, t3 廃坑}。卓数の導出(`board()` から)と (1a) の `seatOk`・(4d) は触っていない。⭐ 旧種は #103 の時点で既に不正(§12-1)= 種を今の世界に合わせただけで、期待値は緩めていない |
+| `verify_kobold_warren` | (1c) の onDraws | **3 件の組へ** | `tripleIs(d, 廃坑, 巣穴, 森)` を足して (1c) の `C1` に使う(8 回とも決定的のまま)。文面も「廃坑 + 巣穴 + ??? 森(3 件)」へ |
+| 〃 | (4b) の offDraws(`?warren=0`) | **2 件の組のまま** | `pairIs(d, 廃坑, 森)` を残した(上限 2)。`offTriple` の `C1(off)` は「巣穴が無い」で偽になる = 件数違いで偽になるのではない(コメントに明記)。走らせて (4b) 緑 |
+| `verify_lost_cargo` | (1c) の onDraws | **3 件の組へ** | `pairIs` → `tripleIs(d, 廃坑, 巣穴, 森)`(`pairIs` はこの 1 か所でしか使っていないので置き換えた)。「開始直後の卓に倉庫街が出ない」の主旨は 3 件でも同じ |
+| `verify_silent_tomb` | (1c) の onDraws | **3 件の組へ** | 同上(墓所が出ない) |
+| `verify_tower_mother` | (1c) の `frontierEvery` | **3 件の組へ** | `s.length === 2` → `=== 3` |
+| 〃 | `P_TOWER_PER_DRAW`(`:105`)と説明 | **実測の母集団へ直した** | 1/5(#83 の時点の値)→ **2/9**(砦までの解放済み 10 件から本筋を除いた 9 件から自由枠 2 を引く: 1 − C(8,2)/C(9,2) = 8/36)。偽赤の確率 (7/9)^42 ≈ 2.6e-5。⛔ `:107` の門(`FALSE_RED < 1e-4` でなければ exit 3)と `N_1C_ON = 42` は変えていない。⚠ 旧 1/5 は実際(2 件の世界の 1/9)より楽観的だった = 直すと門が実際の値を見るようになる |
+
+- **`?board3=0` の腕へ移したもの**: この項目では **なし**(移したのは項目 3 の `verify_quest_draw` (2a) だけ・§12-3)。
+- **影響なしの見込みで言い直さなかったもの**: `verify_witch_hut` / `verify_frost_hold` / `verify_recruit_size` / `verify_quest_walk` / `driver_depart_menu_clean` — 走らせて基準と同じ(下の表)。
+
+#### (2) 先に回した単体走行(言い直しの直後・19:24〜19:29 = 昼)
+
+| 走行 | 結果 |
+|---|---|
+| `verify_tavern_map` | 47/47 |
+| `verify_npc_crowd` 1 回目 / 2 回目 / 3 回目 | 33/33 / 33/33 / 33/33(札の id は 3 回とも `questTable_goblin-mine` / `kobold-warren` / `bandits-forest` = 種が採用されている) |
+
+golden の中の 1 回(4 回目)も 33/33。⇒ **4 回とも緑**。§12-1 で 4 回中 3 回赤だった揺れ {(1a)・ときどき (4d)} は消えた。
+
+#### (3) golden 39 本(HEAD `98ac2f9` + 言い直し 6 本・直列・2026-11-23 19:29〜)
+
+ログ = `C:\Users\PC_User\.claude\dev-loop\r120\item4\`(`run_golden.ps1` = 項目 1 の写しで出力先と baseline 作業木の名前だけ `_r120i4` / `golden_raw.txt` / 各 `<driver>.log` / 単体走行 `pre_*.log` と `pre_summary.txt`)。酒場 / 盤面に触れる 12 本は先頭に並べ、**19:29〜19:57 の昼の帯**で終わった(闇市の開く 20:00 より前)。`driver_dev_gate2` は `--baseline %TEMP%\df_cleanup2_base_r120i4`、`driver_field_step6` は `--baseline-dir %TEMP%\df_step6_baseline_r120i4`(終了後に 2 つとも `git worktree remove`)。
+
+| ドライバ | 項目 1(`e14fd3c`) | この項目(`98ac2f9` + 言い直し) | 所要 | 備考 |
+|---|---|---|---|---|
+| `verify_quest_draw` | 18/18 | **19/19** | 47 秒 | 基準は項目 3 の 19/19(項目 1 の 18/18 は #81 版) |
+| `verify_tavern_map` | 47/47 | **47/47** | 26 秒 | **言い直し**(3 席の種)。素の HEAD では (2a)(5b)(5c) が赤だった(§12-2) |
+| `verify_npc_crowd` | 32/33 {(1a)}(揺れ) | **33/33** | 80 秒 | **言い直し**(3 席の種)。項目 1 は 4 回中 3 回赤 {(1a)・ときどき (4d)} → 今回は 4 回とも 33/33 |
+| `verify_kobold_warren` | 21/21 | **21/21** | 108 秒 | **言い直し**((1c) 3 件の組・(4b) は 2 件の組のまま) |
+| `verify_lost_cargo` | 22/22 | **22/22** | 178 秒 | **言い直し**((1c) 3 件の組) |
+| `verify_tower_mother` | 19/19 | **19/19** | 131 秒 | **言い直し**(`frontierEvery` 3 件・`P_TOWER_PER_DRAW` 2/9) |
+| `verify_recruit_size` | 91/91 | **91/91** | 36 秒 | — |
+| `verify_quest_walk` | 25/25 | **25/25** | 137 秒 | — |
+| `driver_depart_menu_clean` | 41/41 | **41/41** | 52 秒 | — |
+| `verify_silent_tomb` | 24/24 | **24/24** | 277 秒 | **言い直し**((1c) 3 件の組) |
+| `verify_witch_hut` | 28/29 {(6b)} | **28/29 {(6b)}** | 500 秒 | 基準と同じ赤。`same:false` = {`allyShadowStep`, `showCharChoice`}・✗ の行は項目 1 と 1 文字も違わない |
+| `verify_frost_hold` | 27/28 {(6b)} | **27/28 {(6b)}** | 129 秒 | 基準と同じ赤(`runEncounter` 21906→22068)・✗ の行は項目 1 と同一 |
+| `verify_path_advice` | 21/21 | **21/21** | 47 秒 | — |
+| `driver_speech_engine` | 18/18 | **18/18** | 67 秒 | — |
+| `driver_speech_v2` | 45/46 {(A1)} | **45/46 {(A1)}** | 50 秒 | 基準と同じ赤(敵種の鳴き声)・FAILED の行は項目 1 と同一 |
+| `driver_speech_hooks` | 13/13 | **13/13** | 260 秒 | 所要が 49 → 260 秒に伸びたが 13/13(判定は同じ) |
+| `driver_speech_boss` | 19/19 | **19/19** | 22 秒 | — |
+| `verify_tower_mother_b` | 22/22 | **22/22** | 335 秒 | — |
+| `driver_dev_gate2` | 62/62 | **62/62** | 31 秒 | `--baseline …_r120i4`・終了後に worktree remove 済み |
+| `verify_companion_cast` | 24/24 | **24/24** | 37 秒 | — |
+| `verify_goodberry` | 23/23 | **23/23** | 13 秒 | — |
+| `driver_doors_p6` | 40/40 | **40/40** | 43 秒 | — |
+| `driver_room_search_roll` | 39/39 | **39/39** | 5 秒 | — |
+| `verify_lore_check` | 26/26 | **26/26** | 8 秒 | — |
+| `verify_corner_check` | 20/20 | **20/20** | 85 秒 | — |
+| `verify_ambush_round` | 18/18 | **18/18** | 11 秒 | — |
+| `verify_banter_callouts` | 20/20 | **20/20** | 13 秒 | — |
+| `driver_graph_arrows` | 80/80 | **80/80** | 19 秒 | — |
+| `driver_graph_kinds` | 66/66 | **66/66** | 42 秒 | — |
+| `driver_graph_run` | 99/99 | **99/99** | 61 秒 | — |
+| `driver_graph_sce1` | 106/106 | **106/106** | 220 秒 | — |
+| `driver_grid_p9` | 52/52 | **52/52** | 416 秒 | — |
+| `driver_scroll_autoskip` | 9/9 | **9/9** | 8 秒 | — |
+| `driver_choice_logslot` | 29/29 | **29/29** | 9 秒 | — |
+| `verify_mage_hand` | 32/32 | **32/32** | 141 秒 | — |
+| `verify_mage_hand_reach` | 11/11 | **11/11** | 18 秒 | — |
+| `verify_arcane_eye` | 34/34 | **34/34** | 69 秒 | — |
+| `verify_egg_parent` | 25/26 {(6a)} | **25/26 {(6a)}** | 107 秒 | 基準と同じ赤(`runEncounter`)・✗ の行は項目 1 と同一 |
+| `driver_field_step6` | 65/65 | **65/65** | 1692 秒 | `--baseline-dir …_r120i4`・終了後に worktree remove 済み |
+
+**赤の集合 = { `driver_speech_v2` (A1) / `verify_egg_parent` (6a) / `verify_frost_hold` (6b) / `verify_witch_hut` (6b) } = 基準と一致(増えていない)。** 39 本のうち緑 35 本・赤 4 本(全部 #120 より前から)。§12-1 の「揺れる赤」`verify_npc_crowd` は消えた。最後の `driver_field_step6` は 21:01 に終わった(所要の合計 ≈ 92 分)。
+
+#### (4) 残る §9 の実機確認(ここが本当の受入・ユーザーが行う・**未実施**)
+
+§9 の 4 点(iPhone 縦で 3 枚の札と `#questBoard` がかぶらない / 旧 2 件が 1 回だけ 3 件へ入れ替わる / 新規開始の 3 卓目が ??? 札 / 依頼から戻ると 3 件とも入れ替わる)は、この項目では行っていない。
+
+#### (5) 別チケット候補
+
+- `verify_quest_draw` — #81 の変異 5 本(`lockedpool` / `novalidate` / `backroomdoor` / `shopbtn` / `killshopdom`)を落とした(§12-3)。判定は残っているので、要るなら負のコントロールを足し直す
+- `verify_witch_hut` (6b) / `verify_egg_parent` (6a) / `verify_frost_hold` (6b) — 「触らない約束の関数」の基準の版が古い(#114 の `runEncounter` / `allyShadowStep`、#119 の `showCharChoice`)。#119 からの持ち越し
+- `driver_speech_v2` (A1) — 敵種に `enemy.cry.<type>` が無い(#117 の前から)
+- `verify_tavern_map` — 既定の世界の 3 卓目の ??? を地図の幾何の側(DOM の札の位置)でも測るなら (2d) と同じ形の判定を 1 つ足せる(今は `verify_quest_draw` (1a) が持っている)

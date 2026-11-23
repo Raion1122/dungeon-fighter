@@ -518,11 +518,13 @@ const ALL_PHASES = ['base', 'compact', 'off', 'walk1', 'walk6', 'walkbad', 'door
  *   (本筋 = 廃坑 + 次の未解放 = 森 / 席 t1・t2 = 旧配置と同じ席)。
  *   旧 3 卓の検査は撤退 ?questdraw=0 (qoff / qoffc / back フェーズ) へ移して残す。
  *   ⛔ 種が捨てられて引き直されたら (2a) が nonce で赤くする (= 乱数の席で偶然緑、を許さない)。 */
-/* ★[#103] 巣穴 kobold-warren が最初から解放済みになり、新規状態の解放済みは 2 件 (廃坑 + 巣穴) = 「次の未解放」は卓に出ない。
- *   ⇒ ON のページの種は「廃坑 + 巣穴」(席 t1・t2 は旧配置と同じ)。
- *   ⇒ 未解放の卓が ??? で出ること ((2d)) は撤退 ?warren=0 の世界 (= #102 までの姿) で、#81 の種「廃坑 + 次の未解放の森」で測る
- *     (base フェーズの中で base0 として採る。⛔ ??? の経路の検査を落とさない)。 */
-const QUEST_BOARD_SEED = { v: 1, seats: { t1: 'goblin-mine', t2: 'kobold-warren' }, nonce: 'SEED-vtm' };
+/* ★[#103] 巣穴 kobold-warren が最初から解放済みになり、新規状態の解放済みは 2 件 (廃坑 + 巣穴)。
+ * ★[#120] 卓の依頼は 3 件 (BOARD_SIZE 3)。⚠ #103 の「開始直後に ??? は出ない」は **裏返った**:
+ *   既定の世界でも 3 卓目に「次の未解放 = 森」が ??? で出る (依頼書 #120 §1 ユーザー決定)。
+ *   ⇒ ON のページの種は「廃坑 + 巣穴 + ??? 森」の 3 席 (t1・t2 は旧配置と同じ・t3 = 森)。2 席の種は boardValid ① で捨てられる。
+ *   ⇒ (2d) は撤退 ?warren=0 の世界 (上限 = 廃坑 + ??? 森の 2 件) のまま #81 の 2 席の種で測る
+ *     (base フェーズの中で base0 として採る。⭐ #120 §2-2 の罠 (boardCount を使わず「ちょうど BOARD_SIZE 件」) が入るとこの種が捨てられて赤 = 番人を兼ねる)。 */
+const QUEST_BOARD_SEED = { v: 1, seats: { t1: 'goblin-mine', t2: 'kobold-warren', t3: 'bandits-forest' }, nonce: 'SEED-vtm' };
 const QUEST_BOARD_SEED_OFF = { v: 1, seats: { t1: 'goblin-mine', t2: 'bandits-forest' }, nonce: 'SEED-vtm-off' };
 /* (5a) の許容。⚠ 依頼書の「zoom 1.5 以下」は港町 (TILE 64) の天井を zoom で書いたもの。
    項目 2 の layout() は Math.min(96 / TILE, ...) なので、不変量は **1 マスの実表示 px**。
@@ -1258,7 +1260,7 @@ const ASSERT_OF = {};
  *    (「測っていないから緑」は #23 の事故そのもの)。 */
 [
   /* ── §2 卓が 3 つで、シナリオ1〜3 に対応している ─────────────────────────── */
-  ['2a', '#tavernStage 上の席札が種の盤面どおりちょうど 2 枚 (#81: 戻るたびに入れ替わる 2 件) / id が questTable_<scenarioId> / 中心の elementFromPoint が自分自身',
+  ['2a', '#tavernStage 上の席札が種の盤面どおりちょうど 3 枚 (#81: 戻るたびに入れ替わる・★[#120] 3 件) / id が questTable_<scenarioId> / 中心の elementFromPoint が自分自身',
     (m) => {
       const b = TB(m);
       if (!b) return [false, '⛔ base フェーズを測っていない'];
@@ -1317,7 +1319,7 @@ const ASSERT_OF = {};
         + ' → 戻すと "' + p.restored + '"' + (p.ok ? '' : '  ⛔ ' + p.why)];
     }],
   ['2d', '未解放の卓は DOM に在り、かつ ??? 表示である (⛔ 隠していない) — #81: 盤面の卓 (種 = 廃坑 + 次の未解放の森) で測る'
-    + ' (★[#103] 開始直後の解放済みが 2 件になり ??? は出ないので、撤退 ?warren=0 の世界で測る)',
+    + ' (★[#120] 既定の世界でも 3 卓目に ??? の森が出る (#103 の「開始直後に ??? は出ない」は裏返った)。この判定は撤退 ?warren=0 の 2 件の世界のまま測る)',
     (m) => {
       const b = TB0(m);
       if (!b) return [false, '⛔ base0 (?warren=0) を測っていない'];
@@ -1486,7 +1488,7 @@ const ASSERT_OF = {};
         + ' = 1 マス ' + px.toFixed(2) + 'px (許容 ' + MIN_TILE_PX + '〜' + MAX_TILE_PX + 'px'
         + ' = zoom ' + (MIN_TILE_PX / tile).toFixed(3) + '〜' + (MAX_TILE_PX / tile).toFixed(3) + ')'];
     }],
-  ['5b', '#title の下に席札が潜っていない (#title の矩形と盤面の席札 (#81: 種の 2 枚) の矩形が交差 0 件)',
+  ['5b', '#title の下に席札が潜っていない (#title の矩形と盤面の席札 (#81: 種の 3 枚・★[#120]) の矩形が交差 0 件)',
     (m) => {
       const c = TC(m);
       if (!c) return [false, '⛔ compact フェーズを測っていない'];
