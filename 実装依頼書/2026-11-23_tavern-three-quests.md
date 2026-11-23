@@ -368,3 +368,52 @@
 3. `verify_tavern_map` (2d) と `SEED_OFF` は、`boardCount` を入れ忘れる(変異 `fixedcount`)と赤になる。項目 2 の後に (2d) が赤くなったら、まず `boardValid` ① を疑う。
 4. `verify_tower_mother` の `P_TOWER_PER_DRAW` は 1/5 のまま放置しても `:107` の門は通る(緩い向き)。直すなら 3 件の実測 2/9。
 5. 項目 4 の golden は上の 39 本をそのまま使える。`driver_field_step6` は 27 分・`driver_grid_p9` は 7 分。酒場に触れる本は昼に回す(この基準は 17:15〜18:48)。
+
+### 12-2. 本体(項目 2・2026-11-23 夜・基準 HEAD `eaa822d`)
+
+#### 変更点(`tavern.html` は CRLF のまま・LF のみの行 0)
+
+| 行(変更後) | 何 |
+|---|---|
+| `:11626`〜`:11631` | **§5** 撤退 `BOARD3_ON`(`?board3=0` で false)。`QUEST_DRAW_ON`(`:11622`)と `body.questDrawOn` の直後・同じ作法(起動時に 1 回) |
+| `:11796`〜`:11799` | **§6** 盤面の説明コメントの「2 件」→「BOARD_SIZE 件(既定 3・撤退 ?board3=0 で 2)」・開始直後の 3 卓目 = ??? の森 |
+| `:11806`〜`:11807` | **§4** `var BOARD_SIZE = BOARD3_ON ? 3 : 2;` |
+| `:11808`〜`:11814` | **§4** `function boardCount(f)` = `Math.min(BOARD_SIZE, f.unlocked.length + (f.nextLocked ? 1 : 0))` |
+| `:11824`〜`:11826` | **§6** `boardValid` のコメント ①② |
+| `:11832` | **§4** `boardValid` ① `keys.length !== boardCount(f)`(⭐ 変異 `fixedcount` の注入点) |
+| `:11841` | ⛔ 未解放を許す条件 `f.unlocked.length < BOARD_SIZE && …` は**無変更** |
+| `:11852`〜`:11857` | **§4** `drawBoard` の打ち切り = `var n = boardCount(f);` → while と次の未解放の 2 か所が `n`。⚠ 旧アンカー `if (ids.length < BOARD_SIZE && f.nextLocked) …` は `if (ids.length < n && f.nextLocked) …` になった(変異 `nolock` / #81 の `oneonly` の注入点) |
+| `:11883` / `:11892` | **§6** `buildSigns` のコメントの「2 卓」「2 件」 |
+
+本筋を必ず入れる処理・席の無作為な割り当て・`consumeResult()` の消し口(`:6308`)・`index.html` / `js/tavern-map.js` / `js/npc-crowd.js` は無変更。移行処理は書いていない。
+`js/changelog.js` = `py tools/add_changelog.py`(§10 の文面)で先頭に 1 行・4 件維持。
+
+#### 手元検証(`py -m http.server 10912` + puppeteer-core + Chrome・2026-11-23 18:5x)
+
+スクリプト = `C:\Users\PC_User\AppData\Local\Temp\claude\1f68ad2dbed8bc4b\d081e7f0-ffe8-4041-b98e-0e2f10dc8d9c\scratchpad\r120_item2_check.js`(使い捨て・commit しない)。種まきに `plazaClock=21` を入れた。**10/10 PASS・exit 0**。
+
+| 節 | 結果 |
+|---|---|
+| (a) 新規状態 | ✓ seats = {t1 廃坑, t3 巣穴, t2 森} の 3 件。森の札 = `.locked`・文言 `???— 未解放 —` |
+| (b) `?warren=0` 新規状態 | ✓ {廃坑, ??? 森} の 2 件。`__tavernRefreshSigns()` 3 回 + 再読み込み 1 回で nonce 不変(§2-2 の罠を踏んでいない) |
+| (c) cleared=[廃坑] × 6 | ✓ 6 回とも 3 件・森入り・重複なし・未解放 0(例 森+巣穴+倉庫街 / 森+廃坑+倉庫街) |
+| (d) `?board3=0` 新規状態 | ✓ {廃坑, 巣穴} の 2 件 |
+| (e) 旧 2 件の保存値 {廃坑, 巣穴}・nonce `OLD2` | ✓ 読み込み後 3 件・本筋入り・保存値も 3 件に上書き。再読み込みで nonce 不変 |
+| — | ✓ pageerror 0 |
+
+#### 既存ドライバ(⛔ 書き換えていない。赤は全部「2 件前提の言い直し待ち」で説明できる)
+
+| ドライバ | 結果 | 赤 | 理由 |
+|---|---|---|---|
+| `verify_quest_draw`(素のまま) | **exit 3**(装置の腐敗・0 判定) | — | 変異 `oneonly` のアンカー `if (ids.length < BOARD_SIZE && f.nextLocked) …` が 0 件。上の `:11857` の書き換えで消えた = 項目 3 で言い直す |
+| 〃(scratchpad の写しでアンカーだけ `< n` へ差し替え・既定の世界) | 9/18 | (0a)(1a)(1b)(1c)(1d)(2a)(2b)(3a)(3b) | すべて「2 件」を期待している: 盤面 3 件・`indepValid` が `[件数 3]` で偽・(2b) の 2 件の種 2 つ(新規 / cleared 3 本)が捨てられる・(3b) の「3 件」の種が今は**妥当**で採用される(nonce `SEED`)。⭐ (1a) の撤退腕 `?warren=0` は {廃坑, ??? 森} の 2 件で期待どおり・(2b) の `?warren=0` の種は採用 = §2-2 の罠は出ていない |
+| 〃(写し + 全読み込みに `?board3=0`・町からの戻りも `tavern.html?board3=0`) | **18/18・exit 0** | ∅ | 撤退 `?board3=0` で #81 の 18 判定がそのまま通る = 項目 3 の (2a) の腕の主張が成り立つ |
+| `verify_tavern_map`(素のまま・18:57 = 昼) | 44/47 | (2a)(5b)(5c) | §12-1 の予測どおり。2 席の種 `QUEST_BOARD_SEED` が `boardValid` ① で捨てられ「種が採用されていない」。⭐ **(2d) は緑**(`?warren=0` の 2 席の種 `SEED_OFF` が採用 = `boardCount` が効いている) |
+
+写し 2 本 = 同 scratchpad の `vqd_tmp.js` / `vqd_b3off.js`(ログ `vqd.log` / `vqd_b3off.log` / `vtm.log`)。ROOT を `path.resolve(<リポ>)` に差し替えて走らせた(⚠ 生の `'C:/…'` だと `fp.startsWith(ROOT)` が区切り文字の違いで全部 404 になる)。
+
+#### 項目 3・4 への注意
+
+1. `verify_quest_draw` の変異アンカーは `:11832` `if (keys.length !== boardCount(f)) return false;   /* ★[#120] drawBoard と同じ数 (§2-2) */` と `:11857` `if (ids.length < n && f.nextLocked) ids.push(f.nextLocked.id);` を使う。`fixedcount` は `:11832` を `keys.length !== BOARD_SIZE` に戻す。`size2` は `:11807`、`noswitch` は `:11630` の `.get("board3") !== "0"`。
+2. 旧 `oneonly` 変異(#81)は「次の未解放を 2 件以上積む」型だったはず — `n` を使った今の行で注入し直すか、新しい `nolock` と統合するかは項目 3 の判断。
+3. `verify_tavern_map` の赤 (2a)(5b)(5c) は §12-1 の表どおり種を 3 席にすれば消える見込み。`verify_npc_crowd` 以下 §2-5 の残りはこの項目では走らせていない(項目 4)。

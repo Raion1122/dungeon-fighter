@@ -11623,6 +11623,12 @@
       try { return new URLSearchParams(location.search).get("questdraw") !== "0"; } catch (e) { return true; }
     })();
     document.body.classList.toggle("questDrawOn", QUEST_DRAW_ON);
+    /* ══ 撤退スイッチ ?board3=0 (実装依頼書 #120 §7) — 卓の依頼を #81 の 2 件へ戻す ══
+       ⚠ 判定はここ 1 か所だけ (QUEST_DRAW_ON と同じ作法・地図 IIFE の起動時に 1 回)。
+       ⚠ クエリはページ遷移をまたがない = dev 専用。?questdraw=0 が優先 (盤面ごと使わない)。 */
+    var BOARD3_ON = (function () {
+      try { return new URLSearchParams(location.search).get("board3") !== "0"; } catch (e) { return true; }
+    })();
 
     var TILE   = TVM.TILE;                       /* ⚠ 96。ここでも直書きしない */
     var MAP_W  = TVM.COLS * TILE, MAP_H = TVM.ROWS * TILE;
@@ -11787,16 +11793,25 @@
       elStage.appendChild(s);
       return s;
     }
-    /* ══ 卓の依頼 = 戻るたびに入れ替わる 2 件 (実装依頼書 #81) ══════════════════
+    /* ══ 卓の依頼 = 戻るたびに入れ替わる BOARD_SIZE 件 (既定 3・撤退 ?board3=0 で 2) (実装依頼書 #81 / #120) ══
        ⭐ 母集団 = 解放済み。本筋 (scenarios 順で最初の「解放済み かつ 未クリア」) は必ず 1 件入れる。
-       ⭐ 解放済みが 2 件未満の序盤は、空いた枠に「次の未解放」を ??? で出す (今日の見た目と同じ)。
+       ⭐ 解放済みが BOARD_SIZE 件未満の序盤は、空いた枠に「次の未解放」を ??? で 1 件だけ出す
+         (#120: 本番の開始直後 = 廃坑 + 巣穴 + ??? の森)。
        ⚠⚠⚠ 抽選結果は localStorage に置く。メモリだけだと再読込や町との往復が「引き直し」に化ける。
        ⚠⚠ 引き直す口は consumeResult() が鍵を消す 1 箇所だけ。⛔ ここに消し口を増やさない。
        ⚠⚠ buildSigns() は __tavernRefreshSigns 経由で何度でも呼ばれる (闇市の解禁 / 検証)。
          ⇒ loadOrDrawBoard() は **保存値が妥当なら読むだけ**。妥当でないときだけ引いて保存する。
        ⭐ 鍵は dragonfighters. で始める = 記録スロット (js/save-slots.js の LIVE_PREFIX) が 1 行も足さずに追従する。 */
     var BOARD_KEY = "dragonfighters.questBoard";
-    var BOARD_SIZE = 2;
+    /* ★[#120] 卓の依頼は 3 件 (3 卓とも使う)。撤退 ?board3=0 で #81 の 2 件へ戻す。 */
+    var BOARD_SIZE = BOARD3_ON ? 3 : 2;
+    /* ★[#120] 盤面の件数 = 積める上限。drawBoard と boardValid が **同じ値** を使う。
+       ⚠⚠ boardValid が「ちょうど BOARD_SIZE 件」を要求すると、解放済み + 次の未解放が
+         BOARD_SIZE に届かない世界 (?warren=0 の開始直後 = 廃坑 + ??? 森の 2 件) で
+         毎回不正 → 読み込むたびに引き直しになる (依頼書 #120 §2-2・変異 fixedcount)。 */
+    function boardCount(f) {
+      return Math.min(BOARD_SIZE, f.unlocked.length + (f.nextLocked ? 1 : 0));
+    }
     var board = null;               /* 最後に採用した盤面 (localStorage が読めない環境の保険を兼ねる) */
     function boardFacts() {
       var main = scenarios.filter(function (s) { return !s.side; });   /* ★[#82] 本筋の判定は本筋 6 本だけで */
@@ -11806,14 +11821,15 @@
       return { unlocked: unlocked, frontier: frontier, nextLocked: nextLocked };
     }
     /* 依頼書 §2-4 の 3 条件。1 つでも外れたら false (= 捨てて引き直す)。
-       ① ちょうど 2 件 / 席が実在 (重複はオブジェクトの鍵なので起きない) / 依頼 id が重複せず scenarios に実在
-       ② 各 id が解放済み — ただし解放済みが 2 件未満のときに限り「次の未解放」1 件を許す
+       ① ちょうど boardCount(f) 件 (= BOARD_SIZE 件 (既定 3・撤退で 2) か、積める上限) / 席が実在
+          (重複はオブジェクトの鍵なので起きない) / 依頼 id が重複せず scenarios に実在
+       ② 各 id が解放済み — ただし解放済みが BOARD_SIZE 件未満のときに限り「次の未解放」1 件を許す
        ③ 本筋が在るなら、それが含まれている */
     function boardValid(b, f) {
       if (!b || typeof b !== "object" || !b.seats || typeof b.seats !== "object") return false;
       var seatKeys = TVM.TABLES.map(function (t) { return t.key; });
       var keys = Object.keys(b.seats);
-      if (keys.length !== BOARD_SIZE) return false;
+      if (keys.length !== boardCount(f)) return false;   /* ★[#120] drawBoard と同じ数 (§2-2) */
       var ids = [];
       for (var i = 0; i < keys.length; i++) {
         if (seatKeys.indexOf(keys[i]) < 0) return false;
@@ -11833,11 +11849,12 @@
     function drawBoard(f) {
       var ids = [];
       if (f.frontier) ids.push(f.frontier.id);
+      var n = boardCount(f);        /* ★[#120] boardValid ① と同じ数で打ち切る */
       var rest = f.unlocked.filter(function (s) { return ids.indexOf(s.id) < 0; });
-      while (ids.length < BOARD_SIZE && rest.length) {
+      while (ids.length < n && rest.length) {
         ids.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0].id);
       }
-      if (ids.length < BOARD_SIZE && f.nextLocked) ids.push(f.nextLocked.id);
+      if (ids.length < n && f.nextLocked) ids.push(f.nextLocked.id);
       var seats = TVM.TABLES.map(function (t) { return t.key; });
       var out = {};
       ids.forEach(function (id) { out[seats.splice(Math.floor(Math.random() * seats.length), 1)[0]] = id; });
@@ -11863,7 +11880,7 @@
       signs = {}; tableKeys = [];
       var bd = QUEST_DRAW_ON ? loadOrDrawBoard() : null;
       TVM.TABLES.forEach(function (t0) {
-        /* ⭐ 抽選 ON は盤面の 2 卓だけ札を出す (依頼の無い卓は客が座っている絵のまま)。
+        /* ⭐ 抽選 ON は盤面の BOARD_SIZE 卓 (既定 3・撤退で 2) だけ札を出す (依頼の無い卓は客が座っている絵のまま)。
            ⛔ TVM.TABLES の要素を書き換えない — goToTable へは盤面の id を載せた**写し**を渡す
              (撤退 ?questdraw=0 の固定配置と verify_tavern_map (2b) の照合先が TABLES の scenarioId)。 */
         var sid = bd ? bd.seats[t0.key] : t0.scenarioId;
@@ -11872,7 +11889,7 @@
         var sc = scenarios.find(function (s) { return s.id === t.scenarioId; });
         if (!sc) { console.warn("[tavern] 卓の scenarioId が scenarios に無い", t); return; }
         var unlocked = isUnlocked(sc);
-        /* ⚠ 盤面の 2 件を出す。序盤に「次の未解放」が入っていたら **??? のまま出す**
+        /* ⚠ 盤面の BOARD_SIZE 件 (既定 3・撤退で 2) を出す。序盤に「次の未解放」が入っていたら **??? のまま出す**
              (今日の挙動 = place が ???、diff が — 未解放 —)。
            ⛔ 隠さない。酒場は「次がある」ことがプレイヤーに見えている必要がある。 */
         var s = makeSign({
