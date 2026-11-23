@@ -43051,6 +43051,174 @@
                           spot: sce1GrixSpot,    run: sce1NodeEventRunner(runGrixEvent) });
     }
 
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★A2 — ダンジョン内の技能判定イベント拡充 (2026-11-23 開発会議トリアージ「実施」)
+     * ══════════════════════════════════════════════════════════════════════════
+     * 会議結論 (dev-meetings/2026-11-23_dnd-flavor-gimmicks.md · コミット 2e20614) の A2:
+     *   「新判定種別 (知覚・運動・知識) を各シナリオへイベント配置 + 語りテキスト。
+     *    失敗時の救済 (見逃しても詰まない / ファンブルのみ軽い被弾) を罠解除のトーンで必ず設計」。
+     *
+     * ★既存の SkillCheck エンジン (DC 表示・クリ20/ファンブル1・1部屋1ロール) を**流用**し、
+     *   新しい判定ロジックは 1 行も作らない。足したのは「どこで・どの技能を・どの語りで振るか」
+     *   = イベントデータと接近発火だけ。見せ方は mine_watch / 若き司祭と同じ dfSkillCheck パネル。
+     *
+     * ★配置: 入場ノード (RUN.graph.entry) に**まだ技能判定イベントが無い** 3 シナリオへ 1 件ずつ。
+     *   廃坑 (mine_watch 知覚/隠密) ・森 (残影の獣) ・沼 (若き司祭 歴史/宗教) には既にあるので足さない。
+     *   敵は入場から 5 タイル以上離れている (各 build*Run の実測注記) ので、mine_watch と同じく
+     *   **戦闘前に入口で 1 回だけ**開く (spot = 入場タイル / radius は実績のある SCE1_EVENT_RADIUS)。
+     *     orc-fort      → 知識 (歴史): 崩れた城門の碑文・紋章を読み解く  (= 会議例「碑文の解読」)
+     *     undead-temple → 運動        : 祭壇へ続く崩れた足場を駆け渡る    (= 会議例「橋/崖の移動」)
+     *     dragon-lair   → 知覚        : 骨の谷の岩陰の隠し戸棚を見抜く    (= 会議例「隠し扉の発見」)
+     *
+     * ★決定論 (巡回検証を折らない): **候補 0 = 判定なし「そのまま進む」**。?autoplay は
+     *   showCharChoice で候補 0 を自動選択する (若き司祭 SWAMP_NOVICE_CHECKS の 0 番と同じ作法) ので、
+     *   ヘッドレスでは d20 を 1 度も引かず・盤面も 1 bit も動かさない。判定は人間が候補 1 を選んだ時だけ。
+     *
+     * ★救済: ①候補 0 (調べない) はいつでも選べて無罰 ②知覚/知識は失敗しても無罰 (見逃すだけ)
+     *   ③運動だけ「ファンブル (ナチュ1) のみ」軽い被弾 (applyServantTrapDamage と同じ合成罠 1d6)。
+     *   どの枝でも進行は止まらない (出口は常に残る)。⛔ 成功報酬は語りのみ = バランス非関与。
+     * ★撤退は ?a2=0。 */
+    const A2_SKILL_EVENTS_ON = (() => {
+      try { return new URLSearchParams(window.location.search).get("a2") !== "0"; }
+      catch (e) { return true; }
+    })();
+
+    // 運動判定のファンブルだけが負う軽い被弾 (罠解除トーン)。EV-5 の applyServantTrapDamage を
+    // そのまま踏襲 — 合成罠 1 つを主人公と全仲間へ 1 度だけ作用させる (1d6)。盤面に罠は残さない。
+    function applyA2StumbleDamage() {
+      const spot = nodeEventSpot(2, 0);
+      const trap = { type: "damage", tx: spot.tx, ty: spot.ty, triggered: false, found: false, el: null };
+      triggerTrapOnPlayer(trap, "足場が砕けた——だが、この程度で歩みは止まらない。");
+      for (const a of allies) { if (a.alive) triggerTrapOnAlly(trap, a); }
+    }
+
+    /* イベント仕様。choices[0] は必ず「判定なし (そのまま進む)」= 決定論の芯。
+     *   check/dc/classes は SkillCheck エンジンへそのまま渡す (classes は在籍 +2 を extraBonus 側へ)。
+     *   damageOnFumble=true の運動だけがファンブルで被弾する (他は無罰)。語りは成否で出し分ける。 */
+    const A2_EVENTS = {
+      "orc-fort": {
+        key: "a2_fort_lore",
+        prompt: "崩れた城門の内壁に、苔むした紋章と、風化した碑文が長く刻まれている。",
+        proceedLabel: "気に留めず先へ進む",
+        actLabel: "壁の碑文を読み解く(知識)",
+        escLabel: "立ち去る (Esc)",
+        check: "history", dc: 12, classes: ["mage"],
+        title: "歴史判定",
+        flavor: "紋章の意匠と銘を古い王家の系譜と照合し、この砦を築いた者の名を手繰り寄せる…",
+        proceed: "君たちは碑文に目もくれず、崩れた門をくぐった。",
+        success: "読み取れたのは、今は亡き王国の紋章と一文——『我ら眠れる剣、玉座を侵す者を討て』。この砦の奥には、命令を待ち続ける者がまだ居るのかもしれない。",
+        crit:    "碑文は完全に読み解けた。王国最後の将がこの地で裏切りに遭い、守護の兵たちは『敵味方を問わず侵入者を討て』と命じられたまま石に還った——とある。",
+        fail:    "文字は風化しすぎて大半が欠けていた。ただ、古い戦の気配だけが壁に染みついている。",
+        damageOnFumble: false,
+      },
+      "undead-temple": {
+        key: "a2_temple_gap",
+        prompt: "祭壇へ続く石畳の一角が崩れ落ち、底の見えない黒い裂け目が口を開けている。",
+        proceedLabel: "崩れを避け、遠回りして進む",
+        actLabel: "崩れた梁を駆け渡る(運動)",
+        escLabel: "引き返す (Esc)",
+        check: "athletics", dc: 13, classes: ["warrior"],
+        title: "運動判定",
+        flavor: "崩れかけた梁へ足をかけ、一息に裂け目を飛び越える…",
+        proceed: "君たちは裂け目を大きく迂回し、崩れに近づかずに祭壇への道を取った。",
+        success: "軽やかに裂け目を飛び越えた。崩落は、君たちの背後で静かに続いている。",
+        crit:    "一歩の無駄もなく梁を渡り切った。遅れて崩れ落ちた瓦礫の音さえ、もう背中の遠くにある。",
+        fail:    "足がかりが崩れたが、どうにか向こう岸へ転がり込んだ。擦り傷ひとつで済んだ。",
+        fumble:  "踏み板が砕け、瓦礫もろとも数歩を滑り落ちた——",
+        damageOnFumble: true,
+      },
+      "dragon-lair": {
+        key: "a2_dragon_cache",
+        prompt: "骨の谷の岩陰に、不自然に積まれた骨と、その奥に黒い空隙が覗いている。",
+        proceedLabel: "骨の谷を先へ急ぐ",
+        actLabel: "岩陰の気配を探る(知覚)",
+        escLabel: "あとにする (Esc)",
+        check: "perception", dc: 13, classes: ["dwarf", "elf"],
+        title: "知覚判定",
+        flavor: "炎に炙られた岩肌の陰、骨の下に隠れた窪みの気配を読む…",
+        proceed: "君たちは岩陰に目を止めず、谷の奥へと歩を進めた。",
+        success: "骨の下の窪みに、先に挑んで還らなかった冒険者の遺品が隠されていた。錆びた短剣の柄に、まだ読める走り書き——『竜は西の堀を跳べぬ』。",
+        crit:    "窪みの奥は小さな隠し戸棚だった。遺品に添えられた覚え書きには、竜が寝床の堀を越えられぬこと、西岸でこそ迎え撃ってくることまで記されている。",
+        fail:    "熱気に揺らぐ岩肌からは、骨の軋みのほかに何も読み取れなかった。",
+        damageOnFumble: false,
+      },
+    };
+
+    async function runA2Event(ev, spec) {
+      if (!spec) return true;
+      skillCheckActive = true;                 // 判定/選択パネルと相互排他 (mine_watch と同方針)
+      let choice = null;
+      try {
+        choice = await showCharChoice(spec.prompt,
+          [{ label: spec.proceedLabel }, { label: spec.actLabel }], spec.escLabel);
+      } catch (e) { choice = null; }
+
+      if (choice === null) {                   // Esc: 未決のまま。半径外へ出れば次の接近で再提示
+        skillCheckActive = false;
+        return false;                          // ★NODE_EVENTS 契約: false = declined (焼かない)
+      }
+      if (choice !== 1) {                       // 候補 0「そのまま進む」= 判定なし (?autoplay もここ)
+        skillCheckActive = false;
+        showDMMessage(spec.proceed, 2600);
+        return true;
+      }
+
+      const party = buildPerceptionParty();
+      let res = null;
+      if (party.length > 0 && window.SkillCheck && SkillCheck.resolveSkillCheck) {
+        dialogPaused = true;                    // 判定中は探索を停止 (runRoomSearchCheck と同方針)
+        try {
+          res = await dfSkillCheck(spec.check, spec.dc, party, {
+            title: spec.title, flavor: spec.flavor,
+            extraBonus: sceneClassBonus(spec.classes),   // ★DC ではなく加算側へ (エンジンの contract)
+            voiceIds: PERCEPTION_VOICE,
+          });
+        } catch (e) { res = null; }
+        dialogPaused = false;
+      }
+      skillCheckActive = false;
+      applyA2Result(res, spec);
+      return true;
+    }
+
+    function applyA2Result(res, spec) {
+      const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      // 判定が成立しなかった (エンジン未読込 / PT 消滅) = 安全側 = 無罰で素通り (mine_watch と同判断)。
+      if (!res) { updateInfo(`${rep} たちは、そのまま先へ進んだ。`); return; }
+      if (res.crit && spec.crit) {
+        showBanner("🎲 クリティカル成功!", 1600);
+        updateInfo(`${rep} は${spec.title}に大成功! (ナチュラル20)`);
+        showDMMessage(spec.crit, 3200);
+        return;
+      }
+      if (res.success) {
+        showBanner("🎲 判定成功", 1500);
+        updateInfo(`${rep} は${spec.title}に成功! (${res.total} ≧ DC ${res.dc})`);
+        showDMMessage(spec.success, 3000);
+        return;
+      }
+      if (res.fumble && spec.damageOnFumble) {
+        showBanner("💥 足を踏み外した!", 1600);
+        updateInfo(`${rep} は${spec.title}でファンブル… (ナチュラル1) 軽い痛手を負った`);
+        showDMMessage((spec.fumble || "") + "だが、この程度で歩みは止まらない。", 3000);
+        applyA2StumbleDamage();
+        return;
+      }
+      // 通常失敗 (DC 未達)・運動以外のファンブル = 無罰 (見逃すだけ)。進行は止めない。
+      showBanner("… 判定失敗", 1200);
+      updateInfo(`${rep} は${spec.title}に失敗した… (${res.total} < DC ${res.dc}) だが歩みは止まらない`);
+      showDMMessage(spec.fail, 2600);
+    }
+
+    if (RUN && A2_SKILL_EVENTS_ON && A2_EVENTS[scenarioId]) {
+      const a2spec = A2_EVENTS[scenarioId];
+      registerNodeEvent({
+        key: a2spec.key, nodeId: RUN.graph.entry, radius: SCE1_EVENT_RADIUS,
+        spot: () => nodeEventSpot(2, 0),
+        run: (ev) => runA2Event(ev, a2spec),
+      });
+    }
+
     /* ── dev シーム: ?graphtest=1 の内蔵テストグラフ ────────────────────────────
      *
      *   n0 (start)  ├ up    → n1 (combat) ── up    → n3 (boss)
