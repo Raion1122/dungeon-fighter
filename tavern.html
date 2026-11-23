@@ -1196,9 +1196,10 @@
     #changelogBox {
       position: absolute;
       top: 20px; right: 20px;
-      width: min(280px, 40vw);
-      max-height: 38vh;
+      width: min(340px, 46vw);   /* 項目8: 280px→340px (行末が切れていた) */
+      max-height: 42vh;
       overflow-y: auto;
+      overflow-x: hidden;        /* 項目8: 横あふれで行末が切れないように */
       padding: 12px 14px;
       background: var(--parchment-bg);
       border: 2px double var(--parchment-border);
@@ -1219,10 +1220,99 @@
     }
     #changelogBox .changelogList { margin: 0; padding-left: 16px; }
     #changelogBox .changelogList li {
-      font-size: 11.5px; line-height: 1.5;
-      color: var(--parchment-ink-soft); margin-bottom: 5px;
+      font-size: 13px; line-height: 1.6;          /* 項目8: 11.5px は小さすぎた → 13px・行間も拡大 */
+      color: var(--parchment-ink-soft); margin-bottom: 6px;
+      overflow-wrap: anywhere; word-break: break-word;   /* 長い語でも行末で切れず折り返す */
     }
     #changelogBox .changelogList li b { color: var(--parchment-ink); }
+
+    /* 項目6: イントロ(フランの記録)スキップボタン。prologueOverlay(fixed) の右下に固定。既定は非表示。 */
+    #prologueSkipBtn {
+      position: absolute;
+      bottom: 22px; right: 26px;
+      z-index: 210;
+      display: none;
+      padding: 8px 18px;
+      font-family: 'MedievalSharp', 'Noto Serif JP', serif;
+      font-size: 15px;
+      color: #f1e2bb;
+      background: rgba(26,17,8,0.9);
+      border: 1px solid #8b6914;
+      border-radius: 6px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    }
+    #prologueSkipBtn:hover { background: rgba(60,40,15,0.95); color: #fff; }
+
+    /* 項目6: 遊び方・操作説明。❓ボタン(左下)とモーダル。 */
+    #helpBtn {
+      position: fixed;
+      left: 14px; bottom: 14px;
+      z-index: 16;
+      padding: 7px 14px;
+      font-family: 'MedievalSharp', 'Noto Serif JP', serif;
+      font-size: 14px;
+      color: #f1e2bb;
+      background: rgba(26,17,8,0.88);
+      border: 1px solid #8b6914;
+      border-radius: 6px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+    }
+    #helpBtn:hover { background: rgba(60,40,15,0.95); color: #fff; }
+    #helpOverlay {
+      position: fixed; inset: 0;
+      display: none;
+      align-items: center; justify-content: center;
+      background: rgba(4,6,10,0.78);
+      z-index: 150;
+      padding: 16px;
+    }
+    #helpOverlay.show { display: flex; }
+    #helpBox {
+      max-width: 560px; width: 100%;
+      max-height: 86vh; overflow-y: auto;
+      background: var(--parchment-bg);
+      border: 3px double var(--parchment-border);
+      box-shadow: var(--parchment-shadow);
+      color: var(--parchment-ink);
+      font-family: 'Noto Serif JP', serif;
+      padding: 20px 24px 18px;
+      border-radius: 4px;
+    }
+    #helpTitle {
+      font-family: 'MedievalSharp', serif;
+      color: var(--parchment-gold);
+      font-size: 20px; font-weight: bold;
+      text-align: center; letter-spacing: 1px;
+      border-bottom: 1px solid var(--parchment-border);
+      padding-bottom: 8px; margin-bottom: 12px;
+    }
+    #helpList { margin: 0 0 14px; padding-left: 20px; }
+    #helpList li { font-size: 14.5px; line-height: 1.7; margin-bottom: 9px; overflow-wrap: anywhere; }
+    #helpList li b { color: #7a4a12; }
+    #helpCloseBtn {
+      display: block; margin: 0 auto;
+      padding: 9px 26px;
+      font-family: 'MedievalSharp', 'Noto Serif JP', serif;
+      font-size: 15px; color: #f1e2bb;
+      background: rgba(26,17,8,0.9);
+      border: 1px solid #8b6914; border-radius: 6px; cursor: pointer;
+    }
+    #helpCloseBtn:hover { background: rgba(60,40,15,0.95); color: #fff; }
+
+    /* 項目6: NPC クリック時の即時フィードバック (主人公が歩いて近づくまで無反応に見える対策)。
+       ⚠ NPC は左右反転に transform(scaleX) を使うので transform は触らない。filter だけで光らせる。 */
+    .npcUnit.npcTapFlash {
+      animation: npcTapGlow 0.65s ease-out;
+    }
+    @keyframes npcTapGlow {
+      0%   { filter: brightness(1); }
+      30%  { filter: drop-shadow(0 0 7px #ffe08a) drop-shadow(0 0 14px #ffcf4d) brightness(1.25); }
+      100% { filter: brightness(1); }
+    }
 
     /* 更新情報: 折りたたみトグル (スマホで重なり回避・ヘッダタップで開閉) */
     #changelogBox { transition: top 0.2s ease-out; }
@@ -3445,6 +3535,37 @@
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList"></ul>
     </div>
+
+    <!-- 項目6: 遊び方・操作説明。❓ボタン(左下)でモーダルを開閉。position:fixed なので入れ子位置は不問。 -->
+    <button type="button" id="helpBtn" title="遊び方・操作方法">❓ 遊び方</button>
+    <div id="helpOverlay" aria-hidden="true">
+      <div id="helpBox">
+        <div id="helpTitle">遊び方 ・ 操作方法</div>
+        <ul id="helpList">
+          <li><b>基本はオートパイロット</b> — 酒場で仲間と装備を整えて出発すると、ダンジョンでは英雄たちが<b>自動で探索・戦闘</b>します。戦闘中の操作は不要です。</li>
+          <li><b>出発の流れ</b> — 掲示板で依頼を選ぶ → 仲間と装備を確認 → 出発。道中はワールドマップを自動で歩き、ダンジョンへ入ります。</li>
+          <li><b>ダンジョンの開始</b> — 開始画面で<b>画面をクリック / タップ / 何かキー</b>を押すと始まります。語り(ナレーション)はクリックで送れます。</li>
+          <li><b>戦闘の開始</b> — 敵に近づくと<b>自動で戦闘</b>に入ります。手動で始める操作はありません。</li>
+          <li><b>[ I ] キー</b> — ダンジョン中に押すと<b>インベントリ(持ち物)</b>を開閉できます。</li>
+          <li><b>目標</b> — ダンジョン画面上部に<b>⚔ 目標</b>(クリア条件)が出ます。これを達成すると勝利です。</li>
+          <li><b>金貨</b> — 敵を倒したり宝箱を開けると<b>金貨</b>が手に入り、酒場の武器防具屋で装備を買えます。</li>
+          <li><b>撤退</b> — 苦しいときは戦闘の合間に<b>🏃 撤退する</b>で酒場へ戻れます(拾った物は保持)。</li>
+        </ul>
+        <button type="button" id="helpCloseBtn">閉じる</button>
+      </div>
+    </div>
+    <script>
+      /* 項目6: 遊び方モーダルの開閉配線 (自己完結・他の UI に触れない)。 */
+      (function () {
+        var btn = document.getElementById('helpBtn');
+        var ov = document.getElementById('helpOverlay');
+        var cl = document.getElementById('helpCloseBtn');
+        if (!btn || !ov) return;
+        btn.addEventListener('click', function () { ov.classList.add('show'); });
+        if (cl) cl.addEventListener('click', function () { ov.classList.remove('show'); });
+        ov.addEventListener('click', function (e) { if (e.target === ov) ov.classList.remove('show'); });
+      })();
+    </script>
     <script>
       /* 更新情報パネル: スマホ/横持ち/タッチ端末では既定で折りたたみ、ヘッダタップで開閉 (タイトルとの重なり回避) */
       (function () {
@@ -4150,7 +4271,7 @@
           label: "Tier I", levelRange: [1, 4],
           clearXp: 300, trapCount: 3, hiddenChestCount: 2, perceptionDC: 12,
           tasks: ["さらわれた村の子供を救い出して", "家畜を襲う魔物を駆除して", "奪われた家宝を取り返して",
-                  "廃坑に巣くう魔物を一掃して", "毒に侵された井戸の元凶を断って", "行方不明の行商人を捜して"],
+                  "はびこる魔物を一掃して", "毒に侵された井戸の元凶を断って", "行方不明の行商人を捜して"],
           rewards: ["金貨300枚", "治癒のポーション数本", "名工が鍛えた業物の短剣",
                     "領主への口利きと信用", "街道の通行手形と宿の便宜"],
         },
@@ -8407,7 +8528,9 @@
     for (const id of ids) {
       const c = SCROLL_CATALOG_TV[id];
       const sk = getSkillTV(c.spellId);
-      const spellNm = sk ? sk.name : c.spellId;
+      // 項目8: スロット外の呪文 (メイジハンド等は PARTY_SLOTS の skillPool に無い) は getSkillTV が
+      //   null を返し、以前は英語 ID (mage-hand) が露出していた。巻物/聖典名の接頭辞を外して日本語表記に統一する。
+      const spellNm = sk ? sk.name : (c.name ? c.name.replace(/^(巻物・|聖典・)/, "") : c.spellId);
       const alreadyKnown = isSpellKnownTV(c.classKey, c.spellId);
       const count = scrollStockTV[id];
       const item = document.createElement("div");
@@ -9165,6 +9288,7 @@
 
   let narrationSkipRequested = false;
   let narrationPlaying = false;
+  let narrationAbort = false;         // 項目6: スキップ(全段落を一気に飛ばす)要求フラグ
   const NARRATION_CHAR_MS = 70;       // 1文字あたりの表示間隔
   const NARRATION_PARA_GAP_MS = 2500; // 段落送り前の自動待機 (音声無し時のみ)
 
@@ -9173,6 +9297,7 @@
     narrationSkipRequested = false;
     const interval = charMs || (window.GameAudio && GameAudio.textSpeed) || NARRATION_CHAR_MS;
     for (let i = 0; i < text.length; i++) {
+      if (narrationAbort) { bodyEl.textContent = text; return; }   // 項目6: スキップ中は即座に全文表示して抜ける
       if (narrationSkipRequested) { bodyEl.textContent = text; narrationSkipRequested = false; return; }
       bodyEl.textContent = text.substring(0, i + 1);
       if (i % 3 === 0) sfx("narration");
@@ -9183,6 +9308,7 @@
   async function waitForNarrationAdvance(maxMs) {
     const start = Date.now();
     while (Date.now() - start < maxMs) {
+      if (narrationAbort) return;   // 項目6: スキップ中は待たずに抜ける
       if (narrationSkipRequested) { narrationSkipRequested = false; return; }
       await sleepMs(50);
     }
@@ -9190,10 +9316,12 @@
 
   async function playNarration(paragraphs, voiceIdPrefix) {
     narrationPlaying = true;
+    narrationAbort = false;   // 項目6: 新規再生の頭でスキップフラグを必ず下ろす (前回の持ち越し防止)
     const bodyEl = document.getElementById("dmBody");
     const hintEl = document.getElementById("dmHint");
     try {
       for (let pi = 0; pi < paragraphs.length; pi++) {
+        if (narrationAbort) break;   // 項目6: スキップ要求で残りの段落を飛ばす
         const paragraph = paragraphs[pi];
         hintEl.classList.remove("show");
         const voiceId = voiceIdPrefix ? voiceIdPrefix + "_" + pi : null;
@@ -9208,7 +9336,7 @@
           bodyEl.innerHTML = bodyEl.textContent + `<span class="dmCursor"></span>`;
           hintEl.textContent = "♪ 語りに耳をかたむけよう…";
           hintEl.classList.add("show");
-          while (Date.now() - startMs < durMs) await sleepMs(40);
+          while (Date.now() - startMs < durMs) { if (narrationAbort) break; await sleepMs(40); }   // 項目6: スキップで即抜け
         } else {
           // ── テキストペース: 音声無し/ミュート時の従来挙動 ──
           if (voiceId) voice(voiceId);
@@ -10547,6 +10675,20 @@
       if (hintEl) { hintEl.classList.remove("show"); hintEl.textContent = "クリックで続ける"; }
       // 既存の pointerdown(once) も音声解錠 + 酒場BGM を行う。ここでも保険で解錠。
       try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}
+      // 項目6: 長いイントロ(フランの記録・約5ページ)を飛ばすスキップボタン。
+      //   narrationAbort で playNarration を即終了させる。ボタンはこのオーバーレイ内に一度だけ作る。
+      let __skipBtn = document.getElementById("prologueSkipBtn");
+      if (!__skipBtn) {
+        __skipBtn = document.createElement("button");
+        __skipBtn.id = "prologueSkipBtn";
+        __skipBtn.type = "button";
+        __skipBtn.textContent = "スキップ ▶▶";
+        overlay.appendChild(__skipBtn);
+      }
+      __skipBtn.style.display = "block";
+      const __onSkip = (ev) => { if (ev && ev.stopPropagation) { ev.stopPropagation(); ev.preventDefault(); } narrationAbort = true; narrationSkipRequested = true; };
+      __skipBtn.addEventListener("click", __onSkip);
+      __skipBtn.addEventListener("touchend", __onSkip);
       // 前口上クリップを事前 decode → 遅延ゼロ化 (低速/未生成時も4秒で打ち切り)
       try {
         const ids = PROLOGUE_NARRATION.map((_, i) => "dungeon_intro_prologue_" + i);
@@ -10555,6 +10697,9 @@
         }
       } catch (e) {}
       await playNarration(PROLOGUE_NARRATION, "dungeon_intro_prologue");
+      __skipBtn.removeEventListener("click", __onSkip);
+      __skipBtn.removeEventListener("touchend", __onSkip);
+      __skipBtn.style.display = "none";
       try { if (window.localStorage) localStorage.setItem(KEY, "1"); } catch (e) {}
       overlay.classList.add("fading");
       await sleepMs(650);
@@ -12254,6 +12399,14 @@
          それ以外 (店主 / 酔漢 / 給仕 / 荷運び) と撤退時は **従来どおり一言**。
          ⚠ 撤退 ?recruittalk=0 では todaysPatrons が null なので、全員が一言の枝へ落ちる。 */
       function npcTapped(u) {
+        // 項目6: クリックが伝わったことを即座に見せる (主人公が歩いて近づくまで無反応に見える問題への対応)。
+        //   クリックされた NPC を一瞬光らせる。歩行先マーカー(#tavernGoal)は approachThenRecruit→walkTo が出す。
+        try {
+          if (u && u.el) {
+            u.el.classList.add("npcTapFlash");
+            setTimeout(function () { try { u.el.classList.remove("npcTapFlash"); } catch (e) {} }, 650);
+          }
+        } catch (e) {}
         var seat = (todaysPatrons && u && u.n) ? todaysPatrons[u.n.key] : null;
         if (!seat) { npcBubbleShow(u); return; }
         approachThenRecruit(u, seat);
