@@ -262,4 +262,109 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 着手前の実測 + golden の基準(項目 1・2026-11-23 夕・HEAD `e14fd3c`)
+
+コードは 1 バイトも変えていない。`git diff --stat 90bbcbf e14fd3c` = 会議記録・本依頼書・README の 3 ファイルだけ(`tavern.html` / `js/*` / `tools/*` は無変更)なので、§2 の行番号はそのまま使える。
+
+#### 測り直し(§2)
+
+| 節 | 主張 | HEAD の実測 | 判定 |
+|---|---|---|---|
+| 2-1 | `consumeResult` `:6302`・鍵消し `:6308` | 同じ行。`questBoard` の `removeItem` は `tavern.html` 全体でこの 1 か所 | ✅ |
+| 2-1 | `QUEST_DRAW_ON` `:11622` | 同じ(`:11616` からの撤退コメント付き・`:11625` で `body.questDrawOn`) | ✅ |
+| 2-1 | 盤面コメント `:11790`〜`:11797`・`BOARD_KEY` `:11798`・`BOARD_SIZE = 2` `:11799`・`boardFacts` `:11801` | 同じ行 | ✅ |
+| 2-1 | `boardValid` コメント `:11809`〜`:11810`・本体 `:11812`〜`:11831`・`:11816` ちょうど件数・`:11825` 未解放を許す条件 | 同じ行・同じ式 | ✅ |
+| 2-1 | `drawBoard` `:11833`〜`:11845`・`:11840` 次の未解放 | 同じ(打ち切りの `BOARD_SIZE` は `:11837` の while と `:11840` の 2 か所) | ✅ |
+| 2-1 | `loadOrDrawBoard` `:11847`〜`:11859` | 同じ | ✅ |
+| 2-1 | `buildSigns` のコメント `:11866` / `:11875` | 同じ(`buildSigns` の定義は `:11861`) | ✅ |
+| 2-1 | `__TAVERN_TV` `:12069`・`board()` / `boardFacts()` `:12094`〜 | `:12069`・`board` `:12094`・`boardFacts` `:12095`。`__tavernRefreshSigns = buildSigns` は `:12122`(呼び口 `:10699`) | ✅ |
+| 2-2 | `?warren=0` で `:3921` が `kobold-warren` を配列から外す | ⚠ **外すのは `:3925`**(`:3920` が撤退の IIFE の頭・`:3921` は `var off = false;`)。中身は同じ | ⚠ 行 +4 |
+| 2-2 | 開始直後の解放済み = 廃坑・巣穴 / 次の未解放 = 森 | `kobold-warren` `:3790` は `locked:false`(`:3805`)・ほかの side 5 本は `locked:true` + `unlockAfter`・`isUnlocked` `:6816` | ✅ |
+| 2-5 | 測り方の grep(各ドライバの行番号) | 下の「§2-5 の扱い」の表に全数。表の行番号はすべて一致。⚠ `verify_npc_crowd` の「`:446` 種(2 席)」は **setItem の行**で、種の定義は `:146`(`QUEST_BOARD_SEED`)と `:151`(`QUEST_BOARD_SEED_B`) | ✅(注記だけ) |
+| 2-5 | `verify_tower_mother` は「3 件で出やすくなる方向 = 赤くならない」 | ✅ 向きは正しい。ただし ⚠ ドライバの確率の定数 `P_TOWER_PER_DRAW = 1/5`(`:105`・説明 `:24`〜`:27`)は **#103〜#107 で既に古い**。cleared = 砦まで の解放済みは本筋 5 + side 5(塔の母・巣穴・倉庫街・墓所・魔女の小屋)= 10 件 → 本筋を除く 9 件から引くので、HEAD の 2 件では p = 1/9・偽赤 (8/9)^42 ≈ 7.1e-3、3 件では p = 2/9・(7/9)^42 ≈ 2.6e-5 | ⚠ 定数が古い(#120 で改善する向き) |
+| 2-6 | `check_changelog.py:32` `GAME_LOGIC` | `:32` に同じ定義 | ✅ |
+| — | 新しい名前(`boardCount` / `BOARD3_ON` / `board3`)が既にあるか | `tavern.html` `index.html` `js/` `tools/` で 0 件 | ✅ |
+| — | 受入のポート base 10920 が空いているか | `tools/*.js` の 109xx の最大 = 10911 | ✅ |
+
+#### golden(HEAD `e14fd3c`・直列・2026-11-23 17:15〜18:42 = 昼の帯・再走 18:44〜18:48)
+
+ログ = `C:\Users\PC_User\.claude\dev-loop\r120\item1\`(`run_golden.ps1` / `golden_raw.txt` / `golden_rerun.txt` / 各 `<driver>.log` / 再走は `verify_npc_crowd.rerun{1,2,3}.log`)。
+対象 = #119 §12-4 の golden 30 本(`probe_party_size` を除く 29 本 + `verify_path_advice`)+ §2-5 の表のうち未収録の 9 本 = **39 本**。酒場に触れる本(§2-5)を先頭に並べて昼のうちに回した。`driver_dev_gate2` は `--baseline %TEMP%\df_cleanup2_base_r120i1`・`driver_field_step6` は `--baseline-dir %TEMP%\df_step6_baseline_r120i1`(#119 と同じ理由で別名。終了後に 2 つとも `git worktree remove` 済み・既定の作業木は触っていない)。
+
+| ドライバ | 結果 | 赤 | 備考 |
+|---|---|---|---|
+| `verify_quest_draw` | 18/18 | ∅ | #81 の受入(項目 3 で言い直す本体) |
+| `verify_tavern_map` | 47/47 | ∅ | |
+| `verify_npc_crowd` | **32/33**(再走 33/33・31/33・32/33) | {(1a)} / ∅ / {(1a),(4d)} / {(1a)} | ⚠ **#120 の前から揺れている赤(新しく見つかった)**。下の注記 |
+| `verify_kobold_warren` | 21/21 | ∅ | |
+| `verify_lost_cargo` | 22/22 | ∅ | |
+| `verify_tower_mother` | 19/19 | ∅ | |
+| `verify_recruit_size` | 91/91 | ∅ | |
+| `verify_quest_walk` | 25/25 | ∅ | |
+| `driver_depart_menu_clean` | 41/41 | ∅ | |
+| `verify_silent_tomb` | 24/24 | ∅ | |
+| `verify_witch_hut` | 28/29 | {(6b)} | 既知。`same:false` = {`allyShadowStep` 4549→4555, `showCharChoice` 3043→3157} = #119 §12-4 と同じ |
+| `verify_frost_hold` | 27/28 | {(6b)} | 既知。`runEncounter` 21906→22068 だけ |
+| `verify_path_advice` | 21/21 | ∅ | |
+| `driver_speech_engine` | 18/18 | ∅ | |
+| `driver_speech_v2` | 45/46 | {(A1)} | 既知 |
+| `driver_speech_hooks` | 13/13 | ∅ | |
+| `driver_speech_boss` | 19/19 | ∅ | |
+| `verify_tower_mother_b` | 22/22 | ∅ | 341 秒 |
+| `driver_dev_gate2` | 62/62 | ∅ | |
+| `verify_companion_cast` | 24/24 | ∅ | |
+| `verify_goodberry` | 23/23 | ∅ | |
+| `driver_doors_p6` | 40/40 | ∅ | |
+| `driver_room_search_roll` | 39/39 | ∅ | |
+| `verify_lore_check` | 26/26 | ∅ | |
+| `verify_corner_check` | 20/20 | ∅ | |
+| `verify_ambush_round` | 18/18 | ∅ | |
+| `verify_banter_callouts` | 20/20 | ∅ | |
+| `driver_graph_arrows` | 80/80 | ∅ | |
+| `driver_graph_kinds` | 66/66 | ∅ | |
+| `driver_graph_run` | 99/99 | ∅ | |
+| `driver_graph_sce1` | 106/106 | ∅ | |
+| `driver_grid_p9` | 52/52 | ∅ | 426 秒 |
+| `driver_scroll_autoskip` | 9/9 | ∅ | |
+| `driver_choice_logslot` | 29/29 | ∅ | |
+| `verify_mage_hand` | 32/32 | ∅ | |
+| `verify_mage_hand_reach` | 11/11 | ∅ | |
+| `verify_arcane_eye` | 34/34 | ∅ | |
+| `verify_egg_parent` | 25/26 | {(6a)} | 既知。`runEncounter` 21906→22068 |
+| `driver_field_step6` | 65/65 | ∅ | 1637 秒 |
+
+**赤の集合 = { `driver_speech_v2` (A1) / `verify_egg_parent` (6a) / `verify_frost_hold` (6b) / `verify_witch_hut` (6b) }(#119 と同じ・決定的)+ `verify_npc_crowd` の揺れる赤 {(1a)・ときどき (4d)}(4 回中 3 回赤)。** どれも #120 より前から・#120 に帰属しない。
+
+⚠ **`verify_npc_crowd` の揺れの理由(突き止めた)**: 種 `QUEST_BOARD_SEED = {t1:廃坑, t2:森}`(`:146`)と `QUEST_BOARD_SEED_B = {t3:廃坑, t2:森}`(`:151`)は #81 の時点の「本筋 + 次の未解放」。#103 で巣穴が開始直後から解放済みになった後は、解放済み 2 件 = `BOARD_SIZE` なので `boardValid` `:11825` の「未解放を許す」条件(`f.unlocked.length < BOARD_SIZE`)が偽になり、森を含む種は**毎回捨てられて無作為に引き直される**。ログの札の id が `questTable_goblin-mine` + `questTable_kobold-warren`(種に無い巣穴)になっていることが、種が捨てられた証拠。
+- (1a) の `seatOk`(`:1485`)は「盤面 B のページで t3 に札がある」を要求する → 引き直した 2 件が t3 を含む確率は 2/3、desktop と compact の 2 ページとも含む確率は 4/9 ⇒ 約 5/9 の確率で赤
+- (4d) は desktop と compact の札の id の**並び**を比べる → 2 ページで席の割り当てが違うと赤
+- #119 の golden にはこのドライバが入っていなかったので、今まで表に出ていなかった
+
+#### §2-5 の扱い(1 本ずつ・書き換えは項目 4)
+
+| ドライバ | 依存箇所(HEAD) | 扱い | 根拠 |
+|---|---|---|---|
+| `verify_quest_draw` | 全体(18 判定。「2 件」を名乗るのは (0a) `新規状態の盤面が 2 件`・(1a) `goblin-mine + kobold-warren の 2 枚ちょうど / ?warren=0`・(1d) `2 件とも解放済み`・(2b) 種 = 廃坑 + 巣穴 など) | **3 件の組へ言い直す**(項目 3 = §8)+ #81 の主張は **`?board3=0` の腕 (2a) へ移す** | §8 のとおり。言い直すと #81 の意味(2 件の世界)が消えるものだけを腕へ |
+| `verify_tavern_map` | `:525` 種 `QUEST_BOARD_SEED` = {t1 廃坑, t2 巣穴}(2 席)・(2a) `:1261` 文面「ちょうど 2 枚」・(5b) `:1495` / (5c) `:1509`(枚数 `n` は種の席数から導出)・`:516`〜`:524` コメント | **3 件の組へ言い直す**: 種を {t1 廃坑, t2 巣穴, t3 森(未解放 = ???)} の 3 席にする(nonce `SEED-vtm` のまま)。(2a)(5b)(5c) は `n` を種から導くのでコードは追従し、(2a) の文面だけ「3 枚」へ | 2 席の種は 3 件の世界で `boardValid` ① に落ちて引き直され、(2a)(5b)(5c) が nonce で赤になる |
+| 〃 | `:526` `QUEST_BOARD_SEED_OFF` = {t1 廃坑, t2 森}(`?warren=0`)・(2d) `:1320`〜`:1326` | **影響なし(残す)** + **#103 の ??? 判定を裏返す(コメント)**: `:521`〜`:524` と `:1320` の「★[#103] 開始直後の解放済みが 2 件になり ??? は出ない」は #120 で偽になる → 「既定の世界でも 3 卓目に ??? の森が出る(#120)」へ書き直す。(2d) の測定そのものは `?warren=0` のまま残す | `?warren=0` の開始直後は `boardCount` = min(3, 1+1) = 2 なので 2 席の種は今後も妥当 = (2d) は今の期待値のまま緑のはず。⭐ しかも §2-2 の罠(変異 `fixedcount`)が入ると、この種が捨てられて (2d) が「種が採用されていない」で赤になる = 罠の番人を兼ねる。既定の世界の ??? は、3 席の種(上の行)の t3 の森で (2d) と同じ判定を足すと #120 の主張を直接測れる(足すかは項目 4 の判断) |
+| `verify_npc_crowd` | `:146` / `:151` 種(2 席・どちらも森入りで **HEAD で既に不正**)・`:446` setItem・`:524`〜`:526` 卓数は `board()` から導出・(1a) `:1485` `seatOk`(盤面 B の t3)・(4d) `:1961` | **3 件の組へ言い直す**: 種を新規状態で妥当な 3 席 {t1 廃坑, t2 巣穴, t3 森} にし、`QUEST_BOARD_SEED_B` は席の並びを変えた 3 席(例 {t1 森, t2 巣穴, t3 廃坑})にする。卓数の導出(`:524`〜`:526`)は触らない | 3 件の世界では盤面が 3 席すべてを使うので (1a) の t3 は必ず埋まる。ただし種が引き直されたままだと席の割り当てが無作為 = (4d) の並びの揺れは残る ⇒ 種を妥当にして決定的にするのが本筋。⭐ これで上の「揺れる赤」も消える(期待値を緩めずに、種を今の世界に合わせる) |
+| `verify_kobold_warren` | `:117` コメント「解放済みが 2 件 = 決定的」・`:543` `pairIs`・`:544`〜`:545` `C1`(onDraws = {廃坑, 巣穴})・`:558` offDraws(`?warren=0`)= {廃坑, 森}・`:561`〜`:563` (4b) の ON/OFF 反転 | **3 件の組へ言い直す**: (1c) の onDraws を {廃坑, 巣穴, 森} の 3 件の組へ(8 回とも決定的のまま)。(4b) の offDraws は **2 件の組のまま**(`?warren=0` の開始直後 = 上限 2)。`C1` を on/off で共用しているので、言い直したあと `offTriple` の `C1(off)` が「巣穴が無いから」偽になる(件数違いで偽になるのではない)ことを確かめる | 開始直後は 3 件でも全部強制(上限 3)= 決定性は保たれる。⚠ `pairIs` を一律 3 にすると (4b) の off が赤になる |
+| `verify_lost_cargo` | `:138` コメント・`:743` `pairIs`・`:747` (1c) onDraws = {廃坑, 巣穴} | **3 件の組へ言い直す**({廃坑, 巣穴, 森}) | (1c) の主旨「開始直後の卓に倉庫街が出ない」は 3 件の組でも保たれる |
+| `verify_silent_tomb` | `:154` コメント・`:851` `pairIs`・`:856` (1c) onDraws = {廃坑, 巣穴} | **3 件の組へ言い直す**(同上) | 同上(墓所が出ない) |
+| `verify_tower_mother` | `:510` `frontierEvery` = `s.length === 2`・`:105` `P_TOWER_PER_DRAW = 1/5`・`:24`〜`:27` 説明 | **3 件の組へ言い直す**(`length === 3`)。ついでに確率の定数を実測の母集団へ(3 件 = 2/9。`N_1C_ON = 42` のままで偽赤 2.6e-5 < 1e-4) | 上の測り直しの表。定数は HEAD で既に古い(1/5 → 実際は 1/9)。`:107` の門は定数を使うので、2/9 にしても通る |
+| `verify_witch_hut` | `:478` `boardFacts()` だけ | **影響なし** | 盤面(`seats`)を読まない。`length === 2` の 4 か所(`:465` `:1356` `:1398` `:1409` `:1426`)は別の主題 |
+| `verify_frost_hold` | `:578` `boardFacts()` だけ | **影響なし** | 同上(`:566` `:1253` は別の主題) |
+| `verify_recruit_size` | `:425` `#questTable_goblin-mine` を押す | **影響なし** | 新規状態の廃坑は本筋 = 3 件でも必ず卓に在る。`:559` / `:674` の「2 件」は別の主題 |
+| `verify_quest_walk` | `:717` `#questTable_goblin-mine`・`:1255` `locked:false` 2 組・`:1466` side の札 | **影響なし** | `:1255` は scenarios のデータの行数、`:1466` はワールドマップの札 = 酒場の盤面ではない |
+| `driver_depart_menu_clean` | `:175` `#questTable_goblin-mine` | **影響なし** | 上と同じ理由。`:345` は別の主題 |
+
+**`?board3=0` の腕へ移すのは `verify_quest_draw` の #81 の主張 ((2a)) だけ。** ほかに、言い直すと意味が変わるものは無い。
+**#103 の ??? 判定を裏返すのは `verify_tavern_map` の `:521`〜`:524` / `:1320` のコメントだけ**(期待値の反転は無い。(2d) は `?warren=0` の世界のまま緑の見込み)。
+
+#### 項目 2〜4 への注意
+
+1. §2-2 の撤退の行番号は **`:3925`**(`:3921` ではない)。
+2. `verify_npc_crowd` は **着手前から揺れて赤い**(上の注記)。項目 4 の非退行では「赤の集合が増えていない」の比べ方が使えないので、種を言い直した後に**緑で安定すること**を見る(3 回以上走らせる)。
+3. `verify_tavern_map` (2d) と `SEED_OFF` は、`boardCount` を入れ忘れる(変異 `fixedcount`)と赤になる。項目 2 の後に (2d) が赤くなったら、まず `boardValid` ① を疑う。
+4. `verify_tower_mother` の `P_TOWER_PER_DRAW` は 1/5 のまま放置しても `:107` の門は通る(緩い向き)。直すなら 3 件の実測 2/9。
+5. 項目 4 の golden は上の 39 本をそのまま使える。`driver_field_step6` は 27 分・`driver_grid_p9` は 7 分。酒場に触れる本は昼に回す(この基準は 17:15〜18:48)。
