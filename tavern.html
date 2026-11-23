@@ -2586,6 +2586,14 @@
     #pmIntelPanel[hidden] { display: none !important; }
     /* ⚠ 指で押すのでタップ領域 44px。⛔ .intelBtn 本体は書き換えない (準備画面の見た目を動かさない)。 */
     #pmIntelPanel .intelBtn { min-height: 44px; }
+    /* ★[A4 縮小版] 撤退ラインの選択 (HP% で自動撤退)。⚠ 指で押すので 44px。
+       選択中の 1 つだけ金色に点ける (いまどれが有効かを見た目で読ませる)。 */
+    #pmRetreatRow { display: flex; gap: 8px; flex-wrap: wrap; }
+    #pmRetreatRow .intelBtn { min-height: 44px; flex: 1 1 28%; justify-content: center; }
+    #pmRetreatRow .intelBtn.on {
+      background: var(--parchment-gold, #c8a046); color: #1a1108;
+      border-color: #8b6914; font-weight: 700;
+    }
     /* 判定結果は行が増えるので帯の中だけで巻き取る (出発の口を画面外へ押し出さない)。 */
     #pmIntelResultList { max-height: 17vh; overflow-y: auto; }
     #pmIntelResultList .intelResult { font-size: 12px; }
@@ -3274,6 +3282,17 @@
             <button type="button" class="btn intelBtn" id="pmBtnIntelPray">🙏 神に祈る<span class="intelSkill">宗教</span></button>
           </div>
           <div id="pmIntelResultList"></div>
+        </div>
+        <!-- ★[A4 縮小版] 撤退ライン (開発会議 2026-11-23 §A4 ①)。出発前に選ぶ「HP がこの割合を
+             切ったら自動で引き上げる」ライン。保存は localStorage dragonfighters.retreatLine。
+             ⛔ 既定 = 設定しない (0) = 従来どおり手動撤退のみ。index.html がラン中に読んで発動する。 -->
+        <div id="pmRetreatPanel">
+          <div class="pmBriefHead">🏃 撤退ライン <span>(HP がこの割合を切ったら自動で引き上げる)</span></div>
+          <div class="intelBtnRow" id="pmRetreatRow">
+            <button type="button" class="btn intelBtn" data-line="0">設定しない</button>
+            <button type="button" class="btn intelBtn" data-line="25">HP 25%</button>
+            <button type="button" class="btn intelBtn" data-line="50">HP 50%</button>
+          </div>
         </div>
       </div>
       <!-- #55: 「募集をかけ直す」の移設先。⚠ 出発の口の **手前**。
@@ -6419,6 +6438,15 @@
       if (!had) window.__redEggPending = true;
     } catch (e) { console.warn("[redEgg] 印の保存に失敗", e); }
   }
+  /* ★[A4 縮小版] 全滅の重み = 酒場で払う蘇生費 (開発会議 2026-11-23 §A4 ②)。
+     費用 = 主人公 Lv × REVIVAL_COST_PER_LV を [MIN, MAX] で丸め、所持金を超えない (借金/詰みを作らない)。
+     ⭐ 取るのは敗北 (defeated) のときだけ。撤退 (retreated) は「生還」なので無料。
+     ⛔ ロスト (永久喪失) は会議結論どおり見送り = 仲間は失わない (名簿は recordRun(…,false) で不変のまま)。
+     撤退スイッチ ?revivalcost=0 で従来 (無料) へ戻す。 */
+  const REVIVAL_COST_ON = !/[?&]revivalcost=0(&|$)/.test(location.search);
+  const REVIVAL_COST_PER_LV = 20;
+  const REVIVAL_COST_MIN = 20;
+  const REVIVAL_COST_MAX = 200;
   // 直前ダンジョンからのリザルト受け取り(index.html がクリア時に書き込む)
   (function consumeResult() {
     const resultRaw = sessionStorage.getItem("dragonfighters.lastResult");
@@ -6479,6 +6507,19 @@
         // 次 tick でバナー表示(renderTables 後)
         setTimeout(() => showReturnBanner(r), 100);
       } else if (r && (r.defeated || r.retreated)) {
+        /* ★[A4 縮小版] 全滅の重み: 敗北のときだけ蘇生費を払う (撤退は生還なので無料)。
+           ⛔ autoplay / 自動巡回 (?autoplay=…) では引かない —— 検証の金貨収支を汚さない。
+           ⚠ dfSetGold は 0 未満に丸めるので借金にはならないが、表示用に「実際に払った額」を r へ控える。 */
+        var __apParam = null;
+        try { __apParam = new URLSearchParams(location.search).get("autoplay"); } catch (e) {}
+        if (r.defeated && REVIVAL_COST_ON && !__apParam) {
+          try {
+            var lv = Math.max(1, getLevelFromXP(inventory.xp) | 0);
+            var cost = Math.max(REVIVAL_COST_MIN, Math.min(REVIVAL_COST_MAX, lv * REVIVAL_COST_PER_LV));
+            var pay = Math.min(cost, dfGold());
+            if (pay > 0) { dfSetGold(dfGold() - pay); r.__revivalPaid = pay; r.__revivalAfter = dfGold(); }
+          } catch (e) { console.warn("[revival] 蘇生費の計算に失敗", e); }
+        }
         setTimeout(() => showReturnBanner(r), 100);
       }
     } catch (e) { /* ignore */ }
@@ -6527,6 +6568,10 @@
       msg = `「${r.scenarioTitle || "依頼"}」から撤退… 傷を癒し、再び挑もう`;
     } else {
       msg = `「${r.scenarioTitle || "依頼"}」失敗… もう一度挑もう`;
+      /* ★[A4 縮小版] 全滅の重み: 払った蘇生費を帯の末尾に足す (consumeResult が r へ控えた額)。 */
+      if (r.__revivalPaid > 0) {
+        msg += ` / 倒れた仲間の蘇生と手当てに 金貨 ${r.__revivalPaid} 枚 (残り ${r.__revivalAfter})`;
+      }
     }
     banner.textContent = msg;
     /* 年代記 (#37): バナーの末尾へ「📜 記録を読む」を足す。
@@ -10411,6 +10456,7 @@
       if (enemyEl) enemyEl.textContent = scenarioEnemyInfoText(sc);
       const ip = document.getElementById("pmIntelPanel");
       if (ip) ip.hidden = !(sc && SCENARIO_INTEL[sc.id]);
+      renderRetreatLinePanel();   // ★[A4] 開くたびに今の撤退ラインの選択を点け直す
     }
     /* 募集のかけ直しは、出発の口と同じ「全員確定後」にだけ出す。
        ⚠ 開示中に列を差し替えると revealQueue の参照先が消えて開示が止まる。 */
@@ -10642,6 +10688,38 @@
   (function () {
     var sb = document.getElementById("settingsBtn");
     if (sb) sb.addEventListener("click", function (ev) { ev.stopPropagation(); if (window.GameAudio) GameAudio.openSettings(); });
+  })();
+  /* ★[A4 縮小版] 撤退ラインの選択 UI (マッチング画面 #pmBrief 内)。開発会議 2026-11-23 §A4 ①。
+     ⭐ 保存は localStorage dragonfighters.retreatLine = 0/25/50 (0=設定しない=既定)。ここは選ばせて
+        焼くだけ —— 実際の自動撤退の判定ロジックは index.html が持つ (写しを作らない)。 */
+  function getRetreatLineTV() {
+    try {
+      var n = parseInt(localStorage.getItem("dragonfighters.retreatLine") || "0", 10);
+      return [0, 25, 50].indexOf(n) >= 0 ? n : 0;
+    } catch (e) { return 0; }
+  }
+  function renderRetreatLinePanel() {
+    var row = document.getElementById("pmRetreatRow");
+    if (!row) return;
+    var cur = getRetreatLineTV();
+    var btns = row.querySelectorAll("button[data-line]");
+    for (var i = 0; i < btns.length; i++) {
+      var v = parseInt(btns[i].dataset.line, 10) || 0;
+      btns[i].classList.toggle("on", v === cur);
+    }
+  }
+  (function wireRetreatLinePanel() {
+    var row = document.getElementById("pmRetreatRow");
+    if (!row) return;
+    row.addEventListener("click", function (e) {
+      var btn = e.target.closest ? e.target.closest("button[data-line]") : null;
+      if (!btn) return;
+      var v = parseInt(btn.dataset.line, 10) || 0;
+      try { localStorage.setItem("dragonfighters.retreatLine", String(v)); } catch (err) {}
+      renderRetreatLinePanel();
+      if (window.GameAudio) GameAudio.playSfx("button");
+    });
+    renderRetreatLinePanel();   // 初期状態 (既定 0 = 「設定しない」が点く)
   })();
   if (window.GameAudio) GameAudio.applySettings();
   // 事前生成ナレーション音声 (VOICEVOX) の manifest を読込 (未生成なら no-op)
