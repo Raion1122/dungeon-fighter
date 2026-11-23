@@ -14923,6 +14923,19 @@
       catch (e) { return true; }
     })();
     if (!HOLD_SLOTS_ON) CLERIC_SLOTS_TABLE["hold-person"] = [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2];
+    /* ★[A1 縮小版] 呪文スロットを「ラン単位の希少資源」にする (開発会議 2026-11-23 §A1 ②③の前提)。
+     *   問題 = スロット機構(Phase 2-J)は完成済みだが、戦闘勝利ごとに max×25% 自動補充されて
+     *   「どこで大呪文を切るか」の緊張が死んでいた。
+     *   ⭐ 既定 ON = その毎勝利 25% 補充(R1)を止める。スロットは「酒場で休んで出発し直す」
+     *      = ラン開始の満タン初期化(initLeaderSpellSlots)でだけ全回復する(= 酒場休息＝全回復)。
+     *      部屋クリアの最低位 +1(applyRoomClearHeal / R2)は救済として残す — 戻るのは最低位の
+     *      1 枠だけなので高位呪文(大呪文)は依然タバーンまで戻らず、狙いの希少性は保たれる。
+     *   撤退スイッチ ?slotscarcity=0 で従来の毎勝利 25% 補充へ戻す(ドライバ/バランス比較用)。
+     *   ⛔ 新しい永続化は足さない(ランをまたぐスロット持ち越しは会議の想定を超える拡大)。 */
+    const SLOT_SCARCITY_ON = (() => {
+      try { return new URLSearchParams(window.location.search).get("slotscarcity") !== "0"; }
+      catch (e) { return true; }
+    })();
     /* ★[#69] 撤退スイッチ ?holdpair=0 — ホールド・パーソンを 1 体だけに戻す (2026-09-16 以前)。
      * ⭐⭐⭐ **URL を読むのはこの 1 箇所だけ**。適用点 (allyHoldPerson の 2 体目選択 /
      *   CLERIC_SKILLS の flavor) は全部この const を参照する。
@@ -14985,6 +14998,18 @@
         return Object.values(getClericSlots(lv)).reduce((a, b) => a + b, 0);
       }
       return 0;
+    }
+
+    /* ★[A1 縮小版 ③] HUD の残スロットを「見える希少資源」にする。残量の割合で色を変え
+     *   (潤沢=青 / 残り25%以下=琥珀 / 枯渇=赤)、枯れたら「酒場で休息して回復」と一言添える
+     *   (= 会議 §A1 ② の回復導線をプレイヤーへ恒常的に明示)。リーダー・仲間の両方で使う。 */
+    function dfSlotLineHtml(remain, total) {
+      if (!(total > 0)) return "";
+      const frac = remain / total;
+      const col = remain <= 0 ? "#c0392b" : (frac <= 0.25 ? "#c8a046" : "#2b5d8e");
+      const hint = remain <= 0
+        ? ' <span style="opacity:0.75;font-size:11px;">— 酒場で休息して回復</span>' : "";
+      return `<div class="sbStat">呪文 <b style="color:${col}">${remain}</b>/${total}${hint}</div>`;
     }
 
     // 1ユニット (player or ally) のレベルアップ適用
@@ -16190,6 +16215,29 @@
       } catch (e) { /* 目標表示は本体を止めない */ }
       tryGoodberryOnEntry();   // ★[#116] 最初の部屋で 1 回だけグッドベリー (同期・乱数を引かない)
       tryArcaneEyeOnEntry();   // ★[#79] ① 最初の部屋で魔法の眼 (await しない。旗は関数の頭で同期に立つ)
+      tryRestRecoveryOnEntry(); // ★[A1 ②] 「酒場で休むと回復」をプレイヤーへ一度だけ明示 (同期・乱数を引かない)
+    }
+
+    /* ★[A1 縮小版 ②] 呪文スロットは「酒場で休むと回復」する — をプレイヤーへ明示する入場バナー。
+     *   実体 = スロットはラン開始(= 銀の鹿亭での休息)で満タンに初期化される(initLeaderSpellSlots)。
+     *   会議 §A1 ②「酒場に休息＝全スロット回復を置く」を、新しい永続化を足さずに既存の満タン初期化へ
+     *   重ねて legible にしたもの。恒常の回復導線は HUD の枯渇ヒント(③)が担う。
+     *   ⛔ autoplay はスキップ(ヘッドレスの決定論を保つ — 既存の tryArcaneEyeOnEntry 等と同方針)。
+     *   ⭐ キャスター(スロット持ち)が居るときだけ・1 セッション 1 回だけ(毎ランの繰り返しを避ける)。 */
+    function tryRestRecoveryOnEntry() {
+      if (window.__autoplay) return;
+      const leaderHasSlots = (typeof currentMaxSpellSlotsTotal === "number" && currentMaxSpellSlotsTotal > 0);
+      const allyHasSlots = (typeof allies !== "undefined") && allies.some(a => a && a.maxSpellSlotsTotal > 0);
+      if (!leaderHasSlots && !allyHasSlots) return;
+      try {
+        if (sessionStorage.getItem("dragonfighters.restMsgSeen") === "1") return;
+        sessionStorage.setItem("dragonfighters.restMsgSeen", "1");
+      } catch (e) { /* sessionStorage 不可でも 1 回は出す */ }
+      setTimeout(() => {
+        if (typeof showDMMessage === "function") {
+          showDMMessage("銀の鹿亭で英気を養った。呪文スロットは満タンだ — ここぞという大呪文に備えよ。", 3600);
+        }
+      }, 900);
     }
 
     // Phase 2-G DEBUG: 残影回避モードのトグルボタン処理
@@ -17614,7 +17662,7 @@
         let leaderMpLine = "";
         if (currentMaxSpellSlotsTotal > 0) {
           const slotsRemain = Object.values(currentSpellSlots || {}).reduce((s, v) => s + v, 0);
-          leaderMpLine = `<div class="sbStat">呪文 <b style="color:#2b5d8e">${slotsRemain}</b>/${currentMaxSpellSlotsTotal}</div>`;
+          leaderMpLine = dfSlotLineHtml(slotsRemain, currentMaxSpellSlotsTotal);   // ★[A1 ③] 残量で色+枯渇ヒント
         }
         // スキル行 (装備スキル一覧、仲間と同じ表示パターン)
         const leaderSkillNames = (typeof equippedSkills !== "undefined" && equippedSkills)
@@ -17679,7 +17727,7 @@
           let mpLine = "";
           if (a.maxSpellSlotsTotal && a.maxSpellSlotsTotal > 0) {
             const slotsRemain = Object.values(a.spellSlots || {}).reduce((s, v) => s + v, 0);
-            mpLine = `<div class="sbStat">呪文 <b style="color:#2b5d8e">${slotsRemain}</b>/${a.maxSpellSlotsTotal}</div>`;
+            mpLine = dfSlotLineHtml(slotsRemain, a.maxSpellSlotsTotal);   // ★[A1 ③] 残量で色+枯渇ヒント
           }
           // Phase 2-G 拡張: 仲間のアクセサリー欄 (装備中のみ表示)
           let aAccLines = "";
@@ -25128,6 +25176,11 @@
 
           // 1. Phase 2-J: 呪文スロット回復 (勝利ボーナス: maxSpellSlots[id] × 25% 切上げ)
           //    対象者が1人でもいれば「息を整える…」バナーを出す
+          // ★[A1 縮小版 ①] 既定ではこの毎勝利 25% 自動補充を止める (SLOT_SCARCITY_ON=true)。
+          //    止めると「どこで大呪文を切るか」の緊張が生き、回復は酒場休息(ラン開始の満タン初期化)と
+          //    部屋クリアの最低位 +1 (直後の applyRoomClearHeal) に集約される。
+          //    撤退 ?slotscarcity=0 で従来どおりの 25% 補充へ戻る。
+          if (!SLOT_SCARCITY_ON) {
           const slotRestorable = allies.some(a => {
             if (!a.alive || !a.maxSpellSlots) return false;
             for (const id of Object.keys(a.maxSpellSlots)) {
@@ -25156,6 +25209,7 @@
             }
           }
           await sleepMs(anyMpRestored ? 500 : 200);
+          }
 
           // 1.5 item④: 部屋クリア小回復 (生存PT全員 HP+33% & キャスターは最低位スロット+1)。
           //     ボス部屋では applyRoomClearHeal 冒頭で早期 return。上の25%スロット回復とは
