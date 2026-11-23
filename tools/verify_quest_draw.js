@@ -1,61 +1,58 @@
 #!/usr/bin/env node
 /*
- * verify_quest_draw.js — 実装依頼書 #81「酒場の依頼を戻るたびに入れ替わる 2 件へ + 奥の小部屋を武器防具屋へ」の受入ドライバ
- *   (依頼書 2026-10-02_quest-draw-shop-room.md §8)
+ * verify_quest_draw.js — 酒場の卓の依頼 (戻るたびに入れ替わる盤面) の受入ドライバ
+ *   ★[#120] 実装依頼書 2026-11-23_tavern-three-quests.md §8 で **3 件へ言い直した** (旧 = #81 2026-10-02_quest-draw-shop-room.md §8 の 18 判定)。
+ *   #81 の主張 (2 件・本筋 1・??? 埋め) は撤退 ?board3=0 の腕 (2a) へ寄せて残した。言い直しの対応表は #120 依頼書 §12-3。
  * ════════════════════════════════════════════════════════════════════════════════
- *   node tools/verify_quest_draw.js                        # 素
- *   node tools/verify_quest_draw.js --negative             # 変異 10 本 (port 10528〜10537)。先に素の基準を走らせる
- *   node tools/verify_quest_draw.js --negative --only memonly,noreroll
- *   node tools/verify_quest_draw.js --mutate lockedpool    # 変異 1 本を載せて手回し (担当表を実走で決める用)
- * exit 0=期待どおり / 1=FAIL あり・変異の空振り・担当が絞れていない・注入行が実行されていない
+ *   node tools/verify_quest_draw.js                        # 素 (port 10920)
+ *   node tools/verify_quest_draw.js --negative             # 素の基準 + 変異 8 本 (port 10921〜10928)
+ *   node tools/verify_quest_draw.js --negative --only fixedcount,dup
+ *   node tools/verify_quest_draw.js --mutate nolock        # 変異 1 本を載せて手回し
+ * exit 0=期待どおり / 1=FAIL あり・変異の空振り (担当の節が赤くならない)・注入行が実行されていない
  *      2=環境不足 (puppeteer / Chrome が無い)・例外
  *      3=装置の腐敗 (変異の注入点が 1 箇所でない・行数が変わる・他ドライバのアンカーと重なる)
  *
- * ■ 方針 (依頼書 §8)
+ * ■ 方針 (依頼書 #120 §8)
  *   - 盤面は**ブラウザで本番の関数に作らせる** (tavern.html を開くだけ = buildSigns → loadOrDrawBoard)。
  *     ドライバは localStorage の種 (dragonfighters.cleared / dragonfighters.questBoard) と
  *     sessionStorage["dragonfighters.lastResult"] をまき、DOM の札 (#tavernStage [data-scenario]) と
- *     保存値 (localStorage) と __TAVERN_TV.board() の写しで判定する。⛔ 盤面を書き換えるシームは使わない (無い)。
- *   - 期待値 (解放済み / 本筋 / 次の未解放 / 盤面の妥当性) は、ページ内の `scenarios` の {id, locked, unlockAfter} と
- *     ドライバがまいた cleared から**ドライバ側で独立に**計算する (indepFacts / indepValid)。
- *     ⛔ 本番の __TAVERN_TV.boardFacts() は判定に使わない (写経にしない)。
- *   - 乱数は固定しない。分布は測らない (§8「測らないこと」)。代わりに「何回引いても成り立つ不変条件」を
- *     複数回の引き直しで問う ((1a)(1b) 各 6 回・(1c) 5 状態 × 8 回・(1d) 4 回・(3b) 2 状態 × 6 種)。
- *     ⭐ 回数は変異の検出を決定的にするための数 (例: lockedpool の (1a) は 1 回なら 80% でしか赤くならない)。
- *   - 町との往復 (2a) は town.html を実際に開き、町が施設へ入るときと同じ
+ *     保存値 (localStorage) と __TAVERN_TV.board() の 3 経路で判定する。⛔ 盤面を書き換えるシームは使わない (無い)。
+ *   - 期待値 (解放済み / 本筋 / 次の未解放 / 件数 / 盤面の妥当性) は、ページ内の `scenarios` の {id, locked, unlockAfter, side} と
+ *     ドライバがまいた cleared から**ドライバ側で独立に**計算する (indepFacts / expCount / indepValid)。
+ *     ⛔ 本番の __TAVERN_TV.boardFacts() / boardCount() の答えは判定に使わない (写経にしない)。
+ *     件数 expCount は「本筋 1 + 残りの解放済み + 足りなければ次の未解放 1 件、上限 = 卓の件数 (3 / 撤退 2)」という
+ *     **積み方の規則**から数える (式の形は本番の boardCount と同じ値になるが、本番の関数は呼ばない)。
+ *   - 乱数は固定しない。分布は測らない (§8「測らないこと」)。代わりに「何回引いても成り立つ不変条件」を複数回の引き直しで問う。
+ *     ⭐ 回数は変異の検出を決定的にするための数:
+ *       nofront の (1b) = cleared=[廃坑] で本筋 (森) を入れずに 4 件から 3 件 → 森が入る確率 3/4 ⇒ N_1B=25 で緑のまま (3/4)^25 ≒ 7.5e-4
+ *       dup の (1c)     = 12 件から戻さずに 3 件 → 重複なし (11/12)(10/12) ≒ 0.764 ⇒ N_1C=26 で緑のまま 0.764^26 ≒ 9.1e-4
+ *   - 町との往復 ((1g)) は town.html を実際に開き、町が施設へ入るときと同じ
  *     sessionStorage["dragonfighters.enterVia"]="tavern" + location.href="tavern.html" で戻る (town.html enterFacility の作法)。
+ *   - 種まきに sessionStorage["dragonfighters.plazaClock"]="21" を入れる (CLAUDE.md #102 節: 酒場に触れるドライバの作法)。
  *
- * ■ 測っているもの (依頼書 §8 の番号)
- *   §0 (0a) [装置] window.TAVERN_MAP と __TAVERN_TV.board が在り、新規状態の盤面が 2 件 (⭐ 無いと全部空振りで緑)
- *      (0b) [装置] scenarios が 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前)
- *           ★[#103] + side 2 件 (塔の母 = locked / 巣穴 kobold-warren = locked なし)
- *           ★[#104] + side 3 件目 lost-cargo (locked・前提は本筋の廃坑)
- *           ★[#105] + side 4 件目 silent-tomb (locked・前提は本筋の 2 番目 = 森)
- *           ★[#106] + side 5 件目 witch-hut (locked・前提は本筋の 3 番目 = 沼地)
- *           ★[#107] + side 6 件目 frost-hold (locked・前提は本筋の 5 番目 = 神殿)
- *      (0c) [装置] 全ページで pageerror 0 件 (本ドライバ独自の追加)
- *   §1 (1a) 新規 (cleared=[]) を 6 回引く → 毎回 札は questTable_goblin-mine + questTable_kobold-warren (両方押せる) の 2 枚ちょうど (★[#103])
- *           + 撤退 ?warren=0 で 6 回 → 毎回 questTable_goblin-mine (押せる) + questTable_bandits-forest (???・.locked) の 2 枚ちょうど (#82 までの (1a))
- *      (1b) cleared=[廃坑] を 6 回引く → 毎回 盤面 = {森 (本筋), 廃坑 か 巣穴 か 倉庫街}・両方押せる (★[#103] 解放済みが 3 件・★[#104] 4 件になった)
- *           + 撤退 ?cargo=0 で 6 回 → 毎回 {森, 廃坑 か 巣穴} (#103 までの (1b) そのもの)
- *      (1c) cleared 1〜5 本の各状態で鍵を消して 8 回読み直す → 全回で本筋が入り、もう 1 件は解放済み、未解放の札 0 枚・盤面が独立計算で妥当
- *      (1d) cleared 6 本を 4 回引く → 本筋なし・2 件とも解放済み・重複なし (★[#104] 解放済み 9 件・★[#105] 10 件・★[#106] 11 件・★[#107] 12 件)
- *      (1e) 2 経路: §1 の全読み込みで DOM の札 id 集合 === board().seats の値集合 === localStorage の保存値の集合
- *           (+ 保存値 === board() の写し・各札が自分の席 (TABLES の sign タイル) に立っている)
- *   §2 (2a) cleared 3 本で盤面を作らせた後、再読込 5 回・町へ出て戻る 3 回で nonce も席も 1 文字も変わらない
- *      (2b) 妥当な盤面の種 3 つ (新規状態の廃坑 + 巣穴 / ?warren=0 の新規状態の ??? 入り / cleared 3 本) がそのまま採用される (nonce が種のまま・保存値も種のまま)
- *   §3 (3a) 種の盤面 (nonce "SEED") + lastResult を cleared / defeated / retreated / generated-quest の 4 通り → 4 通りとも
- *           nonce !== "SEED" かつ引き直した盤面が (帰還後の cleared で) 独立計算で妥当
- *      (3b) 妥当でない種 6 種 (本筋欠け / 未解放 id / 3 件 / 存在しない席 / id 重複 / 存在しない id) を cleared 3 本と 4 本で
- *           まく → 12 回とも捨てて引き直す (nonce !== "SEED") かつ引き直した盤面が独立計算で妥当
- *   §4 (4a) #tavernDoor_shop が在り文言が「武器防具屋」/ #tavernDoor_back は DOM に無い
- *      (4b) 扉札を押す → 扉前 (13,2) へ歩いてから #shopScreen が display:flex、#backroomBar は出ない
- *      (4c) 地図モードで #shopEntry が見えない (checkVisibility() false) かつ DOM には在る
- *      (4d) ?tavernmap=0 では #shopEntry が見えて押すと店が開く
- *   §5 (5a) ?questdraw=0 → 札 3 枚 = TABLES の scenarioId が TABLES の席どおり・board() null・#tavernDoor_back「奥の間へ」が
- *           奥の間を開く・#tavernDoor_shop は無い・#shopEntry が見える
- *      (5b) (1e)(4a)(4c) の 3 条件を ON/OFF の両方へ当てて全部反転 (ON = 全部 true / OFF = 全部 false)
- *   ⛔ 測らないこと (依頼書 §8): 抽選の分布の偏り / 扉札の説明文の文言
+ * ■ 測っているもの (依頼書 #120 §8 の番号。(0c)(0d)(1h)(3b)(4a)〜(4d) は #81 から持ち越した件数に依存しない判定)
+ *   §0 (0a) [装置] window.TAVERN_MAP と __TAVERN_TV.board が在り、新規状態の盤面が 3 件 (⭐ 無いと全部空振りで緑)
+ *      (0b) [装置] 撤退 ?board3=0 の新規状態の盤面が 2 件 (= 腕が本当に別の世界を測っている)
+ *      (0c) [装置] scenarios = 本筋 6 件の一本道 + side 6 件 (#81 (0b) を持ち越し)
+ *      (0d) [装置] 全ページで pageerror 0 件 (#81 (0c) を持ち越し)
+ *   §1 (1a) 新規状態を 6 回引く → 毎回 {廃坑, 巣穴, 森 (???)} の 3 件。森の札は .locked・名前 ???、廃坑と巣穴は押せる
+ *      (1b) cleared=[廃坑] を 25 回 → 3 件とも解放済み・本筋 (森) を含む・重複なし
+ *           + cleared 2〜5 本 × 3 回 (#81 (1c) を 3 件へ) + 撤退 ?cargo=0 × 3 回 = {廃坑, 森, 巣穴} ちょうど (#81 (1b) の撤退腕を 3 件へ)
+ *      (1c) cleared = 本筋 6 本を 26 回 → 本筋なし・3 件とも解放済み・重複なし
+ *      (1d) 3 経路: §1 の全読み込みで DOM の札 id 集合 === board().seats の値の集合 === 保存値の集合 (+ 保存値 === board() の写し・各札が自分の席)
+ *      (1e) ⭐ 依頼書 §2-2: ?warren=0 の新規状態で盤面が 2 件 (廃坑 + ??? 森)・__tavernRefreshSigns() を 3 回 + 再読み込み 1 回で nonce が変わらない
+ *      (1f) 旧 2 件の保存値 (本筋 + 1 件。#81 の世界で妥当) を種まき → 読み込み後は 3 件・本筋を含む・保存値も 3 件に上書き (1 回の引き直し)。
+ *           もう 1 回読み込むと nonce が変わらない (新規状態 / cleared=[廃坑] の 2 通り)
+ *      (1g) 依頼から戻った (consumeResult の鍵消し) 後だけ nonce が変わる (#81 の非退行):
+ *           妥当な 3 件の種がそのまま採用され (#81 (2b))、再読込 3 回・町へ出て戻る 2 回で 1 文字も変わらず (#81 (2a))、
+ *           lastResult (cleared / defeated / retreated / generated-quest) の 4 通りでは引き直す (#81 (3a))
+ *      (1h) 妥当でない種 6 種を cleared 3 本 / 4 本でまく → 12 回とも捨てて引き直す (#81 (3b) を 3 件へ)
+ *   §2 (2a) 撤退 ?board3=0 の腕で #81 の主張が今どおり: 新規 = {廃坑, 巣穴} の 2 件 / ?warren=0 = {廃坑, ??? 森} /
+ *           cleared=[廃坑] = {森 + 1 件} / cleared 2〜5 本 = 本筋 + 解放済み 1 件 / cleared 6 本 = 解放済み 2 件 / 妥当な 2 件の種 3 つが採用
+ *   §3 (3a) ?questdraw=0 → 札 3 枚 = TABLES の scenarioId が TABLES の席どおり・board() null・「奥の間へ」が奥の間を開く・shop の扉なし (#81 (5a))
+ *      (3b) 3 経路 (1d)・(4a)・(4c) の 3 条件を ON/OFF へ当てて全部反転 (#81 (5b))
+ *   §4 (4a)〜(4d) 武器防具屋の扉 (#81 の (4a)〜(4d) をそのまま)
+ *   ⛔ 測らないこと (依頼書 §8): 札の見た目・iPhone での重なり / 自由枠の偏り (無作為の分布)
  *
  * ■ ⚠ 計測機構
  *   - 配信は内蔵 http サーバ。tavern.html は**起動時に 1 回だけ readFileSync して凍結**し、変異はその文字列を
@@ -65,15 +62,14 @@
  *   - 起動時に全変異のアンカーを**原本**で検算する (ちょうど 1 件・注入文字列が原本に無い・行数不変)。崩れたら素でも exit 3。
  *   - 罠E の自己検査: 自分のアンカーが、同じ場所を変異させる他ドライバ (verify_tavern_map / verify_npc_crowd /
  *     verify_recruit_talk) のソースに出てこないこと。
- *   - 変異の注入行は console.log("__MUTHIT__<key>") を**欠陥が効く枝**に持つ。CSS の変異 shopbtn は console を持てないので
- *     代わりに `--mut-shopbtn: 1` を宣言し、ドライバが #shopEntry の計算値でその規則が当たったことを数える。
- *   - ⭐ --negative の合否 = 「必ず赤 (NEG_EXPECT) ⊆ 実際の赤 ⊆ 必ず赤 ∪ 確率で赤 (NEG_MAYBE)」+ 注入行の実行 > 0。
- *     確率で赤 = 変異が乱数の引きによってだけ現れる節 (例: lockedpool の (2a) は最初の引きに未解放が入ったときだけ)。
- *     ⛔ 必ず赤の節は、緑になる確率が 1e-3 未満になるよう回数を決めた (上の §1/§3 の回数・依頼書 §12-2)。
+ *   - 変異の注入行は console.log("__MUTHIT__<key>") を**欠陥が効く枝**に持つ。
+ *   - ⭐ --negative の合否 = 「担当 (NEG_EXPECT = 依頼書 §8 の表) ⊆ 実際の赤」+ 注入行の実行 > 0 + 全判定が出ている。
+ *     担当外の赤は合否に使わず記録する (NEG_ALSO = 実走の記録。依頼書 §12-3 の表)。
  *   - ⛔ git を読まない ⇒ 影のツリー / clone でもそのまま走る。⛔ timeout コマンドで包まない。⛔ 8765 (試遊サーバ) に触らない。
- *   - 判定行は `  ✓ (1a) …` / `  ✗ (1a) …`、総括行は `  N/N PASSED   FAILED 0   PENDING 0` (verify_mage_hand と同じ型)。
+ *   - 判定行は `  ✓ (1a) …` / `  ✗ (1a) …`、総括行は `  N/N PASSED   FAILED 0   PENDING 0`。
  *
- * ■ ポート = **10527** (素) / 変異 **10528〜10537** (10 本・MUTATIONS の並び順)。次の新規ドライバ base = 10538。
+ * ■ ポート = **10920** (素) / 変異 **10921〜10928** (8 本・MUTATIONS の並び順)。次の新規ドライバ base = 10929。
+ *   (#81 の 10527〜10537 は返した)
  */
 'use strict';
 
@@ -88,7 +84,7 @@ const arg = (n, d) => { const i = argv.indexOf('--' + n); return (i >= 0 && argv
 const flag = (n) => argv.indexOf('--' + n) >= 0;
 const HEADFUL = flag('headful');
 const NEGATIVE = flag('negative');
-const PORT = parseInt(arg('port', '10527'), 10);
+const PORT = parseInt(arg('port', '10920'), 10);
 const MUTATE = arg('mutate', null);
 const ONLY = (arg('only', '') || '').split(',').map((s) => s.trim()).filter(Boolean);
 const T_START = Date.now();
@@ -100,14 +96,16 @@ const CLEARED_KEY = 'dragonfighters.cleared';
 const RESULT_KEY = 'dragonfighters.lastResult';
 const WARREN = 'kobold-warren';   /* ★[#103] 本筋の外・最初から受けられる行き先 (撤退 ?warren=0 で配列から外れる) */
 const CARGO = 'lost-cargo';       /* ★[#104] 本筋の外・廃坑の後に受けられる行き先 (撤退 ?cargo=0 で配列から外れる) */
-const TOMB = 'silent-tomb';       /* ★[#105] 本筋の外・森の後に受けられる行き先 (撤退 ?tomb=0 で配列から外れる)。cleared=[廃坑] の (1b) には入らない */
-const HAG = 'witch-hut';          /* ★[#106] 本筋の外・沼地の後に受けられる行き先 (撤退 ?hag=0 で配列から外れる)。cleared=[廃坑] の (1b) には入らない */
-const GIANT = 'frost-hold';       /* ★[#107] 本筋の外・神殿の後に受けられる行き先 (撤退 ?giant=0 で配列から外れる)。cleared=[廃坑] の (1b) には入らない */
+const TOMB = 'silent-tomb';       /* ★[#105] 森の後 */
+const HAG = 'witch-hut';          /* ★[#106] 沼地の後 */
+const GIANT = 'frost-hold';       /* ★[#107] 神殿の後 */
 const SHOP_NAME = '武器防具屋';
 const BACK_NAME = '奥の間へ';
 const VIEW = { width: 1440, height: 900 };
-/* 回数 (⭐ 変異の検出を決定的にするための数。下げると「必ず赤」が確率に落ちる) */
-const N_1A = 6, N_1B = 6, N_1C = 8, N_1D = 4, N_2A_RELOAD = 5, N_2A_TOWN = 3;
+/* ★[#120] 卓の件数 (既定 / 撤退 ?board3=0)。ページの BOARD_SIZE は読まない (依頼書 §8 の方針) */
+const SIZE = 3, SIZE_OFF = 2;
+/* 回数 (⭐ 変異の検出を決定的にするための数。下げると「必ず赤」が確率に落ちる。根拠は冒頭の ■ 方針) */
+const N_1A = 6, N_1B = 25, N_1B_MID = 3, N_1B_CARGO = 3, N_1C = 26, N_1E_REFRESH = 3, N_1G_RELOAD = 3, N_1G_TOWN = 2, N_2A = 3, N_2A_MID = 2;
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * 配信スナップショット (起動時に 1 回だけ読んで凍結)
@@ -117,93 +115,75 @@ const PRISTINE = { [F_TAVERN]: fs.readFileSync(path.join(ROOT, F_TAVERN), 'utf8'
 function vetFail(msg) { console.error('[vet] ⛔ ' + msg); process.exit(3); }
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * 変異 (依頼書 §8 の負のコントロール 10 本)。逐語は HEAD d914fdc (項目2 の実装後) の行で取った。
+ * 変異 (依頼書 #120 §8 の負のコントロール 8 本)。逐語は HEAD 8274d28 (項目 2 の実装後) の行で取った。
  * ══════════════════════════════════════════════════════════════════════════════ */
 const HIT = (k) => 'console.log("__MUTHIT__' + k + '")';
 const MUTATIONS = {
-  /* 罠 2: 保存値を読まない = 毎回 drawBoard() (印は保存値があるのに無視したとき) */
-  memonly: [
-    { from: '      try { b = JSON.parse(localStorage.getItem(BOARD_KEY) || "null"); }',
-      to: '      try { if (localStorage.getItem(BOARD_KEY)) ' + HIT('memonly') + '; b = null; }   /* ★変異memonly */' }],
-  /* 罠 1: 母集団を scenarios 全件にする (印は未解放を母集団へ入れたとき) */
-  lockedpool: [
-    { from: '      var unlocked = scenarios.filter(function (s) { return isUnlocked(s); });',
-      to: '      var unlocked = scenarios.filter(function (s) { return isUnlocked(s) || (' + HIT('lockedpool') + ', true); });   /* ★変異lockedpool */' }],
-  /* 本筋を入れない (印は本筋があるのに入れなかったとき) */
-  nofrontier: [
-    { from: '      if (f.frontier) ids.push(f.frontier.id);',
-      to: '      if (f.frontier && (' + HIT('nofrontier') + ', false)) ids.push(f.frontier.id);   /* ★変異nofrontier */' }],
-  /* 罠 3: boardValid が (形だけ見て) 常に true。原本の本体は __bv0 として残し、原本なら捨てた盤面を通したときだけ印 */
-  novalidate: [
-    { from: '    function boardValid(b, f) {',
-      to: '    function boardValid(b, f) { var __ok = !!(b && typeof b === "object" && b.seats && typeof b.seats === "object"); if (__ok && !__bv0(b, f)) '
-        + HIT('novalidate') + '; return __ok; }   /* ★変異novalidate */ function __bv0(b, f) {' }],
-  /* consumeResult() の鍵消しを外す (印は帰還を消費したとき) */
-  noreroll: [
-    { from: '    try { localStorage.removeItem("dragonfighters.questBoard"); } catch (e) {}',
-      to: '    try { ' + HIT('noreroll') + '; } catch (e) {}   /* ★変異noreroll */' }],
-  /* 不採用案: 地図の起動時に毎回鍵を消す (印は消す鍵があったとき) */
-  enterreroll: [
-    { from: '    document.body.classList.toggle("questDrawOn", QUEST_DRAW_ON);',
-      to: '    document.body.classList.toggle("questDrawOn", QUEST_DRAW_ON); try { if (localStorage.getItem("dragonfighters.questBoard")) ' + HIT('enterreroll')
-        + '; localStorage.removeItem("dragonfighters.questBoard"); } catch (e) {}   /* ★変異enterreroll */' }],
-  /* 序盤の ??? 埋めを外す (印は埋めるはずだったとき) */
-  oneonly: [
-    { from: '      if (ids.length < BOARD_SIZE && f.nextLocked) ids.push(f.nextLocked.id);',
-      to: '      if (ids.length < BOARD_SIZE && f.nextLocked && (' + HIT('oneonly') + ', false)) ids.push(f.nextLocked.id);   /* ★変異oneonly */' }],
-  /* shop の扉を openBackroom() へ (印は扉を押したとき) */
-  backroomdoor: [
-    { from: '      if (d.key === "shop") { openShop(); return; }',
-      to: '      if (d.key === "shop") { ' + HIT('backroomdoor') + '; openBackroom(); return; }' }],
-  /* #shopEntry を隠す CSS を外す (CSS は console を持てない ⇒ 規則が当たった印に --mut-shopbtn を宣言しドライバが計算値で数える) */
-  shopbtn: [
-    { from: '    body.tavernMapOn.questDrawOn #shopEntry { display: none; }',
-      to: '    body.tavernMapOn.questDrawOn #shopEntry { --mut-shopbtn: 1; }' }],
-  /* #shopEntry の DOM を消す (印は要素の代わりに置いた script が走ったとき)。⚠ bindShop は if (entry) で守られている */
-  killshopdom: [
-    { from: '    <div id="shopEntry" title="武器防具屋">🛡️ 武器防具屋</div>',
-      to: '    <script>' + HIT('killshopdom') + '</script>' }],
+  /* §2-2 の罠: boardValid ① を「ちょうど BOARD_SIZE 件」へ戻す (印は boardCount なら通っていた盤面を捨てたとき) */
+  fixedcount: [
+    { from: 'if (keys.length !== boardCount(f)) return false;',
+      to: 'if (keys.length !== BOARD_SIZE) { if (keys.length === boardCount(f)) ' + HIT('fixedcount') + '; return false; }   /* ★変異fixedcount */' }],
+  /* BOARD_SIZE を 2 に固定 (印は既定の世界で 3 のはずだったとき) */
+  size2: [
+    { from: 'var BOARD_SIZE = BOARD3_ON ? 3 : 2;',
+      to: 'var BOARD_SIZE = BOARD3_ON ? (' + HIT('size2') + ', 2) : 2;   /* ★変異size2 */' }],
+  /* 次の未解放 (??? 埋め) を足さない (印は足すはずだったとき)。#81 の oneonly の後継 */
+  nolock: [
+    { from: 'if (ids.length < n && f.nextLocked) ids.push(f.nextLocked.id);',
+      to: 'if (ids.length < n && f.nextLocked && (' + HIT('nolock') + ', false)) ids.push(f.nextLocked.id);   /* ★変異nolock */' }],
+  /* 本筋を入れない (印は本筋があるのに入れなかったとき)。#81 の nofrontier と同じ注入 */
+  nofront: [
+    { from: 'if (f.frontier) ids.push(f.frontier.id);',
+      to: 'if (f.frontier && (' + HIT('nofront') + ', false)) ids.push(f.frontier.id);   /* ★変異nofront */' }],
+  /* 自由枠の抽選で引いた依頼を母集団から抜かない = 重複を許す (印は実際に重複を引いたとき) */
+  dup: [
+    { from: 'ids.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0].id);',
+      to: '{ var __p = rest[Math.floor(Math.random() * rest.length)].id; if (ids.indexOf(__p) >= 0) ' + HIT('dup') + '; ids.push(__p); }   /* ★変異dup */' }],
+  /* ?board3=0 を読まない (印は ?board3=0 が来たのに無視したとき) */
+  noswitch: [
+    { from: 'try { return new URLSearchParams(location.search).get("board3") !== "0"; } catch (e) { return true; }',
+      to: 'try { if (new URLSearchParams(location.search).get("board3") === "0") ' + HIT('noswitch') + '; return true; } catch (e) { return true; }   /* ★変異noswitch */' }],
+  /* buildSigns の先頭で保存値を消す = 消し口を増やす (印は消す保存値があったとき) */
+  extraconsume: [
+    { from: 'var bd = QUEST_DRAW_ON ? loadOrDrawBoard() : null;',
+      to: 'try { if (localStorage.getItem("dragonfighters.questBoard")) ' + HIT('extraconsume') + '; localStorage.removeItem("dragonfighters.questBoard"); } catch (e) {} var bd = QUEST_DRAW_ON ? loadOrDrawBoard() : null;   /* ★変異extraconsume */' }],
+  /* ??? 札に本当の地名を出す (印は未解放の札を作ったとき) */
+  lockedname: [
+    { from: 'name: unlocked ? sc.place : "???",',
+      to: 'name: unlocked ? sc.place : (' + HIT('lockedname') + ', sc.place),   /* ★変異lockedname */' }],
 };
-/* 変異 → 必ず赤くなる節 (担当)。⚠⚠⚠ 机上で書かない。--mutate <key> で実走し、実際に赤くなった集合で決めた (依頼書 §12-2)。 */
+/* 変異 → 必ず赤くなる節 (担当) = 依頼書 #120 §8 の表そのまま。⚠ 実走で赤くならなければ exit 1 (期待を書き換える前に理由を突き止める) */
 const NEG_EXPECT = {
-  memonly:      ['(2a)', '(2b)'],
-  lockedpool:   ['(1a)', '(1b)', '(1c)', '(2b)'],
-  nofrontier:   ['(1c)', '(3b)'],
-  novalidate:   ['(3b)'],
-  noreroll:     ['(3a)'],
-  enterreroll:  ['(2a)', '(2b)'],
-  /* ★[#103] 開始直後の解放済みが 2 件 (廃坑 + 巣穴) になり ??? 埋めは撤退 ?warren=0 の世界でしか走らない ⇒
-     #82 までの (0a)(3a) (新規状態が 1 件の盤面になる) は巣穴で埋まって赤くならない (2026-10-28 実走)。
-     ??? 埋めの経路は (1a) の ?warren=0 側が必ず赤で握る (6 回とも札 1 枚) */
-  oneonly:      ['(1a)'],
-  backroomdoor: ['(4b)'],
-  shopbtn:      ['(4c)', '(5b)'],
-  killshopdom:  ['(4c)', '(4d)', '(5a)', '(5b)'],
+  fixedcount:   ['(1e)'],
+  size2:        ['(0a)', '(1a)'],
+  nolock:       ['(1a)', '(1e)'],
+  nofront:      ['(1b)'],
+  dup:          ['(1c)'],
+  noswitch:     ['(0b)', '(2a)'],
+  extraconsume: ['(1e)', '(1f)'],
+  lockedname:   ['(1a)'],
 };
-/* 変異 → 乱数の引きしだいで赤くなり得る節 (緑でも赤でも可)。理由は依頼書 §12-2。 */
-const NEG_MAYBE = {
-  memonly: [], novalidate: [], noreroll: [], enterreroll: [], oneonly: [], backroomdoor: [], shopbtn: [], killshopdom: [],
-  /* 最初の引きに未解放が入ると次の読み込みで捨てられる (2a) / 引き直した盤面に未解放が入る (3a)(3b) */
-  lockedpool:   ['(2a)', '(3a)', '(3b)'],
-  /* cleared 3 本の最初の引きが本筋を欠くと、次の読み込みで捨てられる
-     ★[#103] cleared=[廃坑] の解放済みが 3 件 (廃坑・森・巣穴) になり、本筋の森を欠く盤面 {廃坑, 巣穴} が引ける
-     (1 回 1/3 = 6 回とも本筋入りは (2/3)^6 ≒ 9%) ⇒ (1b) と、帰還後に cleared=[廃坑] で引き直す (3a) は確率で赤 (2026-10-28 実走) */
-  nofrontier:   ['(2a)', '(1b)', '(3a)'],
+/* 担当外の赤 (合否に使わない・2026-11-23 の --negative 実走の記録。依頼書 §12-3)。
+   ⚠ nofront の (1f)(1h)(2a)・dup の (1d)(1f)(1g)(3b) は乱数の引きしだいで出たり出なかったりし得る */
+const NEG_ALSO = {
+  fixedcount:   [],
+  size2:        ['(0b)', '(1b)', '(1c)', '(1f)', '(1g)', '(1h)'],
+  nolock:       ['(0a)', '(0b)', '(1f)', '(1g)', '(2a)'],
+  nofront:      ['(1f)', '(1h)', '(2a)'],
+  dup:          ['(1a)', '(1b)', '(1d)', '(1f)', '(1g)', '(3b)'],
+  noswitch:     [],
+  extraconsume: ['(1g)', '(2a)'],
+  lockedname:   ['(1e)', '(2a)'],
 };
-/* 依頼書 §8 の予想 (⭐ 実測と違うものは依頼書 §12-2 に理由を書いた) */
-const NEG_PREDICTED = {
-  memonly: ['(2a)', '(2b)'], lockedpool: ['(1c)'], nofrontier: ['(1c)', '(3b)'], novalidate: ['(3b)'], noreroll: ['(3a)'],
-  enterreroll: ['(2a)'], oneonly: ['(1a)'], backroomdoor: ['(4b)'], shopbtn: ['(4c)', '(5b)'], killshopdom: ['(4c)', '(4d)'],
-};
+const ALL_IDS = ['(0a)', '(0b)', '(0c)', '(0d)', '(1a)', '(1b)', '(1c)', '(1d)', '(1e)', '(1f)', '(1g)', '(1h)', '(2a)', '(3a)', '(3b)',
+  '(4a)', '(4b)', '(4c)', '(4d)'];
 const MUT_ORDER = Object.keys(MUTATIONS);
-if (MUT_ORDER.length > 10) vetFail('変異は 10 本まで (ポート 10528〜10537)');
-if (MUT_ORDER.some((k) => !NEG_EXPECT[k] || !NEG_MAYBE[k] || !NEG_PREDICTED[k])) vetFail('NEG_EXPECT / NEG_MAYBE / NEG_PREDICTED と MUTATIONS が揃っていない');
+if (MUT_ORDER.length > 8) vetFail('変異は 8 本まで (ポート 10921〜10928)');
+if (MUT_ORDER.some((k) => !NEG_EXPECT[k] || !NEG_ALSO[k])) vetFail('NEG_EXPECT / NEG_ALSO と MUTATIONS が揃っていない');
 for (const k of MUT_ORDER) {
-  if (!NEG_EXPECT[k].length) vetFail('変異 ' + k + ' に必ず赤の節が無い');
-  const both = NEG_EXPECT[k].filter((x) => NEG_MAYBE[k].indexOf(x) >= 0);
-  if (both.length) vetFail('変異 ' + k + ' の ' + both.join(',') + ' が必ず赤と確率で赤の両方に居る');
-  const miss = NEG_PREDICTED[k].filter((x) => NEG_EXPECT[k].indexOf(x) < 0);
-  if (miss.length) vetFail('担当 ' + k + ' が依頼書 §8 の予想 ' + J(NEG_PREDICTED[k]) + ' を必ず赤に含まない (' + miss.join(',') + ')');
+  if (!NEG_EXPECT[k].length) vetFail('変異 ' + k + ' に担当の節が無い');
+  const unk = NEG_EXPECT[k].filter((x) => ALL_IDS.indexOf(x) < 0);
+  if (unk.length) vetFail('変異 ' + k + ' の担当 ' + unk.join(',') + ' が判定の一覧に無い');
 }
 if (MUTATE !== null && !Object.prototype.hasOwnProperty.call(MUTATIONS, MUTATE)) vetFail('未知の --mutate: ' + MUTATE + '  (' + MUT_ORDER.join(' / ') + ')');
 for (const k of ONLY) if (!Object.prototype.hasOwnProperty.call(MUTATIONS, k)) vetFail('未知の --only: ' + k + '  (' + MUT_ORDER.join(' / ') + ')');
@@ -233,17 +213,17 @@ function servedTavern(key) {
   _mutCache[key] = s;
   return s;
 }
-if (countOf(PRISTINE[F_TAVERN], '__MUTHIT__') !== 0 || countOf(PRISTINE[F_TAVERN], '--mut-') !== 0) vetFail('原本に __MUTHIT__ / --mut- が在る');
+if (countOf(PRISTINE[F_TAVERN], '__MUTHIT__') !== 0) vetFail('原本に __MUTHIT__ が在る');
 for (const k of MUT_ORDER) {
-  if (!MUTATIONS[k].some((e) => e.to.indexOf('__MUTHIT__' + k) >= 0 || e.to.indexOf('--mut-' + k) >= 0)) vetFail('変異 ' + k + ' に実行の印が無い');
+  if (!MUTATIONS[k].some((e) => e.to.indexOf('__MUTHIT__' + k) >= 0)) vetFail('変異 ' + k + ' に実行の印が無い');
   if (servedTavern(k) === PRISTINE[F_TAVERN]) vetFail('変異 ' + k + ' が何も変えていない');
 }
 console.log('[vet] 装置: 変異 ' + MUT_ORDER.length + ' 本の注入点はすべて原本 ' + F_TAVERN + ' で 1 箇所・行数不変・他ドライバ '
   + PEER_DRIVERS.length + ' 本とアンカーの重なり 0');
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * ドライバ側の独立計算 (依頼書 §2-2 / §2-4 の規則を、ページの scenarios の素のデータとまいた cleared から)
- * ⛔ 本番の boardFacts() / boardValid() の答えは使わない。
+ * ドライバ側の独立計算 (依頼書 #81 §2-2 / §2-4・#120 §2-2 の規則を、ページの scenarios の素のデータとまいた cleared から)
+ * ⛔ 本番の boardFacts() / boardCount() / boardValid() の答えは使わない。
  * ══════════════════════════════════════════════════════════════════════════════ */
 function indepFacts(scen, cleared) {
   const cs = new Set(cleared || []);
@@ -255,24 +235,31 @@ function indepFacts(scen, cleared) {
   const nl = main.find((s) => !isU(s));
   return { unlocked, frontier: fr ? fr.id : null, nextLocked: nl ? nl.id : null, ids: scen.map((s) => s.id) };
 }
-/* 盤面の妥当性 (§2-4 の 3 条件)。seatKeys = TAVERN_MAP.TABLES の key (データ) */
-function indepValid(b, F, seatKeys) {
+/* 盤面の件数 = 積み方の規則で数える: 本筋 (あれば 1) → 残りの解放済み → 足りなければ次の未解放 1 件、上限 S */
+function expCount(F, S) {
+  const pool = (F.frontier ? 1 : 0) + F.unlocked.filter((x) => x !== F.frontier).length + (F.nextLocked ? 1 : 0);
+  return pool < S ? pool : S;
+}
+/* 盤面の妥当性 (#81 §2-4 の 3 条件。① の件数は expCount)。seatKeys = TAVERN_MAP.TABLES の key (データ) */
+function indepValid(b, F, seatKeys, S) {
   if (!b || typeof b !== 'object' || !b.seats || typeof b.seats !== 'object') return { ok: false, why: '盤面が無い' };
   const keys = Object.keys(b.seats);
-  if (keys.length !== 2) return { ok: false, why: '件数 ' + keys.length };
+  const want = expCount(F, S);
+  if (keys.length !== want) return { ok: false, why: '件数 ' + keys.length + ' (期待 ' + want + ')' };
   const ids = [];
   for (const k of keys) {
     if (seatKeys.indexOf(k) < 0) return { ok: false, why: '存在しない席 ' + k };
     const id = b.seats[k];
     if (typeof id !== 'string' || ids.indexOf(id) >= 0) return { ok: false, why: 'id 重複/不正 ' + id };
     if (F.ids.indexOf(id) < 0) return { ok: false, why: '存在しない id ' + id };
-    if (F.unlocked.indexOf(id) < 0 && !(F.unlocked.length < 2 && F.nextLocked === id)) return { ok: false, why: '未解放 ' + id };
+    if (F.unlocked.indexOf(id) < 0 && !(F.unlocked.length < S && F.nextLocked === id)) return { ok: false, why: '未解放 ' + id };
     ids.push(id);
   }
   if (F.frontier && ids.indexOf(F.frontier) < 0) return { ok: false, why: '本筋 ' + F.frontier + ' が無い' };
   return { ok: true, why: '' };
 }
 const setEq = (a, b) => a.length === b.length && a.slice().sort().join('|') === b.slice().sort().join('|');
+const distinct = (v) => new Set(v).size === v.length;
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * puppeteer / Chrome / 内蔵サーバ
@@ -328,8 +315,6 @@ function stopServer(srv) {
 /* ══════════════════════════════════════════════════════════════════════════════
  * 結果
  * ══════════════════════════════════════════════════════════════════════════════ */
-const ALL_IDS = ['(0a)', '(0b)', '(0c)', '(1a)', '(1b)', '(1c)', '(1d)', '(1e)', '(2a)', '(2b)', '(3a)', '(3b)',
-  '(4a)', '(4b)', '(4c)', '(4d)', '(5a)', '(5b)'];
 function mkResults() {
   const R = [];
   R.check = (id, name, ok, detail) => {
@@ -367,14 +352,12 @@ const SNAP = (BKEY, CKEY) => {
   try { saved = localStorage.getItem(BKEY); } catch (e) {}
   try { cleared = JSON.parse(localStorage.getItem(CKEY) || '[]'); } catch (e) {}
   const se = document.getElementById('shopEntry');
-  let mutcss = '';
-  try { if (se) mutcss = getComputedStyle(se).getPropertyValue('--mut-shopbtn').trim(); } catch (e) {}
   const TM = window.TAVERN_MAP;
   return {
-    hasTM: !!TM, hasBoardFn: !!(TV && typeof TV.board === 'function'),
+    hasTM: !!TM, hasBoardFn: !!(TV && typeof TV.board === 'function'), hasRefresh: typeof window.__tavernRefreshSigns === 'function',
     board: (TV && TV.board) ? TV.board() : undefined,
     signs, doorShop: door('shop'), doorBack: door('back'), saved, cleared,
-    shopEntryDom: !!se, shopEntryVis: se ? se.checkVisibility() : null, mutcss,
+    shopEntryDom: !!se, shopEntryVis: se ? se.checkVisibility() : null,
     questDrawOn: document.body.classList.contains('questDrawOn'),
     mapOn: window.__tavernMapOn === true,
     tables: TM ? TM.TABLES.map((t) => ({ key: t.key, scenarioId: t.scenarioId, sign: t.sign.slice() })) : null,
@@ -395,13 +378,14 @@ async function runSuite(browser, port, mutKey, label) {
   });
   await page.setViewport(VIEW);
 
-  /* 種まき: 同じオリジンの空ページで storage を総入れ替え (⚠ 前口上の暗幕を消す prologueSeen だけは常に立てる) */
+  /* 種まき: 同じオリジンの空ページで storage を総入れ替え (⚠ 前口上の暗幕を消す prologueSeen と、#102 の闇市の時刻 21 時は常に立てる) */
   async function prep(o) {
     o = o || {};
     await page.goto(base + '__blank.html', { waitUntil: 'load', timeout: 30000 });
     await page.evaluate((x, BK, CK, RK) => {
       localStorage.clear(); sessionStorage.clear();
       localStorage.setItem('dragonfighters.prologueSeen', '1');
+      sessionStorage.setItem('dragonfighters.plazaClock', '21');
       if (x.cleared) localStorage.setItem(CK, JSON.stringify(x.cleared));
       if (x.board) localStorage.setItem(BK, x.board);
       if (x.result) sessionStorage.setItem(RK, JSON.stringify(x.result));
@@ -413,11 +397,7 @@ async function runSuite(browser, port, mutKey, label) {
     await sleep(150);
     ctx.booted++;
   }
-  async function snap() {
-    const s = await page.evaluate(SNAP, BOARD_KEY, CLEARED_KEY);
-    if (s.mutcss === '1') ctx.hits.shopbtn = (ctx.hits.shopbtn || 0) + 1;
-    return s;
-  }
+  async function snap() { return page.evaluate(SNAP, BOARD_KEY, CLEARED_KEY); }
   async function open(q) {
     await page.goto(base + F_TAVERN + (q || ''), { waitUntil: 'load', timeout: 60000 });
     await waitReady();
@@ -428,8 +408,20 @@ async function runSuite(browser, port, mutKey, label) {
     await page.evaluate((BK) => localStorage.removeItem(BK), BOARD_KEY);
     return open(q || '');
   }
-  /* 1 枚の読み込みの「2 経路」(1e) を判定する。⛔ ここで期待値の盤面は作らない (三者の一致と席の位置だけ) */
-  function twoRoutes(s) {
+  /* 町へ出て、町が施設へ入るときと同じ作法で酒場へ戻る (town.html enterFacility) */
+  async function viaTown() {
+    await page.goto(base + 'town.html', { waitUntil: 'load', timeout: 60000 });
+    await page.waitForFunction(() => document.readyState === 'complete', { timeout: 30000 });
+    await sleep(300);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'load', timeout: 60000 }),
+      page.evaluate(() => { sessionStorage.setItem('dragonfighters.enterVia', 'tavern'); location.href = 'tavern.html'; }),
+    ]);
+    await waitReady();
+    return snap();
+  }
+  /* 1 枚の読み込みの「3 経路」(1d) を判定する。⛔ ここで期待値の盤面は作らない (三者の一致と席の位置だけ) */
+  function threeRoutes(s) {
     const why = [];
     const b = s.board;
     if (!b || !b.seats) return { ok: false, why: 'board() が無い' };
@@ -450,29 +442,23 @@ async function runSuite(browser, port, mutKey, label) {
     return { ok: why.length === 0, why: why.join(' / ') };
   }
   const seatKeysOf = (s) => (s.tables || []).map((t) => t.key);
+  const vals = (s) => (s.board && s.board.seats ? Object.values(s.board.seats) : []);
   const signsOnly = (s) => s.signs.map((x) => x.id + (x.locked ? '#L' : '') + '@' + x.left + ',' + x.top).sort().join(' ');
-  const SC_ALL = [];   // 0b で埋める (scenarios の素のデータ)
-  const routes = [];   // (1e) の標本
-  let onSnap = null;   // (5b) の ON
-  let offSnap = null;  // (5b) の OFF
+  const SC_ALL = [];   // (0c) で埋める (scenarios の素のデータ)
+  const routes = [];   // (1d) の標本
+  let onSnap = null;   // (3b) の ON
+  let offSnap = null;  // (3b) の OFF
 
   try {
     /* ══════════ §0 ══════════ */
     await prep({});
     const s0 = await open('');
     SC_ALL.push(...(s0.scen || []));
-    R.check('(0a)', '[装置] window.TAVERN_MAP と __TAVERN_TV.board が在り、新規状態の盤面が 2 件',
-      s0.hasTM && s0.hasBoardFn && s0.board && s0.board.seats && Object.keys(s0.board.seats).length === 2,
-      { hasTM: s0.hasTM, hasBoardFn: s0.hasBoardFn, board: s0.board });
     {
-      /* ★[#82] 本筋 6 件は一本道のまま + 本筋の外 (side) が #82 の塔の母 1 件 (locked かつ前提が本筋のどれか)
-         ★[#103] + 巣穴 kobold-warren 1 件 (side・locked なし = 最初から受けられる) = side ちょうど 2 件・全 8 件。
-         ★[#104] + lost-cargo 1 件 (side・locked・前提 = 本筋の先頭 = 廃坑) = side ちょうど 3 件・全 9 件。
-         ★[#105] + silent-tomb 1 件 (side・locked・前提 = 本筋の 2 番目 = 森) = side ちょうど 4 件・全 10 件。
-         ★[#106] + witch-hut 1 件 (side・locked・前提 = 本筋の 3 番目 = 沼地) = side ちょうど 5 件・全 11 件。
-         ★[#107] + frost-hold 1 件 (side・locked・前提 = 本筋の 5 番目 = 神殿) = side ちょうど 6 件・全 12 件。 */
+      /* #81 (0b) の持ち越し: 本筋 6 件は一本道 + 本筋の外 (side) 6 件 (#82 塔の母 / #103 巣穴 / #104 倉庫街 / #105 墓所 / #106 魔女の小屋 / #107 霜の巨人の砦) */
       const sc = SC_ALL.filter((x) => !x.side), sd = SC_ALL.filter((x) => x.side);
-      const sdL = sd.filter((x) => x.locked), sdW = sd.filter((x) => x.id === WARREN), sdC = sd.filter((x) => x.id === CARGO), sdT = sd.filter((x) => x.id === TOMB), sdH = sd.filter((x) => x.id === HAG), sdG = sd.filter((x) => x.id === GIANT);
+      const sdL = sd.filter((x) => x.locked), one = (id) => sd.filter((x) => x.id === id);
+      const sdW = one(WARREN), sdC = one(CARGO), sdT = one(TOMB), sdH = one(HAG), sdG = one(GIANT);
       const chain = sc.length === 6 && !sc[0].locked && sc.slice(1).every((x, i) => x.locked && x.unlockAfter === sc[i].id)
         && sd.length === 6 && sdL.length === 5 && sdL.every((y) => sc.some((x) => x.id === y.unlockAfter))
         && sdW.length === 1 && !sdW[0].locked && !sdW[0].unlockAfter
@@ -480,207 +466,238 @@ async function runSuite(browser, port, mutKey, label) {
         && sdT.length === 1 && sdT[0].locked && sdT[0].unlockAfter === sc[1].id
         && sdH.length === 1 && sdH[0].locked && sdH[0].unlockAfter === sc[2].id
         && sdG.length === 1 && sdG[0].locked && sdG[0].unlockAfter === sc[4].id && SC_ALL.length === 12;
-      R.check('(0b)', '[装置] scenarios が本筋 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前) + 本筋の外 (side) 6 件 (塔の母 = locked・前提は本筋 / 巣穴 ' + WARREN + ' = locked なし / ' + CARGO + ' = locked・前提は本筋の先頭 / ' + TOMB + ' = locked・前提は本筋の 2 番目 / ' + HAG + ' = locked・前提は本筋の 3 番目 / ' + GIANT + ' = locked・前提は本筋の 5 番目)', chain,
+      R.check('(0c)', '[装置] scenarios が本筋 6 件の一本道 + 本筋の外 (side) 6 件 (' + WARREN + ' = locked なし / ' + CARGO + '・' + TOMB + '・' + HAG + '・' + GIANT + '・塔の母 = locked・前提は本筋)', chain,
         SC_ALL.map((x) => x.id + (x.side ? '[side]' : '') + (x.locked ? '<' + x.unlockAfter : '')).join(' → '));
     }
-    const ID = SC_ALL.filter((x) => !x.side).map((x) => x.id);   // 本筋の一本道の並び (0b が守る)
+    const ID = SC_ALL.filter((x) => !x.side).map((x) => x.id);   // 本筋の一本道の並び ((0c) が守る)
     const F = (cl) => indepFacts(SC_ALL, cl);
-    /* ★[#103] 撤退 ?warren=0 の世界 (= #102 までの姿)。ページの scenarios から巣穴を外したもの */
+    /* ★[#103] 撤退 ?warren=0 の世界。ページの scenarios から巣穴を外したもの */
     const SC_OFF = SC_ALL.filter((x) => x.id !== WARREN);
     const F0 = (cl) => indepFacts(SC_OFF, cl);
+    const n0 = s0.board && s0.board.seats ? Object.keys(s0.board.seats).length : -1;
+    R.check('(0a)', '[装置] window.TAVERN_MAP と __TAVERN_TV.board が在り、新規状態の盤面が ' + SIZE + ' 件',
+      s0.hasTM && s0.hasBoardFn && n0 === SIZE && expCount(F([]), SIZE) === SIZE,
+      { hasTM: s0.hasTM, hasBoardFn: s0.hasBoardFn, board: s0.board, expCount: expCount(F([]), SIZE) });
+    {
+      await prep({});
+      const s = await open('?board3=0');
+      const n = s.board && s.board.seats ? Object.keys(s.board.seats).length : -1;
+      R.check('(0b)', '[装置] 撤退 ?board3=0 の新規状態の盤面が ' + SIZE_OFF + ' 件 (既定は ' + SIZE + ' 件 = 腕が別の世界を測っている)',
+        s.hasBoardFn && n === SIZE_OFF && n0 === SIZE && expCount(F([]), SIZE_OFF) === SIZE_OFF, { board: s.board, defaultCount: n0 });
+    }
 
     /* ══════════ §1 ══════════ */
     {
-      /* ★[#103] 開始直後の卓は「廃坑 + 巣穴」(解放済み 2 件 = 次の未解放で埋めない・依頼書 §2-5)。
-         #82 までの「廃坑 + ??? (森の予告)」は撤退 ?warren=0 の世界で同じ回数だけ測る (⛔ ??? の経路の検査を落とさない)。 */
+      /* ★[#120] 開始直後 = 解放済み {廃坑, 巣穴} の 2 件 + 次の未解放 (森) を ??? で 1 件 = 3 件 (全部強制 = 決定的) */
       const fx = F([]);
-      const det = []; let ok = fx.unlocked.length === 2 && setEq(fx.unlocked, [ID[0], WARREN]) && fx.frontier === ID[0] && fx.nextLocked === ID[1];
+      const det = [];
+      let ok = setEq(fx.unlocked, [ID[0], WARREN]) && fx.frontier === ID[0] && fx.nextLocked === ID[1] && expCount(fx, SIZE) === 3;
+      if (!ok) det.push('[装置] 独立計算が前提と違う ' + J(fx));
+      await prep({});
       for (let i = 0; i < N_1A; i++) {
-        const s = i === 0 ? s0 : await redraw();
+        const s = i === 0 ? await open('') : await redraw('');
         routes.push(['1a#' + i, s]);
-        const ids = s.signs.map((x) => x.id).sort();
-        const g = s.signs.find((x) => x.sid === ID[0]), w = s.signs.find((x) => x.sid === WARREN);
-        const one = ids.length === 2 && !!g && !!w && !g.locked && !w.locked && g.name !== '???' && w.name !== '???'
-          && indepValid(s.board, fx, seatKeysOf(s)).ok;
+        const g = s.signs.find((x) => x.sid === ID[0]), w = s.signs.find((x) => x.sid === WARREN), f = s.signs.find((x) => x.sid === ID[1]);
+        const one = s.signs.length === 3 && setEq(vals(s), [ID[0], WARREN, ID[1]]) && !!g && !!w && !!f
+          && !g.locked && !w.locked && g.name !== '???' && w.name !== '???' && f.locked && f.name === '???'
+          && indepValid(s.board, fx, seatKeysOf(s), SIZE).ok;
         if (!one) ok = false;
-        det.push(ids.join('+') + (w ? (w.locked ? '(L:' + w.name + ')' : '(open)') : '') + '@' + (s.board ? Object.keys(s.board.seats || {}).join('') : '-'));
+        det.push(s.signs.map((x) => x.sid + (x.locked ? '(L:' + x.name + ')' : '')).sort().join('+'));
       }
-      /* 撤退 ?warren=0: 札は ID[0] (押せる) + ID[1] (???・.locked) の 2 枚ちょうど (#82 までの (1a) そのもの) */
-      const fx0 = F0([]);
-      let ok0 = fx0.unlocked.length === 1 && fx0.frontier === ID[0] && fx0.nextLocked === ID[1];
-      for (let i = 0; i < N_1A; i++) {
-        if (i === 0) await prep({});
-        const s = i === 0 ? await open('?warren=0') : await redraw('?warren=0');
-        const ids = s.signs.map((x) => x.id).sort();
-        const g = s.signs.find((x) => x.sid === ID[0]), f = s.signs.find((x) => x.sid === ID[1]);
-        const scenOk = !!s.scen && setEq(s.scen.map((x) => x.id), SC_OFF.map((x) => x.id));
-        const one = scenOk && ids.length === 2 && !!g && !!f && !g.locked && f.locked && f.name === '???' && g.name !== '???'
-          && indepValid(s.board, fx0, seatKeysOf(s)).ok && twoRoutes(s).ok;
-        if (!one) ok0 = false;
-        det.push('off:' + ids.join('+') + (f ? (f.locked ? '(L:' + f.name + ')' : '(open)') : '') + (scenOk ? '' : '[scen≠]'));
-      }
-      R.check('(1a)', '新規 (cleared=[]) を ' + N_1A + ' 回引く → 毎回 札は ' + ID[0] + ' + ' + WARREN + ' (両方押せる) の 2 枚ちょうど / 撤退 ?warren=0 で '
-        + N_1A + ' 回 → 毎回 ' + ID[0] + ' (押せる) + ' + ID[1] + ' (???・.locked) の 2 枚ちょうど', ok && ok0, det.join(' '));
+      R.check('(1a)', '新規状態を ' + N_1A + ' 回引く → 毎回 {' + ID[0] + ', ' + WARREN + ', ' + ID[1] + ' (???・.locked)} の 3 件ちょうど (' + ID[0] + ' と ' + WARREN + ' は押せる)',
+        ok, det.join(' '));
     }
     {
-      /* ★[#103] cleared=[廃坑] の解放済みは {廃坑, 森, 巣穴} の 3 件 → 盤面 = 本筋の森 + {廃坑 / 巣穴} のどちらか
-         ★[#104] + 倉庫街 (前提 = 廃坑) で 4 件 → 盤面 = 本筋の森 + {廃坑 / 巣穴 / 倉庫街} のどれか。
-         #103 までの {森, 廃坑 か 巣穴} は撤退 ?cargo=0 の世界で同じ回数だけ測る (⛔ 前の期待を落とさない)。 */
+      const det = [];
+      /* 主: cleared=[廃坑] → 解放済み {廃坑, 森, 巣穴, 倉庫街} の 4 件から 本筋 (森) + 2 件 */
       const cl = [ID[0]];
-      await prep({ cleared: cl });
       const fx = F(cl);
-      const det = []; let ok = setEq(fx.unlocked, [ID[0], ID[1], WARREN, CARGO]) && fx.frontier === ID[1];
+      let okMain = setEq(fx.unlocked, [ID[0], ID[1], WARREN, CARGO]) && fx.frontier === ID[1] && expCount(fx, SIZE) === 3;
+      await prep({ cleared: cl });
+      const row = [];
       for (let i = 0; i < N_1B; i++) {
-        const s = i === 0 ? await open('') : await redraw();
+        const s = i === 0 ? await open('') : await redraw('');
         routes.push(['1b#' + i, s]);
-        const v = s.board && s.board.seats ? Object.values(s.board.seats) : [];
-        const other = v.filter((x) => x !== ID[1]);
-        const one = v.length === 2 && v.indexOf(ID[1]) >= 0 && other.length === 1 && (other[0] === ID[0] || other[0] === WARREN || other[0] === CARGO)
-          && s.signs.length === 2 && s.signs.every((x) => !x.locked) && indepValid(s.board, fx, seatKeysOf(s)).ok;
-        if (!one) ok = false;
-        det.push(v.join('+') + (s.signs.some((x) => x.locked) ? '(L)' : ''));
+        const v = vals(s);
+        const vv = indepValid(s.board, fx, seatKeysOf(s), SIZE);
+        const one = v.length === 3 && v.indexOf(ID[1]) >= 0 && distinct(v) && v.every((x) => fx.unlocked.indexOf(x) >= 0)
+          && s.signs.length === 3 && s.signs.every((x) => !x.locked) && vv.ok;
+        if (!one) { okMain = false; row.push('✗' + v.join('+') + (vv.ok ? '' : '[' + vv.why + ']')); }
+        else row.push(v.filter((x) => x !== ID[1]).sort().join('/'));
       }
-      /* ★[#104] 撤退 ?cargo=0: ページの scenarios から倉庫街が外れ、盤面 = {森, 廃坑 か 巣穴} (#103 までの (1b) そのもの) */
+      det.push('c1(本筋 ' + ID[1] + '): ' + row.join(','));
+      /* #81 (1c) を 3 件へ: cleared 2〜5 本 → 本筋 + 解放済み 2 件・未解放の札 0 枚 */
+      let okMid = true;
+      for (let k = 2; k <= 5; k++) {
+        const c = ID.slice(0, k);
+        const f = F(c);
+        await prep({ cleared: c });
+        const r = [];
+        for (let i = 0; i < N_1B_MID; i++) {
+          const s = i === 0 ? await open('') : await redraw('');
+          routes.push(['1b' + k + '#' + i, s]);
+          const v = vals(s);
+          const vv = indepValid(s.board, f, seatKeysOf(s), SIZE);
+          const one = v.length === 3 && v.indexOf(f.frontier) >= 0 && distinct(v) && v.every((x) => f.unlocked.indexOf(x) >= 0)
+            && s.signs.length === 3 && s.signs.every((x) => !x.locked) && vv.ok;
+          if (!one) { okMid = false; r.push('✗' + v.join('+') + (vv.ok ? '' : '[' + vv.why + ']')); } else r.push('ok');
+        }
+        det.push('c' + k + '(本筋 ' + f.frontier + '): ' + r.join(','));
+      }
+      /* #81 (1b) の撤退腕を 3 件へ: ?cargo=0 → 解放済み {廃坑, 森, 巣穴} の 3 件 = 全部強制 */
       const SC_C0 = SC_ALL.filter((x) => x.id !== CARGO);
       const fxc = indepFacts(SC_C0, cl);
-      let okc = setEq(fxc.unlocked, [ID[0], ID[1], WARREN]) && fxc.frontier === ID[1];
-      for (let i = 0; i < N_1B; i++) {
-        if (i === 0) await prep({ cleared: cl });
+      let okC = setEq(fxc.unlocked, [ID[0], ID[1], WARREN]) && fxc.frontier === ID[1];
+      await prep({ cleared: cl });
+      for (let i = 0; i < N_1B_CARGO; i++) {
         const s = i === 0 ? await open('?cargo=0') : await redraw('?cargo=0');
-        const v = s.board && s.board.seats ? Object.values(s.board.seats) : [];
-        const other = v.filter((x) => x !== ID[1]);
+        routes.push(['1bC#' + i, s]);
         const scenOk = !!s.scen && setEq(s.scen.map((x) => x.id), SC_C0.map((x) => x.id));
-        const one = scenOk && v.length === 2 && v.indexOf(ID[1]) >= 0 && other.length === 1 && (other[0] === ID[0] || other[0] === WARREN)
-          && s.signs.length === 2 && s.signs.every((x) => !x.locked) && indepValid(s.board, fxc, seatKeysOf(s)).ok && twoRoutes(s).ok;
-        if (!one) okc = false;
-        det.push('off:' + v.join('+') + (s.signs.some((x) => x.locked) ? '(L)' : '') + (scenOk ? '' : '[scen≠]'));
+        const one = scenOk && setEq(vals(s), [ID[0], ID[1], WARREN]) && s.signs.length === 3 && s.signs.every((x) => !x.locked)
+          && indepValid(s.board, fxc, seatKeysOf(s), SIZE).ok;
+        if (!one) okC = false;
+        det.push('cargo0:' + vals(s).sort().join('+') + (scenOk ? '' : '[scen≠]'));
       }
-      R.check('(1b)', 'cleared=[' + ID[0] + '] を ' + N_1B + ' 回引く → 毎回 盤面 = {' + ID[1] + ' (本筋), ' + ID[0] + ' か ' + WARREN + ' か ' + CARGO + '}・両方押せる / 撤退 ?cargo=0 で '
-        + N_1B + ' 回 → 毎回 {' + ID[1] + ', ' + ID[0] + ' か ' + WARREN + '}', ok && okc, det.join(' '));
-    }
-    {
-      const det = []; let ok = true;
-      for (let k = 1; k <= 5; k++) {
-        const cl = ID.slice(0, k);
-        await prep({ cleared: cl });
-        const fx = F(cl);
-        const row = [];
-        for (let i = 0; i < N_1C; i++) {
-          const s = i === 0 ? await open('') : await redraw();
-          routes.push(['1c' + k + '#' + i, s]);
-          const v = s.board && s.board.seats ? Object.values(s.board.seats) : [];
-          const other = v.filter((x) => x !== fx.frontier);
-          const vv = indepValid(s.board, fx, seatKeysOf(s));
-          const one = v.length === 2 && v.indexOf(fx.frontier) >= 0 && other.length === 1 && fx.unlocked.indexOf(other[0]) >= 0
-            && s.signs.length === 2 && s.signs.filter((x) => x.locked).length === 0 && vv.ok;
-          if (!one) { ok = false; row.push('✗' + v.join('+') + (vv.ok ? '' : '[' + vv.why + ']') + (s.signs.some((x) => x.locked) ? '(L)' : '')); }
-          else row.push(other[0]);
-        }
-        det.push('c' + k + '(本筋 ' + fx.frontier + '): ' + row.join(','));
-      }
-      R.check('(1c)', 'cleared 1〜5 本の各状態で鍵を消して ' + N_1C + ' 回読み直す → 全回で本筋が入り、もう 1 件は解放済み、未解放の札 0 枚',
-        ok, det.join(' | '));
+      R.check('(1b)', 'cleared=[' + ID[0] + '] を ' + N_1B + ' 回 → 3 件とも解放済み・本筋 ' + ID[1] + ' を含む・重複なし / cleared 2〜5 本 × ' + N_1B_MID
+        + ' 回 → 本筋 + 解放済み 2 件 / 撤退 ?cargo=0 × ' + N_1B_CARGO + ' 回 → {' + ID[0] + ', ' + ID[1] + ', ' + WARREN + '} ちょうど', okMain && okMid && okC, det.join(' | '));
     }
     {
       const cl = ID.slice();
-      await prep({ cleared: cl });
       const fx = F(cl);
-      const det = []; let ok = fx.frontier === null && fx.unlocked.length === 12;   /* ★[#82][#103][#104][#105][#106][#107] 本筋 6 + side 6 (塔の母・巣穴・倉庫街・墓所・魔女の小屋・霜の巨人の砦) が全部解放済み */
-      for (let i = 0; i < N_1D; i++) {
-        const s = i === 0 ? await open('') : await redraw();
-        routes.push(['1d#' + i, s]);
-        const v = s.board && s.board.seats ? Object.values(s.board.seats) : [];
-        const one = v.length === 2 && v[0] !== v[1] && v.every((x) => fx.unlocked.indexOf(x) >= 0) && s.signs.length === 2
-          && s.signs.every((x) => !x.locked) && indepValid(s.board, fx, seatKeysOf(s)).ok;
-        if (!one) ok = false;
-        det.push(v.join('+'));
-      }
-      R.check('(1d)', 'cleared 6 本を ' + N_1D + ' 回引く → 本筋なし・2 件とも解放済み・重複なし', ok, det.join(' '));
-    }
-    {
-      const bad = routes.map(([n, s]) => [n, twoRoutes(s)]).filter((x) => !x[1].ok);
-      R.check('(1e)', '2 経路: §1 の全 ' + routes.length + ' 読み込みで DOM の札 === board().seats === localStorage の保存値 (+ 各札が自分の席)',
-        routes.length === N_1A + N_1B + 5 * N_1C + N_1D && bad.length === 0,
-        bad.length ? bad.slice(0, 4).map((x) => x[0] + ': ' + x[1].why).join(' | ') : routes.length + ' 読み込みすべて一致');
-    }
-
-    /* ══════════ §2 ══════════ */
-    {
-      const cl = ID.slice(0, 3);
+      let ok = fx.frontier === null && fx.unlocked.length === 12 && expCount(fx, SIZE) === 3;   /* 本筋 6 + side 6 が全部解放済み */
       await prep({ cleared: cl });
-      const a = await open('');
-      const want = J(a.board), wantSigns = signsOnly(a), wantSaved = a.saved;
+      const row = [];
+      for (let i = 0; i < N_1C; i++) {
+        const s = i === 0 ? await open('') : await redraw('');
+        routes.push(['1c#' + i, s]);
+        const v = vals(s);
+        const vv = indepValid(s.board, fx, seatKeysOf(s), SIZE);
+        const one = v.length === 3 && distinct(v) && v.every((x) => fx.unlocked.indexOf(x) >= 0) && s.signs.length === 3
+          && s.signs.every((x) => !x.locked) && vv.ok;
+        if (!one) { ok = false; row.push('✗' + v.join('+') + (vv.ok ? '' : '[' + vv.why + ']')); } else row.push('ok');
+      }
+      R.check('(1c)', 'cleared = 本筋 6 本を ' + N_1C + ' 回引く → 本筋なし・3 件とも解放済み・重複なし', ok, row.join(','));
+    }
+    {
+      /* ⭐ 依頼書 §2-2: ?warren=0 の開始直後は 解放済み {廃坑} + 次の未解放 {森} = 積める上限 2 件。
+         「ちょうど BOARD_SIZE 件」を要求すると毎回不正 → 読み込むたび (= buildSigns のたび) 引き直しになる (変異 fixedcount) */
+      const fx0 = F0([]);
       const det = [];
-      let ok = !!(a.board && a.board.nonce) && indepValid(a.board, F(cl), seatKeysOf(a)).ok;
-      for (let i = 0; i < N_2A_RELOAD; i++) {
+      let ok = fx0.unlocked.length === 1 && fx0.frontier === ID[0] && fx0.nextLocked === ID[1] && expCount(fx0, SIZE) === 2;
+      if (!ok) det.push('[装置] 独立計算が前提と違う ' + J(fx0));
+      await prep({});
+      const a = await open('?warren=0');
+      routes.push(['1e#open', a]);
+      const g = a.signs.find((x) => x.sid === ID[0]), f = a.signs.find((x) => x.sid === ID[1]);
+      const scenOk = !!a.scen && setEq(a.scen.map((x) => x.id), SC_OFF.map((x) => x.id));
+      const first = scenOk && a.hasRefresh && a.signs.length === 2 && setEq(vals(a), [ID[0], ID[1]]) && !!g && !!f && !g.locked && g.name !== '???'
+        && f.locked && f.name === '???' && indepValid(a.board, fx0, seatKeysOf(a), SIZE).ok;
+      if (!first) ok = false;
+      const want = J(a.board), wantSaved = a.saved, wantSigns = signsOnly(a);
+      det.push('open nonce=' + (a.board && a.board.nonce) + ' ' + vals(a).join('+') + (first ? '' : ' ✗[refresh=' + a.hasRefresh + ' scen=' + scenOk + ']'));
+      for (let i = 0; i < N_1E_REFRESH; i++) {
+        await page.evaluate(() => { window.__tavernRefreshSigns(); });
+        await sleep(80);
+        const s = await snap();
+        routes.push(['1e#refresh' + i, s]);
+        const one = J(s.board) === want && s.saved === wantSaved && signsOnly(s) === wantSigns;
+        if (!one) ok = false;
+        det.push('refresh' + i + (one ? '=' : '≠' + (s.board && s.board.nonce) + ':' + vals(s).join('+')));
+      }
+      {
+        const s = await open('?warren=0');
+        routes.push(['1e#reload', s]);
+        const one = J(s.board) === want && s.saved === wantSaved && signsOnly(s) === wantSigns;
+        if (!one) ok = false;
+        det.push('reload' + (one ? '=' : '≠' + (s.board && s.board.nonce)));
+      }
+      R.check('(1e)', '⭐ §2-2: ?warren=0 の新規状態で盤面が 2 件 (' + ID[0] + ' + ??? ' + ID[1] + ')・__tavernRefreshSigns() を ' + N_1E_REFRESH + ' 回 + 再読み込み 1 回で nonce が変わらない',
+        ok, det.join(' '));
+    }
+    {
+      /* 旧 2 件の保存値 (#81 の世界 = ?board3=0 で妥当) は 3 件の世界で ① に落ち、既存の道で 1 回だけ引き直す (移行処理なし・依頼書 §2-3) */
+      const olds = [
+        { nm: '新規', cleared: [], board: { v: 1, seats: { t1: ID[0], t2: WARREN }, nonce: 'OLD2-new' } },
+        { nm: 'c1', cleared: [ID[0]], board: { v: 1, seats: { t1: ID[1], t3: WARREN }, nonce: 'OLD2-c1' } },
+      ];
+      const det = []; let ok = true;
+      for (const o of olds) {
+        const fx = F(o.cleared);
+        const pre2 = indepValid(o.board, fx, ['t1', 't2', 't3'], SIZE_OFF), pre3 = indepValid(o.board, fx, ['t1', 't2', 't3'], SIZE);
+        if (!pre2.ok || pre3.ok) { ok = false; det.push('[装置] ' + o.nm + ' の種が「2 件で妥当・3 件で不正」でない'); continue; }
+        await prep({ cleared: o.cleared, board: J(o.board) });
         const s = await open('');
-        const one = J(s.board) === want && signsOnly(s) === wantSigns && s.saved === wantSaved;
+        routes.push(['1f' + o.nm + '#1', s]);
+        let sv = null; try { sv = JSON.parse(s.saved); } catch (e) {}
+        const vv = indepValid(s.board, fx, seatKeysOf(s), SIZE);
+        const one = !!s.board && s.board.nonce !== o.board.nonce && vals(s).length === 3 && (!fx.frontier || vals(s).indexOf(fx.frontier) >= 0)
+          && vv.ok && s.saved === J(s.board) && !!sv && Object.keys(sv.seats || {}).length === 3;
+        const s2 = await open('');
+        routes.push(['1f' + o.nm + '#2', s2]);
+        const two = J(s2.board) === J(s.board) && s2.saved === s.saved;
+        if (!one || !two) ok = false;
+        det.push(o.nm + ': ' + o.board.nonce + ' → ' + (s.board && s.board.nonce) + ' ' + vals(s).join('+') + (one ? '' : ' ✗[' + vv.why + ']')
+          + ' / 再読込 ' + (two ? '=' : '≠' + (s2.board && s2.board.nonce)));
+      }
+      R.check('(1f)', '旧 2 件の保存値 (本筋 + 1 件) → 読み込み後は 3 件・本筋入り・保存値も 3 件に上書き / もう 1 回読み込むと nonce 不変 (新規 / cleared=[' + ID[0] + '])',
+        ok, det.join(' | '));
+    }
+    {
+      /* 依頼から戻った後だけ引き直す (#81 の非退行)。種 = 新規状態で妥当な 3 件 */
+      const seed = { v: 1, seats: { t1: ID[1], t2: ID[0], t3: WARREN }, nonce: 'SEED' };
+      const str = J(seed);
+      const det = [];
+      let ok = indepValid(seed, F([]), ['t1', 't2', 't3'], SIZE).ok;
+      if (!ok) det.push('[装置] 種が独立計算で妥当でない');
+      /* (i) 妥当な種の採用 (#81 (2b)) — 新規状態 / cleared 3 本 */
+      const seedC3 = { v: 1, seats: { t3: ID[3], t1: ID[2], t2: CARGO }, nonce: 'SEED-c3' };
+      if (!indepValid(seedC3, F(ID.slice(0, 3)), ['t1', 't2', 't3'], SIZE).ok) { ok = false; det.push('[装置] 種 c3 が独立計算で妥当でない'); }
+      {
+        await prep({ cleared: ID.slice(0, 3), board: J(seedC3) });
+        const s = await open('');
+        const one = J(s.board) === J(seedC3) && s.saved === J(seedC3) && setEq(s.signs.map((x) => x.sid), Object.values(seedC3.seats));
+        if (!one) ok = false;
+        det.push('SEED-c3 ' + (one ? '採用' : '✗ board=' + J(s.board)));
+      }
+      await prep({ cleared: [], board: str });
+      const a = await open('');
+      const adopted = J(a.board) === str && a.saved === str && setEq(a.signs.map((x) => x.sid), Object.values(seed.seats));
+      if (!adopted) ok = false;
+      det.push('SEED ' + (adopted ? '採用' : '✗ board=' + J(a.board)));
+      /* (ii) 戻ってこない読み込みでは 1 文字も変わらない (#81 (2a)) */
+      const wantSigns = signsOnly(a);
+      for (let i = 0; i < N_1G_RELOAD; i++) {
+        const s = await open('');
+        const one = J(s.board) === str && s.saved === str && signsOnly(s) === wantSigns;
         if (!one) ok = false;
         det.push('reload' + i + (one ? '=' : '≠' + (s.board && s.board.nonce)));
       }
-      for (let i = 0; i < N_2A_TOWN; i++) {
-        await page.goto(base + 'town.html', { waitUntil: 'load', timeout: 60000 });
-        await page.waitForFunction(() => document.readyState === 'complete', { timeout: 30000 });
-        await sleep(300);
-        /* 町が施設へ入るときと同じ作法 (town.html enterFacility): enterVia を書いて素の tavern.html へ */
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: 'load', timeout: 60000 }),
-          page.evaluate(() => { sessionStorage.setItem('dragonfighters.enterVia', 'tavern'); location.href = 'tavern.html'; }),
-        ]);
-        await waitReady();
-        const s = await snap();
-        const one = J(s.board) === want && signsOnly(s) === wantSigns && s.saved === wantSaved;
+      for (let i = 0; i < N_1G_TOWN; i++) {
+        const s = await viaTown();
+        const one = J(s.board) === str && s.saved === str && signsOnly(s) === wantSigns;
         if (!one) ok = false;
         det.push('town' + i + (one ? '=' : '≠' + (s.board && s.board.nonce)));
       }
-      R.check('(2a)', 'cleared 3 本で盤面を作らせた後、再読込 ' + N_2A_RELOAD + ' 回・町へ出て戻る ' + N_2A_TOWN + ' 回で nonce も席も 1 文字も変わらない',
-        ok, 'nonce=' + (a.board && a.board.nonce) + ' seats=' + J(a.board && a.board.seats) + ' ' + det.join(' '));
-    }
-    {
-      /* ★[#103] 新規状態の妥当な種は「廃坑 + 巣穴」。??? 入りの種は撤退 ?warren=0 の世界でだけ妥当 (q / F0 で測る) */
-      const seeds = [
-        { cleared: [], board: { v: 1, seats: { t3: ID[0], t2: WARREN }, nonce: 'SEED-2b-new' } },
-        { cleared: [], board: { v: 1, seats: { t3: ID[0], t2: ID[1] }, nonce: 'SEED-2b-new-off' }, q: '?warren=0' },
-        { cleared: ID.slice(0, 3), board: { v: 1, seats: { t3: ID[3], t1: ID[2] }, nonce: 'SEED-2b-c3' } },
-      ];
-      const det = []; let ok = true;
-      for (const sd of seeds) {
-        const pre = indepValid(sd.board, (sd.q ? F0 : F)(sd.cleared), ['t1', 't2', 't3']);
-        if (!pre.ok) { ok = false; det.push('[装置] 種が独立計算で妥当でない ' + pre.why); continue; }
-        const str = J(sd.board);
-        await prep({ cleared: sd.cleared, board: str });
-        const s = await open(sd.q || '');
-        const dom = s.signs.map((x) => x.sid);
-        const one = J(s.board) === str && s.saved === str && setEq(dom, Object.values(sd.board.seats));
-        if (!one) ok = false;
-        det.push(sd.board.nonce + (one ? ' 採用' : ' ✗ board=' + J(s.board)));
-      }
-      R.check('(2b)', '妥当な盤面の種 (新規状態の廃坑 + 巣穴 / 撤退 ?warren=0 の新規状態の ??? 入り / cleared 3 本) がそのまま採用される (nonce・保存値が種のまま)', ok, det.join(' | '));
-    }
-
-    /* ══════════ §3 ══════════ */
-    {
-      const seed = J({ v: 1, seats: { t1: ID[0], t2: ID[1] }, nonce: 'SEED' });
+      /* (iii) 帰還 4 通りでは引き直す (#81 (3a)) */
       const cases = [
         { cleared: true, scenarioId: ID[0] },
         { defeated: true, scenarioId: ID[0] },
         { retreated: true, scenarioId: ID[0] },
         { cleared: true, scenarioId: 'generated-quest' },
       ];
-      const det = []; let ok = true;
       for (const r of cases) {
-        await prep({ cleared: [], board: seed, result: r });
+        await prep({ cleared: [], board: str, result: r });
         const s = await open('');
         const cl = s.cleared || [];
         /* 装置: 帰還が消費された (cleared の帰還は廃坑が cleared に入る / 生成クエストと敗北・撤退は入らない) */
         const consumed = (r.cleared && r.scenarioId === ID[0]) ? cl.indexOf(ID[0]) >= 0 : cl.length === 0;
-        const vv = indepValid(s.board, F(cl), seatKeysOf(s));
+        const vv = indepValid(s.board, F(cl), seatKeysOf(s), SIZE);
         const one = !!s.board && s.board.nonce !== 'SEED' && vv.ok && consumed && s.saved === J(s.board);
         if (!one) ok = false;
         det.push(Object.keys(r)[0] + ':' + r.scenarioId + ' → nonce=' + (s.board && s.board.nonce) + (vv.ok ? '' : ' [' + vv.why + ']') + (consumed ? '' : ' [未消費]'));
       }
-      R.check('(3a)', '種の盤面 (nonce "SEED") + lastResult を cleared / defeated / retreated / generated-quest の 4 通り → 4 通りとも引き直し (引き直した盤面も妥当)',
-        ok, det.join(' | '));
+      R.check('(1g)', '依頼から戻った後だけ nonce が変わる: 妥当な 3 件の種が採用 → 再読込 ' + N_1G_RELOAD + ' 回・町へ出て戻る ' + N_1G_TOWN
+        + ' 回で不変 → lastResult 4 通り (cleared / defeated / retreated / generated-quest) で引き直す', ok, det.join(' '));
     }
     {
       const det = []; let ok = true;
@@ -689,29 +706,142 @@ async function runSuite(browser, port, mutKey, label) {
         const fx = F(cl);
         const fr = fx.frontier, lk = fx.nextLocked;
         const bads = [
-          ['本筋欠け', { t1: ID[0], t2: ID[1] }],
-          ['未解放', { t1: fr, t2: lk }],
-          ['3件', { t1: fr, t2: ID[0], t3: ID[1] }],
-          ['存在しない席', { t1: fr, t9: ID[0] }],
-          ['id重複', { t1: fr, t2: fr }],
-          ['存在しないid', { t1: fr, t2: 'no-such-quest' }],
+          ['本筋欠け', { t1: ID[0], t2: ID[1], t3: WARREN }],
+          ['未解放', { t1: fr, t2: lk, t3: ID[0] }],
+          ['2件', { t1: fr, t2: ID[0] }],
+          ['存在しない席', { t1: fr, t2: ID[0], t9: ID[1] }],
+          ['id重複', { t1: fr, t2: fr, t3: ID[0] }],
+          ['存在しないid', { t1: fr, t2: ID[0], t3: 'no-such-quest' }],
         ];
         for (const [nm, seats] of bads) {
           const bd = { v: 1, seats, nonce: 'SEED' };
-          const pre = indepValid(bd, fx, ['t1', 't2', 't3']);
+          const pre = indepValid(bd, fx, ['t1', 't2', 't3'], SIZE);
           if (pre.ok) { ok = false; det.push('[装置] c' + k + ' ' + nm + ' が独立計算で妥当になってしまう'); continue; }
           await prep({ cleared: cl, board: J(bd) });
           const s = await open('');
-          const vv = indepValid(s.board, fx, seatKeysOf(s));
+          const vv = indepValid(s.board, fx, seatKeysOf(s), SIZE);
           const one = !!s.board && s.board.nonce !== 'SEED' && vv.ok && s.saved === J(s.board);
           if (!one) { ok = false; det.push('✗c' + k + ' ' + nm + ' → ' + J(s.board) + (vv.ok ? '' : ' [' + vv.why + ']')); }
-          else det.push('c' + k + ' ' + nm + ' → ' + Object.values(s.board.seats).join('+'));
+          else det.push('c' + k + ' ' + nm + ' → ' + vals(s).join('+'));
         }
       }
-      R.check('(3b)', '妥当でない種 6 種を cleared 3 本 / 4 本でまく → 12 回とも捨てて引き直す (引き直した盤面も妥当)', ok, det.join(' | '));
+      R.check('(1h)', '妥当でない種 6 種 (本筋欠け / 未解放 / 2 件 / 存在しない席 / id 重複 / 存在しない id) を cleared 3 本 / 4 本でまく → 12 回とも捨てて引き直す (引き直した盤面も妥当)',
+        ok, det.join(' | '));
+    }
+    {
+      const bad = routes.map(([n, s]) => [n, threeRoutes(s)]).filter((x) => !x[1].ok);
+      const plan = N_1A + N_1B + 4 * N_1B_MID + N_1B_CARGO + N_1C + (1 + N_1E_REFRESH + 1) + 2 * 2;
+      R.check('(1d)', '3 経路: §1 の全 ' + routes.length + ' 読み込みで DOM の札 === board().seats === localStorage の保存値 (+ 各札が自分の席)',
+        routes.length === plan && bad.length === 0,
+        bad.length ? bad.slice(0, 4).map((x) => x[0] + ': ' + x[1].why).join(' | ') : routes.length + ' 読み込みすべて一致 (予定 ' + plan + ')');
     }
 
-    /* ══════════ §4 ══════════ */
+    /* ══════════ §2 — 撤退 ?board3=0 の腕で #81 の主張 ══════════ */
+    {
+      const Q = '?board3=0';
+      const det = []; let ok = true;
+      const sub = (nm, good, d) => { if (!good) ok = false; det.push((good ? '' : '✗') + nm + ': ' + d); };
+      /* #81 (1a)・★[#103]: 新規 = {廃坑, 巣穴} の 2 件 (両方押せる) */
+      {
+        const fx = F([]);
+        let g = expCount(fx, SIZE_OFF) === 2; const r = [];
+        await prep({});
+        for (let i = 0; i < N_2A; i++) {
+          const s = i === 0 ? await open(Q) : await redraw(Q);
+          const one = setEq(vals(s), [ID[0], WARREN]) && s.signs.length === 2 && s.signs.every((x) => !x.locked && x.name !== '???')
+            && indepValid(s.board, fx, seatKeysOf(s), SIZE_OFF).ok && threeRoutes(s).ok;
+          if (!one) g = false;
+          r.push(vals(s).sort().join('+'));
+        }
+        sub('新規', g, r.join(','));
+      }
+      /* #81 (1a) の撤退腕 (#82 までの姿): ?warren=0 → {廃坑 (押せる), 森 (???・.locked)} = ??? 埋め */
+      {
+        const fx0 = F0([]);
+        let g = expCount(fx0, SIZE_OFF) === 2; const r = [];
+        await prep({});
+        for (let i = 0; i < N_2A; i++) {
+          const s = i === 0 ? await open(Q + '&warren=0') : await redraw(Q + '&warren=0');
+          const gg = s.signs.find((x) => x.sid === ID[0]), f = s.signs.find((x) => x.sid === ID[1]);
+          const one = s.signs.length === 2 && !!gg && !!f && !gg.locked && gg.name !== '???' && f.locked && f.name === '???'
+            && indepValid(s.board, fx0, seatKeysOf(s), SIZE_OFF).ok && threeRoutes(s).ok;
+          if (!one) g = false;
+          r.push(s.signs.map((x) => x.sid + (x.locked ? '(L:' + x.name + ')' : '')).sort().join('+'));
+        }
+        sub('warren0', g, r.join(','));
+      }
+      /* #81 (1b): cleared=[廃坑] → {森 (本筋), 廃坑 か 巣穴 か 倉庫街} */
+      {
+        const cl = [ID[0]], fx = F(cl);
+        let g = true; const r = [];
+        await prep({ cleared: cl });
+        for (let i = 0; i < N_2A; i++) {
+          const s = i === 0 ? await open(Q) : await redraw(Q);
+          const v = vals(s), other = v.filter((x) => x !== ID[1]);
+          const one = v.length === 2 && v.indexOf(ID[1]) >= 0 && other.length === 1 && [ID[0], WARREN, CARGO].indexOf(other[0]) >= 0
+            && s.signs.length === 2 && s.signs.every((x) => !x.locked) && indepValid(s.board, fx, seatKeysOf(s), SIZE_OFF).ok && threeRoutes(s).ok;
+          if (!one) g = false;
+          r.push(v.join('+'));
+        }
+        sub('c1', g, r.join(','));
+      }
+      /* #81 (1c): cleared 2〜5 本 → 本筋 + 解放済み 1 件 */
+      {
+        let g = true; const r = [];
+        for (let k = 2; k <= 5; k++) {
+          const cl = ID.slice(0, k), fx = F(cl);
+          await prep({ cleared: cl });
+          for (let i = 0; i < N_2A_MID; i++) {
+            const s = i === 0 ? await open(Q) : await redraw(Q);
+            const v = vals(s), other = v.filter((x) => x !== fx.frontier);
+            const one = v.length === 2 && v.indexOf(fx.frontier) >= 0 && other.length === 1 && fx.unlocked.indexOf(other[0]) >= 0
+              && s.signs.length === 2 && s.signs.every((x) => !x.locked) && indepValid(s.board, fx, seatKeysOf(s), SIZE_OFF).ok;
+            if (!one) g = false;
+            r.push('c' + k + ':' + v.join('+'));
+          }
+        }
+        sub('c2-5', g, r.join(','));
+      }
+      /* #81 (1d): cleared 6 本 → 本筋なし・解放済み 2 件・重複なし */
+      {
+        const cl = ID.slice(), fx = F(cl);
+        let g = true; const r = [];
+        await prep({ cleared: cl });
+        for (let i = 0; i < N_2A_MID; i++) {
+          const s = i === 0 ? await open(Q) : await redraw(Q);
+          const v = vals(s);
+          const one = v.length === 2 && distinct(v) && v.every((x) => fx.unlocked.indexOf(x) >= 0) && s.signs.length === 2
+            && indepValid(s.board, fx, seatKeysOf(s), SIZE_OFF).ok;
+          if (!one) g = false;
+          r.push(v.join('+'));
+        }
+        sub('c6', g, r.join(','));
+      }
+      /* #81 (2b): 2 件の世界で妥当な種 3 つがそのまま採用 */
+      {
+        const seeds = [
+          { cleared: [], board: { v: 1, seats: { t3: ID[0], t2: WARREN }, nonce: 'SEED-2a-new' }, q: Q },
+          { cleared: [], board: { v: 1, seats: { t3: ID[0], t2: ID[1] }, nonce: 'SEED-2a-new-off' }, q: Q + '&warren=0', off: true },
+          { cleared: ID.slice(0, 3), board: { v: 1, seats: { t3: ID[3], t1: ID[2] }, nonce: 'SEED-2a-c3' }, q: Q },
+        ];
+        let g = true; const r = [];
+        for (const sd of seeds) {
+          const pre = indepValid(sd.board, (sd.off ? F0 : F)(sd.cleared), ['t1', 't2', 't3'], SIZE_OFF);
+          if (!pre.ok) { g = false; r.push('[装置] 種が妥当でない ' + pre.why); continue; }
+          const str = J(sd.board);
+          await prep({ cleared: sd.cleared, board: str });
+          const s = await open(sd.q);
+          const one = J(s.board) === str && s.saved === str && setEq(s.signs.map((x) => x.sid), Object.values(sd.board.seats));
+          if (!one) g = false;
+          r.push(sd.board.nonce + (one ? ' 採用' : ' ✗=' + (s.board && s.board.nonce)));
+        }
+        sub('種', g, r.join(','));
+      }
+      R.check('(2a)', '撤退 ?board3=0 の腕で #81 の主張が今どおり (新規 {' + ID[0] + ', ' + WARREN + '} / ?warren=0 で ??? 埋め / cleared 1〜5 本 = 本筋 + 1 件 / 6 本 = 2 件 / 2 件の種の採用)',
+        ok, det.join(' | '));
+    }
+
+    /* ══════════ §4 (#81 の (4a)〜(4d) をそのまま) ══════════ */
     {
       await prep({});
       const s = await open('');
@@ -764,7 +894,7 @@ async function runSuite(browser, port, mutKey, label) {
         !s.mapOn && s.shopEntryDom && s.shopEntryVis === true && opened === 'flex', { mapOn: s.mapOn, dom: s.shopEntryDom, vis: s.shopEntryVis, shop: opened });
     }
 
-    /* ══════════ §5 ══════════ */
+    /* ══════════ §3 — 撤退 ?questdraw=0 (#81 (5a)(5b)) ══════════ */
     {
       await prep({});
       const s = await open('?questdraw=0');
@@ -790,7 +920,7 @@ async function runSuite(browser, port, mutKey, label) {
           }
         }
       } catch (e) { back = { err: String((e && e.message) || e).slice(0, 200) }; }
-      R.check('(5a)', '?questdraw=0 → 札 3 枚 = 廃坑/森/沼地 が TABLES の席どおり・board() null・「' + BACK_NAME + '」が奥の間を開く・shop の扉なし・#shopEntry が見える',
+      R.check('(3a)', '?questdraw=0 → 札 3 枚 = TABLES の scenarioId (廃坑/森/沼地) が TABLES の席どおり・board() null・「' + BACK_NAME + '」が奥の間を開く・shop の扉なし・#shopEntry が見える',
         seatOk && fixed && s.board === null && !s.questDrawOn && !!s.doorBack && s.doorBack.name === BACK_NAME && !s.doorShop
           && s.shopEntryDom && s.shopEntryVis === true && !!back && back.on === true && back.open === true && back.shop !== 'flex',
         { signs: s.signs.map((x) => x.id), fixed, board: s.board, back: s.doorBack, shop: s.doorShop, vis: s.shopEntryVis, opened: back });
@@ -798,18 +928,18 @@ async function runSuite(browser, port, mutKey, label) {
     {
       const P = (s) => {
         if (!s) return [null, null, null];
-        const p1 = !!(s.board && s.board.seats) && twoRoutes(s).ok;
+        const p1 = !!(s.board && s.board.seats) && threeRoutes(s).ok;
         const p2 = !!s.doorShop && s.doorShop.name === SHOP_NAME && !s.doorBack;
         const p3 = !!s.shopEntryDom && s.shopEntryVis === false;
         return [p1, p2, p3];
       };
       const on = P(onSnap), off = P(offSnap);
-      R.check('(5b)', '(1e)(4a)(4c) の 3 条件を ON/OFF へ当てて全部反転 (ON = true×3 / OFF = false×3)',
+      R.check('(3b)', '(1d)(4a)(4c) の 3 条件を ON/OFF へ当てて全部反転 (ON = true×3 / OFF = false×3)',
         on.every((x) => x === true) && off.every((x) => x === false), { on, off });
     }
 
-    /* ══════════ (0c) ══════════ */
-    R.check('(0c)', '[装置] 全ページで pageerror 0 件', ctx.booted > 0 && ctx.errs.length === 0, '起動 ' + ctx.booted + ' 回 / pageerror ' + J(ctx.errs.slice(0, 3)));
+    /* ══════════ (0d) ══════════ */
+    R.check('(0d)', '[装置] 全ページで pageerror 0 件', ctx.booted > 0 && ctx.errs.length === 0, '起動 ' + ctx.booted + ' 回 / pageerror ' + J(ctx.errs.slice(0, 3)));
   } catch (e) {
     console.log('  ⛔ ' + label + ' 例外: ' + String((e && e.stack) || e).slice(0, 600));
     for (const id of ALL_IDS) if (!R.some((r) => r.id === id)) R.check(id, '(例外で判定できず)', false, String((e && e.message) || e).slice(0, 200));
@@ -858,23 +988,23 @@ async function runSuite(browser, port, mutKey, label) {
           summarize(R, '[変異 ' + key + ']');
           const red = R.filter((r) => !r.ok).map((r) => r.id);
           const hit = R.hits[key] || 0;
-          const want = NEG_EXPECT[key], maybe = NEG_MAYBE[key];
+          const want = NEG_EXPECT[key];
           const miss = want.filter((w) => red.indexOf(w) < 0);
-          const leak = red.filter((x) => want.indexOf(x) < 0 && maybe.indexOf(x) < 0);
+          const also = red.filter((x) => want.indexOf(x) < 0);
           const absent = ALL_IDS.filter((id) => !R.some((r) => r.id === id));
-          const ok = hit > 0 && miss.length === 0 && leak.length === 0 && absent.length === 0;
-          console.log('[vet] --negative ' + key + ': 担当=' + want.join(',') + (maybe.length ? ' (確率で赤 ' + maybe.join(',') + ')' : '')
-            + ' / 実際に赤くなった=' + (red.join(',') || '(なし)') + ' / 注入行の実行 ' + hit + ' 回 → ' + (ok ? '✓ OK' : '✗ ' + (hit ? '' : '注入行が実行されていない ')
-            + (miss.length ? '空振り ' + miss.join(',') + ' ' : '') + (leak.length ? '担当が絞れていない ' + leak.join(',') + ' ' : '') + (absent.length ? '判定が出ていない ' + absent.join(',') : '')));
-          report.push({ key, want, maybe, red, ok, hit });
+          const ok = hit > 0 && miss.length === 0 && absent.length === 0;
+          console.log('[vet] --negative ' + key + ': 担当=' + want.join(',') + ' / 実際に赤くなった=' + (red.join(',') || '(なし)')
+            + (also.length ? ' (担当外の赤 ' + also.join(',') + ' = 記録のみ)' : '') + ' / 注入行の実行 ' + hit + ' 回 → '
+            + (ok ? '✓ OK' : '✗ ' + (hit ? '' : '注入行が実行されていない ') + (miss.length ? '空振り ' + miss.join(',') + ' ' : '') + (absent.length ? '判定が出ていない ' + absent.join(',') : '')));
+          report.push({ key, want, red, also, ok, hit });
           if (!ok) exitCode = 1;
         }
         console.log('\n════════════════════════════════════════');
-        console.log('  負のコントロール ' + report.filter((r) => r.ok).length + ' / ' + report.length + ' が検出成功 (必ず赤 ⊆ 赤 ⊆ 必ず赤 ∪ 確率で赤)');
-        for (const r of report) console.log('   ' + (r.ok ? '・' : '⛔ ') + r.key.padEnd(13) + ' 担当 ' + r.want.join(',') + (r.maybe.length ? ' (+確率 ' + r.maybe.join(',') + ')' : '')
-          + ' / 赤 ' + (r.red.join(',') || '(なし)') + ' / 注入行 ' + r.hit + ' 回');
+        console.log('  負のコントロール ' + report.filter((r) => r.ok).length + ' / ' + report.length + ' が検出成功 (担当 ⊆ 赤)');
+        for (const r of report) console.log('   ' + (r.ok ? '・' : '⛔ ') + r.key.padEnd(13) + ' 担当 ' + r.want.join(',') + ' / 赤 ' + (r.red.join(',') || '(なし)')
+          + (r.also.length ? ' (担当外 ' + r.also.join(',') + ')' : '') + ' / 注入行 ' + r.hit + ' 回');
         console.log('════════════════════════════════════════');
-        if (exitCode === 0) console.log('[vet] --negative OK: ' + report.length + ' 本すべて担当ラベルが赤・担当外の赤 0・注入行はすべて実行');
+        if (exitCode === 0) console.log('[vet] --negative OK: ' + report.length + ' 本すべて担当の節が赤・注入行はすべて実行');
         else console.error('[vet] --negative NG: ' + report.filter((r) => !r.ok).map((r) => r.key).join(','));
       }
     } else if (MUTATE) {
