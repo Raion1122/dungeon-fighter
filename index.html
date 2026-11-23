@@ -1113,6 +1113,65 @@
       100% { opacity: 0; }
     }
 
+    /* ══ C1 クリティカル／ファンブル演出強化 (開発会議 2026-11-23・縮小版) ═══════════
+     *   打撃の「一瞬の時間停止 (ヒットストップ/スロー)」を **演出だけ** で足す全画面フラッシュ。
+     *   シミュレーションの進行・ダメージ・判定・タイマには一切触れない (= バランス不変)。
+     *   既存の画面シェイク(SHAKE_CRIT/BOSS)・ダメージポップ拡大(.dmgPop.crit)・ダイス表示は
+     *   そのまま、その上に重ねるだけ。発火は triggerImpactFlash() で、⚙設定(screenShake)と
+     *   prefers-reduced-motion の両ガードは shakeEnabled() にただ乗りする (JS 側が握る)。
+     *   ⚠ z-index 49 = combatFlash(48) の上・phaseIndicator(50)/ダメージ数字(.dmgPop z51) の下。
+     *     数字がフラッシュの上に乗って読めるよう必ず 51 未満に置く。 */
+    #critFlash {
+      position: fixed;
+      inset: 0;
+      z-index: 49;
+      pointer-events: none;
+      opacity: 0;
+    }
+    /* クリティカル: 中心が白金に弾ける会心の光。snap-in → 一拍ホールド → ゆっくり抜ける
+       エンベロープで「時が止まった一瞬」= ヒットストップ/スローの手触りを作る。縁は透明に
+       抜くので視界全体は覆わない (action が完全に隠れない)。 */
+    #critFlash.crit {
+      background: radial-gradient(ellipse at center,
+        rgba(255,255,236,0.50) 0%,
+        rgba(255,220,110,0.32) 26%,
+        rgba(255,170,50,0.10) 52%,
+        rgba(255,150,40,0) 70%);
+      animation: critFreezeFlash 320ms ease-out;
+    }
+    /* ボス撃破: さらに強く長く。既存の SHAKE_BOSS + combatFlash 閃光に重ねる最大の見せ場。 */
+    #critFlash.boss {
+      background: radial-gradient(ellipse at center,
+        rgba(255,255,244,0.66) 0%,
+        rgba(255,214,96,0.44) 30%,
+        rgba(255,150,40,0.14) 58%,
+        rgba(255,120,30,0) 76%);
+      animation: critFreezeFlash 460ms ease-out;
+    }
+    /* ファンブル: 冷たい灰青の「空振り/つまずき」。クリとは逆トーンで軽く短い (縁を締める)。 */
+    #critFlash.fumble {
+      background: radial-gradient(ellipse at center,
+        rgba(150,165,190,0) 24%,
+        rgba(90,105,130,0.20) 62%,
+        rgba(40,48,66,0.38) 100%);
+      animation: fumbleJolt 240ms ease-out;
+    }
+    @keyframes critFreezeFlash {
+      0%   { opacity: 0;    }
+      7%   { opacity: 1;    }   /* snap-in = 着弾の瞬間 */
+      32%  { opacity: 0.94; }   /* 一拍ホールド = 時が止まる一瞬 */
+      100% { opacity: 0;    }   /* ゆっくり抜ける = スローの残響 */
+    }
+    @keyframes fumbleJolt {
+      0%   { opacity: 0;    }
+      14%  { opacity: 0.85; }
+      100% { opacity: 0;    }
+    }
+    /* ⚠ 検証ドライバは rAF/CSS アニメを凍結するので目視はライブのスクショで採る。 */
+    @media (prefers-reduced-motion: reduce) {
+      #critFlash.crit, #critFlash.boss, #critFlash.fumble { animation: none; opacity: 0; }
+    }
+
     /* ── [隊商護衛] 護衛対象マーカー ──────────────────────────────────────────
        馬車が画面外へ出たとき、画面端に「方向・距離・残HP」を出す。
        ⚠️ z-index 47 = DOMスプライト(1-7) / fxCanvas(8) / lightingCanvas(9) / combatLog(10) より上、
@@ -2892,11 +2951,14 @@
       20%  { opacity: 1; transform: translate(-50%, -8px) scale(1.15); }
       100% { opacity: 0; transform: translate(-50%, -52px) scale(1); }
     }
+    /* C1: 会心の数字を「さらに誇張」。ピークのスケールを 1.45→1.72 まで張り、着弾の一拍を
+       より大きく弾ませる (演出のみ・ダメージ値は不変)。 */
     @keyframes dmgCritBurst {
       0%   { opacity: 0; transform: translate(-50%, 0) scale(0.4) rotate(-6deg); }
-      15%  { opacity: 1; transform: translate(-50%, -10px) scale(1.45) rotate(4deg); }
-      40%  { transform: translate(-50%, -18px) scale(1.2) rotate(-2deg); }
-      100% { opacity: 0; transform: translate(-50%, -70px) scale(1.1) rotate(0deg); }
+      15%  { opacity: 1; transform: translate(-50%, -10px) scale(1.72) rotate(5deg); }
+      30%  { transform: translate(-50%, -14px) scale(1.42) rotate(-3deg); }
+      45%  { transform: translate(-50%, -20px) scale(1.24) rotate(1deg); }
+      100% { opacity: 0; transform: translate(-50%, -72px) scale(1.12) rotate(0deg); }
     }
 
     /* クリア/敗北オーバーレイ */
@@ -3459,6 +3521,7 @@
 
   <!-- 戦闘開始ヴィネット (案A: 軽い演出。pointer-events無し・JSで .show 付与) -->
   <div id="combatFlash" aria-hidden="true"></div>
+  <div id="critFlash" aria-hidden="true"></div>   <!-- C1: クリ/ボス撃破/ファンブルの一瞬のヒットストップ閃光 (演出のみ) -->
 
   <!-- フェーズインジケータ (右上) -->
   <div id="phaseIndicator" class="phase-explore">
@@ -19447,6 +19510,7 @@
       if (enemy.def && enemy.def.boss) {   // ボス撃破: 強シェイク + 既存ヴィネット閃光 を「撃破の衝撃」に束ねる
         triggerScreenShake(SHAKE_BOSS.mag, SHAKE_BOSS.dur);
         if (typeof triggerCombatFlash === "function") triggerCombatFlash();
+        if (typeof triggerImpactFlash === "function") triggerImpactFlash("boss");   // C1: 撃破の一瞬のヒットストップ閃光(演出のみ)
       }
 
       maybeDropIronSword(index);
@@ -23166,6 +23230,13 @@
     window.__rollTargetFmt = rollTargetLine;
 
     // ── ポップアップ(ワールド座標→スクリーン座標) ──
+    // C1: 戦闘の「FUMBLE!」ロール (攻撃の nat1) のときだけ冷たい閃光を重ねる (演出のみ)。
+    //   ⚠ 隠密/伝承判定も type="fumble" で同じ showRollAt* を通る (ラベルは STEALTH/LORE) ので、
+    //     戦闘攻撃だけが持つ "FUMBLE!" ラベルで弾く (A2 の技能判定へは踏み込まない)。
+    //   クリ側は showDmgAt(isCrit) 1 点に集約済みなのでここでは拾わない (二重発火回避)。
+    function maybeFumbleFlash(html, type) {
+      if (type === "fumble" && html && html.indexOf("FUMBLE!") >= 0) triggerImpactFlash("fumble");
+    }
     function showRollAtPlayer(html, type) {
       const pop = document.createElement("div");
       pop.className = "rollPop " + type;
@@ -23175,6 +23246,7 @@
       pop.style.left = SX(playerX + 48) + "px";
       pop.style.top  = SY(playerY - 24) + "px";
       document.body.appendChild(pop);
+      maybeFumbleFlash(html, type);
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }
     function showRollAtEnemy(idx, html, type) {
@@ -23187,6 +23259,7 @@
       pop.style.left = SX(e.x + e.def.displaySize / 2) + "px";
       pop.style.top  = SY(e.y - 32) + "px";
       document.body.appendChild(pop);
+      maybeFumbleFlash(html, type);
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }
     function showRollAtAlly(ally, html, type) {
@@ -23206,6 +23279,7 @@
       pop.style.left = SX(ally.x + ally.def.displaySize / 2) + "px";
       pop.style.top  = SY(ally.y - 24) + "px";
       document.body.appendChild(pop);
+      maybeFumbleFlash(html, type);
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }
 
@@ -24149,7 +24223,10 @@
       pop.style.top  = SY(worldY - 4) + "px";
       vfxHost().appendChild(pop);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => pop.remove(), isCrit ? 1200 : 900);
-      if (isCrit) triggerScreenShake(SHAKE_CRIT.mag, SHAKE_CRIT.dur);   // クリティカルだけ揺らす(通常ヒットは静)
+      if (isCrit) {
+        triggerScreenShake(SHAKE_CRIT.mag, SHAKE_CRIT.dur);   // クリティカルだけ揺らす(通常ヒットは静)
+        triggerImpactFlash("crit");                           // C1: 会心の一瞬のヒットストップ閃光(演出のみ)
+      }
     }
 
     const battleBannerEl = document.getElementById("battleBanner");
@@ -24169,6 +24246,24 @@
       void combatFlashEl.offsetWidth;   // reflow で animation を確実に再生
       combatFlashEl.classList.add("show");
       setTimeout(() => combatFlashEl.classList.remove("show"), 480);
+    }
+    // ── C1 クリティカル／ファンブル演出強化 (開発会議 2026-11-23・縮小版) ───────────────
+    //   打撃の「一瞬の時間停止 (ヒットストップ/スロー)」を **演出だけ** で表す全画面フラッシュ。
+    //   シミュレーションの進行・ダメージ・判定・タイマには一切触れない (= バランス不変)。
+    //   kind: "crit" (会心) / "boss" (ボス撃破・強) / "fumble" (空振り・冷) の 3 トーン。
+    //   既存の画面シェイク(SHAKE_CRIT/BOSS)・ダメージポップ拡大・ダイス表示の上に重ねる。
+    //   ⚙設定(screenShake)と prefers-reduced-motion は shakeEnabled() にただ乗り
+    //   (= 画面シェイクを切ると一緒に切れる / OS の低減設定を即尊重)。__autoplay はスキップ。
+    const critFlashEl = document.getElementById("critFlash");
+    function triggerImpactFlash(kind) {
+      if (window.__autoplay) return;         // headless/自動巡回は完全スキップ (決定論)
+      if (!shakeEnabled()) return;           // ⚙screenShake + prefers-reduced-motion ガード (既存の動き系と共有)
+      if (!critFlashEl) return;
+      critFlashEl.className = "";             // 前回のトーンを確実に落とす
+      void critFlashEl.offsetWidth;          // reflow で animation を再生し直す (combatFlash と同じ型)
+      critFlashEl.classList.add(kind);
+      const ms = kind === "boss" ? 500 : (kind === "fumble" ? 280 : 360);
+      setTimeout(() => critFlashEl.classList.remove(kind), ms);
     }
     // 指定した敵インデックス群の生存個体の中点(ワールド座標)。カメラ注視点(camFocus)に使う。
     function enemyGroupCenter(indices) {
