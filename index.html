@@ -14343,6 +14343,8 @@
     const IDLE_CHATTER_RETRY_MS = 3000;    // 話し手がいない / 行列が埋まっていたら少し先へずらすだけ
     let idleChatterNextAt = 0;             // 0 = まだ予定を立てていない
     const idleChatterLast = {};            // castId → 直前に話した文 (同じ人が同じ文を続けない)
+    // ★#121 (B3): 相性ペアの掛け合い。独り言と同じ ambient 枠を共有する (= 発話頻度を増やさない)。
+    const PAIR_BANTER_CHANCE = 0.5;        // 画面内にペアが揃っている時、独り言の代わりに掛け合いにする確率
     function tickIdleChatter() {
       try {
         if (!window.DFCast || typeof allies === "undefined") return;
@@ -14352,6 +14354,12 @@
         if (currentPhase !== "explore" || dialogPaused || gameOver) return;
         const cands = allies.filter(a => a && a.alive && a.castId && speechOnScreen(a));
         if (!cands.length) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; }
+        // ★#121: 相性ペアが画面内に揃っていれば、たまに独り言の代わりに 2 人の掛け合いを出す。
+        //   ⚠ cands が空の時はここに来ない = castId を持たない編成 (オートプレイ検証) では RNG を 1 つも消費しない。
+        if (affinityOn() && tryPairBanter(cands)) {
+          idleChatterNextAt = now + IDLE_CHATTER_MIN_MS + Math.random() * IDLE_CHATTER_SPAN_MS;
+          return;
+        }
         const a = cands[Math.floor(Math.random() * cands.length)];
         const c = DFCast.byId(a.castId);
         if (!c || !c.idle || !c.idle.length) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; }
@@ -14362,6 +14370,38 @@
         idleChatterLast[a.castId] = text;
         idleChatterNextAt = now + IDLE_CHATTER_MIN_MS + Math.random() * IDLE_CHATTER_SPAN_MS;
       } catch (e) {}
+    }
+
+    // ══════════ ★#121 (B3 縮小版) 相性ペアの掛け合い ══════════
+    // 撤退スイッチ ?affinity=0。呼ぶたびに読む (banterOn と同じ作法)。
+    function affinityOn() {
+      try { return new URLSearchParams(window.location.search).get("affinity") !== "0"; } catch (e) { return true; }
+    }
+    // 画面内に揃った相性ペアを 1 組選び、2 人の掛け合い (A→B の 2 行) を続けて積む。
+    // ⚠ cands = 画面内の生きたキャスト仲間 (tickIdleChatter が castId を確かめた後に渡す)。
+    //   RNG を引くのはペアが実在する時だけ (castId を持たない編成では呼ばれても pairs が空で即 false = 消費 0)。
+    function tryPairBanter(cands) {
+      if (!cands || cands.length < 2) return false;
+      if (!(window.DFCast && typeof DFCast.activePairs === "function")) return false;
+      const byId = {};
+      for (const a of cands) if (a.castId && !byId[a.castId]) byId[a.castId] = a;
+      const pairs = DFCast.activePairs(Object.keys(byId));
+      if (!pairs.length) return false;
+      if (Math.random() >= PAIR_BANTER_CHANCE) return false;
+      const pair = pairs[Math.floor(Math.random() * pairs.length)];
+      const ex = pair.banter && pair.banter[Math.floor(Math.random() * pair.banter.length)];
+      if (!Array.isArray(ex) || ex.length < 2) return false;
+      const u0 = byId[ex[0].id], u1 = byId[ex[1].id];
+      if (!u0 || !u1 || u0 === u1) return false;
+      return sayPairBanter(u0, ex[0].t, u1, ex[1].t);
+    }
+    // 2 行をまとめて積む。行列が空の時だけ 1 行目を積み、続けて 2 行目をそのすぐ後ろへ。
+    // どちらも優先度 0 = 遭遇・罠・ボスの台詞を押し出さない。SPEECH_LINES は引かず文面を直接渡す (独り言と同じ)。
+    function sayPairBanter(a0, t0, a1, t1) {
+      if (speechQueue.length || speechBubbles.length || Date.now() < speechBusyUntil) return false;
+      if (!sayLine("banter.pair", a0, { text: t0, prio: 0, meta: { scene: "banter", with: a1.castId || null } })) return false;
+      sayLine("banter.pair", a1, { text: t1, prio: 0, meta: { scene: "banter", with: a0.castId || null } });
+      return true;
     }
 
     function pruneSpeechQueue(keep) {   // 未表示の予約だけ絞る (表示中には触らない)
@@ -14520,6 +14560,13 @@
     window.__banter = {
       on: banterOn, loreLines: LORE_SHARE_LINES, pickTo: pickToName, fill: fillVoice, castText: castVoiceText,
       find: sayFind, lore: sayLoreShare, caller: pickCallerFor, call: sayAllyCall,
+    };
+
+    // ★#121 (B3) ヘッドレス検証用 (window.__banter と同じ思想)
+    window.__affinity = {
+      on: affinityOn, chance: function () { return PAIR_BANTER_CHANCE; }, tryTick: tryPairBanter, say: sayPairBanter,
+      pairs: function () { return (window.DFCast && DFCast.pairs) ? DFCast.pairs() : []; },
+      active: function (ids) { return (window.DFCast && DFCast.activePairs) ? DFCast.activePairs(ids) : []; },
     };
 
     // ヘッドレス検証用 (window.__narr と同じ思想)
