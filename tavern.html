@@ -3154,6 +3154,7 @@
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。index.html と共有。撤退 ?slots=0 -->
   <script src="js/bestiary.js"></script><!-- ★[B2] 魔物図鑑 (敵情報の段階開示・window.DFBestiary)。index.html と共有。ここは読んで描く側。撤退 ?bestiary=0 -->
+  <script src="js/slot-scarcity.js"></script><!-- ★[A1] 呪文スロット希少性の撤退スイッチ (window.SLOT_SCARCITY)。?slotscarcity=0 をここで sessionStorage へ写し、世界地図→ダンジョンへ遷移してもスイッチが効くようにする。判定は index.html が読む -->
   <script src="js/recruit-candidates.js"></script><!-- 同行候補 (#54)。酒場で声を掛けた相手を次の潜行まで保管。⛔ キーの前置詞は dragonfighters. のまま。撤退 ?recruittalk=0 -->
   <script src="js/companion-cast.js"></script><!-- ★#117 固定キャスト 12 人 (window.DFCast)。⚠ js/mercenary-roster.js より前 (名簿の切り替えが読む)。撤退 ?cast=0 -->
   <script src="js/mercenary-roster.js"></script><!-- 傭兵名簿 (#38)。一度共に戦った冒険者が次の依頼にも来る。⛔ キーの前置詞は dragonfighters. のまま (save-slots の keysOf が総なめ)。撤退 ?roster=0 -->
@@ -3784,7 +3785,8 @@
     <!-- ★[B2] 魔物図鑑 を開く導線。押すと #bestiaryOverlay が開く。
          ⚠⚠ DOM 上で #chronicleShelf の **後ろ**に置くこと (記録棚が出ていないときに 1 段詰める
             兄弟セレクタ #chronicleShelf.show ~ #bestiaryShelf が効かなくなる)。
-         ⚠ 既定は display:none。1 種以上記録があるときだけ JS が .show を付ける (空の図鑑は開かせない)。
+         ⚠ 既定は display:none。JS が最初から .show を付ける (記録 0 種でも出す = 新規プレイヤーが
+            図鑑の存在に気づけるように。空で開いても案内文が出る)。
          ⛔ ?bestiary=0 のときは initBestiaryEntry() が DOM ごと remove する (押せる導線を残さない)。 -->
     <div id="bestiaryShelf" title="これまで戦った魔物の記録">🐲 魔物図鑑</div>
 
@@ -7148,7 +7150,7 @@
       sub.textContent = "記録した魔物 " + list.length + " 種 / 正体を解明 " + known + " 種";
     }
     if (!list.length) {
-      /* ⚠ 空でも開ける経路はあるが、導線は 1 種以上で出す (initBestiaryEntry)。ここは保険。 */
+      /* ⚠ 導線は記録 0 種でも最初から出す (initBestiaryEntry)。空で開いたときはこの案内文を見せる。 */
       body.innerHTML = '<div class="bzEmpty">まだ魔物と戦っていない。'
         + 'ダンジョンで敵と相対するたびに、この図鑑が少しずつ埋まっていく。</div>';
       body.scrollTop = 0;
@@ -7208,12 +7210,13 @@
   })();
   /* 図鑑を開く導線 (HUD 左上の縦列 5 段目)。
      ⛔ 撤退 ?bestiary=0 のときは DOM ごと消す (押せる導線を残さない)。
-     ⚠ 1 種も記録が無いうちは出さない (空の図鑑を開かせない・記録棚 #37 と同じ作法)。 */
+     ⚠ 記録が 0 種でも最初から出す (新規プレイヤーが図鑑の存在に気づけるように)。空で開いても
+        renderBestiaryPanel() が「まだ魔物と戦っていない」と案内する。#rosterEntry / #promisesBadge と
+        同じく常設 = 上の #chronicleShelf の有無だけで 186px/242px に段が決まる (記録数では動かさない)。 */
   (function initBestiaryEntry() {
     const btn = document.getElementById("bestiaryShelf");
     if (!btn) return;
     if (!bestiaryOnTv()) { btn.remove(); return; }
-    if (!window.DFBestiary || DFBestiary.count() === 0) return;
     btn.classList.add("show");
     chronicleBindTap(btn, () => openBestiary());
   })();

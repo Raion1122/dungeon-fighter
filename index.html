@@ -3419,6 +3419,7 @@
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。tavern.html と共有。撤退 ?slots=0 -->
   <script src="js/bestiary.js"></script><!-- ★[B2] 魔物図鑑 (敵情報の段階開示・window.DFBestiary)。ここは記録する側。一覧 UI は tavern.html。前置詞 dragonfighters. のままで save-slots が焼き分け。撤退 ?bestiary=0 -->
+  <script src="js/slot-scarcity.js"></script><!-- ★[A1] 呪文スロット希少性の撤退スイッチの唯一の正 (window.SLOT_SCARCITY)。?slotscarcity=0 を sessionStorage へ写し酒場→世界地図→ダンジョンの遷移をまたいで効かせる。下の const SLOT_SCARCITY_ON が読む -->
   <script src="js/companion-cast.js"></script><!-- ★#117 固定キャスト 12 人 (window.DFCast)。本体は castId を持つ仲間の独り言にだけ使う。⛔ 本体は ?cast=0 を読まない (酒場が castId を付けるかで決まる) -->
   <script src="js/hero-classes.js"></script><!-- 職の立ち位置/役割/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
   <script src="js/class-sight.js"></script><!-- 職業別の視界 8/10/12 の唯一の正 (#39)。index/tavern/title と js/player-sheet.js が読む。⚠ 下の const CLASS_SIGHT より前。撤退 ?darkvision=0 (表示のみ) -->
@@ -14932,10 +14933,15 @@
      *      部屋クリアの最低位 +1(applyRoomClearHeal / R2)は救済として残す — 戻るのは最低位の
      *      1 枠だけなので高位呪文(大呪文)は依然タバーンまで戻らず、狙いの希少性は保たれる。
      *   撤退スイッチ ?slotscarcity=0 で従来の毎勝利 25% 補充へ戻す(ドライバ/バランス比較用)。
+     *   ⚠ スイッチの判定は js/slot-scarcity.js (window.SLOT_SCARCITY) が唯一の正。酒場→世界地図→
+     *      ダンジョンの遷移で URL のクエリは消えるが、同スクリプトが sessionStorage へ写すので効き続ける。
+     *      部品が無い時だけ URL を直読みする保険へ退避する。
      *   ⛔ 新しい永続化は足さない(ランをまたぐスロット持ち越しは会議の想定を超える拡大)。 */
     const SLOT_SCARCITY_ON = (() => {
-      try { return new URLSearchParams(window.location.search).get("slotscarcity") !== "0"; }
-      catch (e) { return true; }
+      try {
+        if (window.SLOT_SCARCITY && typeof SLOT_SCARCITY.on === "function") return SLOT_SCARCITY.on();
+        return new URLSearchParams(window.location.search).get("slotscarcity") !== "0";
+      } catch (e) { return true; }
     })();
     /* ★[A4 縮小版] 撤退判断と死亡の重み (開発会議 2026-11-23 §A4)。① 撤退ライン = 出発前に酒場の
      *   マッチング画面で選んだ「HP がこの割合を切ったら自動で引き上げる」ラインを、ラン中に監視して
