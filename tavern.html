@@ -746,6 +746,49 @@
       border: 2px solid rgba(139,105,20,0.35);
       border-radius: 3px;
     }
+    /* B1 作戦: 状況プルダウン (.apRows) と作戦チェック (.apTactics) を縦に積む列。
+       ⚠ 親の .equipGroup は横並び flex なので、ラベルの右側でこの 2 段を縦に並べる。
+       ⚠ 既存の .apRow / .apSel には一切触らない (新規 class は .apCol / .apTactics / .apTacticRow)。 */
+    .apCol {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .apTactics {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 0;
+    }
+    .apTacticRow {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      min-width: 0;
+      font-size: 12px;
+      line-height: 1.35;
+      color: var(--parchment-ink-soft);
+    }
+    .apTacticRow input[type="checkbox"] {
+      flex: 0 0 auto;
+      width: 17px;
+      height: 17px;
+      margin-top: 1px;
+      accent-color: #8b6914;
+    }
+    .apTacticRow label {
+      flex: 1 1 auto;
+      min-width: 0;
+      cursor: pointer;
+    }
+    .apTacticRow .apTacticSub {
+      display: block;
+      opacity: 0.6;
+      font-size: 11px;
+      font-style: italic;
+    }
 
     /* パーティースロットタブ (編成中のキャラ数に応じて自動列数) */
     .partyTabs {
@@ -2618,6 +2661,9 @@
        ⛔ .apRow / .apSel 本体は触らない (準備画面の見た目が変わる)。 */
     #pmDrawer .apRows { gap: 6px; }
     #pmDrawer .apRow > label { color: #b8a878; }
+    /* B1 作戦: 引き出し (暗幕) の中だけ字色を上げる。⛔ .apTacticRow 本体は触らない。 */
+    #pmDrawer .apTacticRow { color: #d8c89a; }
+    #pmDrawer .apTacticRow .apTacticSub { color: #a8986c; }
     /* ══ #35 STEP3: 引き出しの中身を暗幕へ馴染ませる (依頼書 §2-6 / §6) ══════════
        ⚠ 準備画面のスキル項目は羊皮紙色 rgba(255,245,210,0.55) で、暗い金/黒の
          オーバーレイに置くと「明るい矩形が浮く」。文字も暗インク (--parchment-ink) なので、
@@ -3614,12 +3660,16 @@
             <div class="equipLabel">魔法 <span id="magicHint" style="opacity:0.55;font-size:11px;font-style:italic;"></span></div>
             <div class="skillList" id="magicList"></div>
           </div>
-          <!-- 行動の優先度 (実装依頼書 #19 / STEP2): 状況ごとに「この技を優先」を指示する -->
+          <!-- 行動の優先度 (実装依頼書 #19 / STEP2): 状況ごとに「この技を優先」を指示する。
+               B1: 下段に軽い ON/OFF の「作戦」(#apTactics) を重ねる (作戦盤の縮小版)。 -->
           <div class="equipGroup" id="actionPrioritySection">
             <div class="equipLabel">🎯 行動の優先度
               <span id="apHint" style="opacity:0.55;font-size:11px;font-style:italic;"></span>
             </div>
-            <div class="apRows" id="apRows"></div>
+            <div class="apCol">
+              <div class="apRows" id="apRows"></div>
+              <div class="apTactics" id="apTactics"></div>
+            </div>
           </div>
         </div>
         <!-- スクロール書庫: キャラタブと独立 (聖典→僧侶/巻物→魔法使い/森の書→エルフ を一ヶ所で習得) -->
@@ -5219,6 +5269,24 @@
     "cure-minor", "haste",
   ];
 
+  // ── 作戦 (B1 行動優先度の作り込み・縮小版) ──
+  // #19 の「傾向」(状況ごとに技を名指す) の上に重ねる、軽い ON/OFF の作戦。
+  //   ① bossSpell … ボス戦では覚えている一番強い攻撃を先に狙う (攻撃職)。
+  //   ② healLow   … 味方の HP が早め (9 割) に欠けたら回復へ回る (僧侶)。
+  // ⚠⚠ index.html 側 (apTacticOn / AP_BOSS_BIG_IDS / AP_HEAL_IDS) と「キー名・効く職」を
+  //    揃えること (二重定義)。driver_action_tactics.js の (T0) が機械的に突合する。
+  const AP_TACTICS = [
+    { key: "bossSpell", label: "ボス戦は大技を優先",
+      hint: "ボス格がいる戦闘で、覚えている一番強い攻撃を先に狙う",
+      classes: ["warrior", "dwarf", "mage", "elf", "rogue"] },
+    { key: "healLow", label: "手負いの味方を早めに回復",
+      hint: "味方の HP が 9 割を切ったら、通常より早めに回復へ回る",
+      classes: ["cleric"] },
+  ];
+  function apTacticsFor(classKey) {
+    return AP_TACTICS.filter(t => t.classes.indexOf(classKey) >= 0);
+  }
+
   // ── パーティースロット定義 (現状は 5 キャラ枠: 戦士 + 仲間 4 人) ──
   const PARTY_SLOTS = [
     { classKey: "warrior", name: "戦士", skillPool: WARRIOR_SKILLS_UI,
@@ -6473,7 +6541,29 @@
         }
       }
     } catch (e) { /* 壊れていたら既定 (全部 null) のまま */ }
-    return { equipWeapon, equipArmor, equipShield, equipAccessory1, equipAccessory2, partySkills, allyEquip, partyComposition, partyMembers, actionPriority };
+    // ★B1 作戦 { classKey: {bossSpell,healLow} }。値は真偽。
+    const actionTactics = {};
+    for (const slot of PARTY_SLOTS) {
+      if (slot) actionTactics[slot.classKey] = {};
+    }
+    try {
+      const atRaw = localStorage.getItem("dragonfighters.actionTactics");
+      if (atRaw) {
+        const parsed = JSON.parse(atRaw) || {};
+        for (const slot of PARTY_SLOTS) {
+          if (!slot) continue;
+          const src = parsed[slot.classKey];
+          if (!src) continue;
+          // その職に効く作戦だけ受け入れる (旧セーブ / 手書き改変への耐性。actionPriority と同じ作法)
+          for (const t of AP_TACTICS) {
+            if (t.classes.indexOf(slot.classKey) >= 0 && src[t.key] === true) {
+              actionTactics[slot.classKey][t.key] = true;
+            }
+          }
+        }
+      }
+    } catch (e) { /* 壊れていたら既定 (全部 off) のまま */ }
+    return { equipWeapon, equipArmor, equipShield, equipAccessory1, equipAccessory2, partySkills, allyEquip, partyComposition, partyMembers, actionPriority, actionTactics };
   }
   const selection = loadSelections();
 
@@ -6487,6 +6577,7 @@
       localStorage.setItem("dragonfighters.allyEquip",  JSON.stringify(selection.allyEquip));
       localStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyComposition));
       localStorage.setItem("dragonfighters.actionPriority", JSON.stringify(selection.actionPriority));
+      localStorage.setItem("dragonfighters.actionTactics", JSON.stringify(selection.actionTactics));   // ★B1 作戦
       // v7.1: 主人公アクセサリー (index.html が読む)
       localStorage.setItem("dragonfighters.equipAccessory1", selection.equipAccessory1 || "none");
       localStorage.setItem("dragonfighters.equipAccessory2", selection.equipAccessory2 || "none");
@@ -9047,6 +9138,44 @@
     catch (e) { return true; }
   })();
 
+  // ★B1 作戦: チェックボックス行を container へ描く (準備画面と引き出しで共有)。
+  //   idPrefix で両画面の id 衝突を避ける。値は selection.actionTactics[classKey][key] で共有。
+  function renderApTacticRows(containerEl, classKey, idPrefix) {
+    if (!containerEl) return;
+    containerEl.innerHTML = "";
+    const tactics = apTacticsFor(classKey);
+    if (tactics.length === 0) { containerEl.style.display = "none"; return; }
+    containerEl.style.display = "";
+    if (!selection.actionTactics) selection.actionTactics = {};
+    const row = selection.actionTactics[classKey] || (selection.actionTactics[classKey] = {});
+    for (const t of tactics) {
+      const rowEl = document.createElement("div");
+      rowEl.className = "apTacticRow";
+      const cbId = idPrefix + classKey + "_" + t.key;
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.id = cbId;
+      cb.checked = !!row[t.key];
+      cb.addEventListener("change", () => {
+        row[t.key] = cb.checked;
+        saveSelections();
+        // ⛔ ここで再描画しない (チェック直後に作り直すと操作が落ちる。.apSel と同じ罠)。
+      });
+      const labelEl = document.createElement("label");
+      labelEl.setAttribute("for", cbId);
+      const main = document.createElement("span");
+      main.textContent = t.label;
+      const sub = document.createElement("span");
+      sub.className = "apTacticSub";
+      sub.textContent = t.hint;
+      labelEl.appendChild(main);
+      labelEl.appendChild(sub);
+      rowEl.appendChild(cb);
+      rowEl.appendChild(labelEl);
+      containerEl.appendChild(rowEl);
+    }
+  }
+
   function renderActionPriority() {
     const secEl = document.getElementById("actionPrioritySection");
     if (!ACTION_PRIORITY_UI_ON) {
@@ -9115,6 +9244,8 @@
       rowEl.appendChild(selEl);
       rowsEl.appendChild(rowEl);
     }
+    // ★B1 作戦: 状況プルダウンの下に ON/OFF の作戦を描く。
+    renderApTacticRows(document.getElementById("apTactics"), classKey, "apTac_");
     if (dirty) saveSelections();
   }
 
@@ -10492,6 +10623,12 @@
     }
     apSec.appendChild(apHead);
     apSec.appendChild(rowsEl);
+    // ★B1 作戦: 引き出しにも ON/OFF の作戦を描く (準備画面と同じ selection.actionTactics を共有)。
+    const apTacticsEl = document.createElement("div");
+    apTacticsEl.className = "apTactics";
+    apTacticsEl.id = "pmDrawerApTactics";
+    renderApTacticRows(apTacticsEl, classKey, "pmApTac_");
+    apSec.appendChild(apTacticsEl);
     drawer.appendChild(apSec);
     if (dirty) saveSelections();
   }
