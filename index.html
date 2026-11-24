@@ -3418,6 +3418,7 @@
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。tavern.html と共有。撤退 ?slots=0 -->
+  <script src="js/bestiary.js"></script><!-- ★[B2] 魔物図鑑 (敵情報の段階開示・window.DFBestiary)。ここは記録する側。一覧 UI は tavern.html。前置詞 dragonfighters. のままで save-slots が焼き分け。撤退 ?bestiary=0 -->
   <script src="js/companion-cast.js"></script><!-- ★#117 固定キャスト 12 人 (window.DFCast)。本体は castId を持つ仲間の独り言にだけ使う。⛔ 本体は ?cast=0 を読まない (酒場が castId を付けるかで決まる) -->
   <script src="js/hero-classes.js"></script><!-- 職の立ち位置/役割/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
   <script src="js/class-sight.js"></script><!-- 職業別の視界 8/10/12 の唯一の正 (#39)。index/tavern/title と js/player-sheet.js が読む。⚠ 下の const CLASS_SIGHT より前。撤退 ?darkvision=0 (表示のみ) -->
@@ -19569,6 +19570,7 @@
       }
       enemy.alive = false;
       RunChronicle.kill(null, enemy.def);   // 年代記 (#37): 撃破の唯一の集約点 (呼び口 33 箇所)
+      recordBestiarySlain(enemy);   // ★[B2] 魔物図鑑の討伐数 (年代記と同じ集約点に相乗り。多頭ハイドラの頭の再生は上で早期 return 済)
       enemy.__diagDead = true;   // 自動デバッグ: 死亡反転検出マーカー
       // コインドロップは廃止 (報酬は宝箱とクリア報酬に集約)
       enemy.coinVisible = false;
@@ -24488,6 +24490,7 @@
         await sleepMs(400);
       }
       await runLoreCheck(list);   // ★[#76 項目4b] 増援 (ボスの合流・召喚された手下の合流) のうち未判定の種類だけ振る
+      recordBestiarySighted(list);   // ★[B2] 増援で初めて現れた敵も図鑑へ (ボス・召喚の手下は戦闘途中で合流する)
       sortUnits();
       await sleepMs(500);
     }
@@ -24803,6 +24806,7 @@
       window.__inMidBoss = isMidBossActive();   // 既に解き放たれた中ボスが居れば midboss 曲を選ばせる
       setPhase("combat");
       encounterEnemyIndices = initialEngaged.slice();
+      recordBestiarySighted(encounterEnemyIndices);   // ★[B2] 戦った敵を魔物図鑑へ (初遭遇 = 姿と名前)
       applyMineRangedOpening();   // [sce1-events] EV-2 の②に成功していれば敵の初手を潰す
       applyRoadVigilance();       // ★ #47 街道の実り: 街道で「備え」を得ていれば最初の交戦だけ初手を潰す
       // [sce1-events] EV-9 を踏まずにボス戦へ入った場合の保険 (本線は runGrixEvent の末尾)。
@@ -31712,6 +31716,46 @@
       on: ENEMY_TRAITS_ON, table: ENEMY_TRAITS, mult: enemyElementMult,
       sleepImmune: enemySleepImmune, resolve: resolveElementDefense,
     };
+    /* ★[B2 縮小版] 魔物図鑑の遭遇記録 (開発会議 2026-11-23 §B2)。保存の唯一の正は window.DFBestiary
+       (js/bestiary.js)・一覧 UI は tavern.html。ここは「戦った敵」を貯めるだけで第二の規則を持たない。
+       初遭遇 = 姿と名前 (基本情報) / 伝承判定(#76)成功 = 弱点・耐性・脅威度を開示。
+       ⚠⚠ 記録は戦闘の集約点 (defeatEnemy 等) から呼ぶので**絶対に戦闘を止めない** — 必ず try/catch で握る。 */
+    function bestiaryPortraitOf(d) {   // スプライト 1 コマの幾何 (tavern が姿を描くのに使う)
+      if (!d || !d.sprite) return null;
+      return {
+        sprite: d.sprite,
+        frameW: d.frameW || 0, frameH: d.frameH || 0,
+        cols: d.cols || 1, rowOffset: d.rowOffset || 0,
+        sheetW: d.sheetW || 0, sheetH: d.sheetH || 0,
+      };
+    }
+    function bestiaryInfoOf(e) {
+      const d = (e && e.def) || {};
+      return { name: d.name || (e && e.type) || "", flavor: d.flavor || "", por: bestiaryPortraitOf(d) };
+    }
+    /* 戦闘開始・増援合流で呼ぶ: 交戦中の敵の種類を 1 戦 1 回ずつ「遭遇」記録する。
+       ⚠ 護衛対象 (隊商 NPC 等) は敵ではないので除く (runLoreCheck と同じ isEscortObjective ガード)。 */
+    function recordBestiarySighted(indices) {
+      if (!window.DFBestiary || !DFBestiary.enabled() || !indices) return;
+      try {
+        const seen = {};
+        for (let k = 0; k < indices.length; k++) {
+          const e = enemies[indices[k]];
+          if (!e || !e.type || isEscortObjective(e)) continue;
+          if (seen[e.type]) continue;
+          seen[e.type] = 1;
+          DFBestiary.sighted(e.type, bestiaryInfoOf(e));
+        }
+      } catch (err) { /* 図鑑の失敗は戦闘を止めない */ }
+    }
+    /* 撃破で呼ぶ: 討伐数を 1 増やす。 */
+    function recordBestiarySlain(enemy) {
+      if (!window.DFBestiary || !DFBestiary.enabled() || !enemy || !enemy.type) return;
+      try {
+        if (isEscortObjective(enemy)) return;
+        DFBestiary.slew(enemy.type, bestiaryInfoOf(enemy));
+      } catch (err) { /* 図鑑の失敗は撃破処理を止めない */ }
+    }
     /* ★[#76] 伝承判定 (5e の知識判定)。⚠ 撤退 ?lore=0 で判定も知識も消える = 従来どおり AI は体質を知らない。
        ⭐ 敵キー → 技能。獣・怪物 (自然) は表に載せない = 振らない (会議決定: 嘘の技能で振らない)。
        ⛔ detectEnemyFamily を流用しない (ボス戦で呼ばれない・構造体を generic に落とす = 依頼書 §2-1)。 */
@@ -31877,6 +31921,17 @@
           });
           updateInfo(`📜 ${repName}は伝承を思い出した — ${lines.join(" / ")}`);
           sayLoreShare(unit, g.rep[g.types[0]]);   // ★#118 吹き出しは 1 回だけ (先頭の種類・体質は先頭 2 つ)
+          /* ★[B2] 伝承判定の成功で、その種類の弱点/耐性・脅威度・分類を魔物図鑑で開示する (段階開示の第2段)。
+             ⛔ ここで新しい規則を作らない — index 側で算出済みの表示用テキスト (loreTraitText / loreCrText / label) を渡すだけ。 */
+          if (window.DFBestiary && DFBestiary.enabled()) {
+            for (const t of g.types) {
+              const le = g.rep[t];
+              DFBestiary.learned(t, {
+                name: le.def.name, flavor: le.def.flavor || "", por: bestiaryPortraitOf(le.def),
+                cr: loreCrText(t), traits: loreTraitText(le), skill: label,
+              });
+            }
+          }
           for (let i = 0; i < enemies.length; i++) {
             if (enemies[i] && enemies[i].alive && g.types.indexOf(enemies[i].type) >= 0) loreDecorateLabel(i);
           }
