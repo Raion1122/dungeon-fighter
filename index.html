@@ -14357,29 +14357,40 @@
     const PAIR_BANTER_MIN_MS   = 22000;    // 掛け合いどうしの最短間隔
     const PAIR_BANTER_SPAN_MS  = 16000;    // 〃 のゆらぎ
     let pairBanterNextAt = 0;              // 0 = まだ予定を立てていない (⛔ 初期化で乱数を使わない = 決定論)
+    let pairBanterLastAt = 0;              // 直近に掛け合いが実発火した時刻 (探索再入の張り直しが最短間隔を割らないため)
+    let idleWasExplore   = false;          // 直前 tick が「探索中」だったか (探索再入の検知。⛔ RNG は使わない = 決定論)
     function tickIdleChatter() {
       try {
         if (!window.DFCast || typeof allies === "undefined") return;
         const now = Date.now();
         if (!idleChatterNextAt) { idleChatterNextAt = now + IDLE_CHATTER_FIRST_MS + Math.random() * IDLE_CHATTER_SPAN_MS; return; }
-        if (currentPhase !== "explore" || dialogPaused || gameOver) return;
+        // ⚠ 戦闘/休憩/ダイアログ中は探索再入フラグを倒すだけ (RNG を一切引かない = 非キャスト編成の決定論は不変)。
+        if (currentPhase !== "explore" || dialogPaused || gameOver) { idleWasExplore = false; return; }
         const cands = allies.filter(a => a && a.alive && a.castId && speechOnScreen(a));
         if (!cands.length) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; }
         // ★#121: 相性ペアの掛け合い (独り言より短い独自周期・画面内に 2 人揃った時だけ)。
         //   ⚠ ここは cands が非空のときだけ通る = castId を持たない編成は上の !cands.length で return 済み
-        //      → tryPairBanter を呼ばない → RNG を 1 つも消費しない (決定論は不変)。
+        //      → tryPairBanter も下の張り直しも呼ばない → RNG を 1 つも消費しない (決定論は不変)。
+        //   ★2026-11-25 再修正: 実機で「ほとんど出ない」真因 = 戦闘が長く探索窓が短い実プレイでは、開始/戦闘明けに
+        //     独り言タイマーが先に満期を迎えて窓を奪い、掛け合いを毎回 22 秒先へ押しやる。短い探索窓はその前に戦闘へ
+        //     戻るため掛け合いが永遠に順番待ちになっていた。→ 探索へ(戻って)入った最初の tick で掛け合いを先頭に据え直し、
+        //     独り言には先番を譲らせる (最短間隔は pairBanterLastAt で守る・乱数は一切使わない = 完全に決定論)。
         if (affinityOn()) {
-          if (!pairBanterNextAt) {
-            pairBanterNextAt = now + PAIR_BANTER_FIRST_MS;              // ⛔ 初期化で乱数を使わない
+          if (!idleWasExplore) {                                        // 探索に(戻って)入った最初の tick
+            pairBanterNextAt  = Math.max(now + PAIR_BANTER_FIRST_MS, pairBanterLastAt + PAIR_BANTER_MIN_MS);
+            idleChatterNextAt = Math.max(idleChatterNextAt, pairBanterNextAt + IDLE_CHATTER_RETRY_MS);   // 掛け合いに先番を譲る
           } else if (now >= pairBanterNextAt) {
             if (tryPairBanter(cands)) {                                 // 揃って行列が空なら 2 行を積む
+              pairBanterLastAt  = now;
               pairBanterNextAt  = now + PAIR_BANTER_MIN_MS + Math.random() * PAIR_BANTER_SPAN_MS;
               idleChatterNextAt = Math.max(idleChatterNextAt, now + IDLE_CHATTER_MIN_MS);   // 直後に独り言を重ねない
+              idleWasExplore = true;
               return;
             }
             pairBanterNextAt = now + IDLE_CHATTER_RETRY_MS;             // 揃っていない/行列が埋まっている → 少し先で挑み直す
           }
         }
+        idleWasExplore = true;
         if (now < idleChatterNextAt) return;                            // 独り言はこれまでどおり 25〜45 秒周期
         const a = cands[Math.floor(Math.random() * cands.length)];
         const c = DFCast.byId(a.castId);
@@ -45763,6 +45774,13 @@
            ?roster=0 のときは undefined = キーごと落ちる (受入条件 (6b))。 */
         roster: rosterResultPayload(!!win),
       }));
+      /* ★[#64/#4 表示ズレ・2026-11-25] 討伐済み(達成済み)依頼が世界地図に「受注中」のまま残る問題。
+         帰還の既定経路は dfReturnPage()="world.html" が酒場(consumeResult)より**先**に出る。器(activeQuest)を
+         消すのが酒場だけだと、クリア直後の世界地図に討伐済みの依頼が「受注中」で残る (実測)。consumeResult と
+         同じ意味で、クリアを書いた瞬間に器を消す (= 討伐済み → もう受注中ではない)。
+         ⛔ win のときだけ消す (敗北/撤退はまだ受注中 = 再挑戦・再開の導線を残す。器は酒場 consumeResult が従来どおり消す)。
+         ⛔ RNG は引かない (setupClearChests の乱数列は不変)。酒場側の消しは無害な二重消しになるだけ。 */
+      if (win) { try { localStorage.removeItem("dragonfighters.activeQuest"); } catch (e) {} }
       // ★[#108] クリア時の宝箱 3 つ。⚠ lastResult を書き終えた後 = それまでの乱数の列は今と同じ (罠 B)。
       if (win && CLEAR_CHEST_ON) setupClearChests();
     }
