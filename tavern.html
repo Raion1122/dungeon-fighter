@@ -7260,6 +7260,17 @@
     "undead-temple":  true,
     "dragon-lair":    true,
   };
+  // ── 受注ナレ 風景帯(段階導入)──────────────────────────
+  // 風景画 assets/scene_<id>.png を用意済みの scenarioId のみ src を入れる。未用意 (本筋外の
+  // 行き先など) は src を入れず CSS の暗いアトモス帯へフォールバックし 404/壊れアイコンを出さない。
+  const SCENE_ART = {
+    "goblin-mine":    true,
+    "bandits-forest": true,
+    "lizard-swamp":   true,
+    "orc-fort":       true,
+    "undead-temple":  true,
+    "dragon-lair":    true,
+  };
   function onClientArtError(img, type) {
     if (img.dataset.fellBack === "1") return;   // 二重発火防止(壊れた src の再ループを断つ)
     img.dataset.fellBack = "1";
@@ -9686,9 +9697,18 @@
     const sceneEl = document.getElementById("questAcceptScene");
     const portraitEl = document.getElementById("questAcceptPortrait");
     if (sc.id && sceneEl && portraitEl) {
-      // 風景画: 未生成シナリオは broken アイコンを消し CSS のアトモス帯にフォールバック
-      sceneEl.onerror = function () { this.removeAttribute("src"); };
-      sceneEl.src = "assets/scene_" + sc.id + ".png";
+      /* ★[バッチ1 残件] 風景画は「実在が見込めるパスだけ」を src にする (依頼人肖像 不具合#3 と同じ型)。
+         ⛔ 旧実装は本筋外の行き先 (塔の母・コボルドの巣穴ほか scene_<id>.png 未整備) でも
+            必ず 404 になる src を入れ、onerror で消す前に壊れアイコンが一瞬見えた (実測 2026-11-24)。
+         ⭐ 実在が見込める = 風景画を用意済みの本筋シナリオ (SCENE_ART が true)。
+            未用意は src を入れず CSS の暗いアトモス帯 (#questAcceptScene の background) にフォールバック。 */
+      if (SCENE_ART[sc.id] === true) {
+        sceneEl.onerror = function () { this.removeAttribute("src"); };   // 実在が見込めても万一の失敗は帯へ退避 (保険)
+        sceneEl.src = "assets/scene_" + sc.id + ".png";
+      } else {
+        sceneEl.onerror = null;
+        sceneEl.removeAttribute("src");
+      }
       /* ★[バッチ1 不具合#3] 依頼人の肖像は「実在が見込めるパスだけ」を src にする。
          ⛔ 旧実装は生成クエスト (client_generated-quest.png) や立ち絵未整備の本筋外 (client_<id>.png) でも
             必ず 404 になるパスを src に入れ、onerror で隠す前に壊れアイコン (unavailable image) が
