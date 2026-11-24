@@ -16331,6 +16331,22 @@
     function setChoiceOpen(on) {
       if (document.body) document.body.classList.toggle("choice-open", !!on);
     }
+    /* ★[バッチ1 不具合#2] 開いている選択ダイアログ (#choiceDialog) を**本人の cleanup で**畳む口。
+     *   showChoice / showCharChoice は表示中にこれへ「自分を閉じて解決する関数」を預け、閉じたら null に戻す。
+     *   ⛔ これが無いと、別の非同期フロー (罠解除・開錠・ナレ等) が共有の dialogPaused を false へ戻した
+     *      隙に moveEnemies が再開して戦闘へ入り、**解決されないまま .show が残ったダイアログ**が
+     *      ボス戦・勝利画面まで画面に貼り付く (実測 2026-11-24 = 罠3件目)。戦闘開始 (runEncounter) と
+     *      画面遷移 (showResult) の 2 点で呼び、残っていれば本人の cleanup で確実に閉じる。
+     *   ⚠ 本人の cleanup を通すので dialogPaused / リスナー / choice-open の後始末が漏れない。
+     *   ⚠ 戦闘前の口 (tryMageHandCalm) は dialogPaused で、戦闘中のメイジハンドはラウンドの頭 =
+     *      runEncounter の**冒頭より後**でしか出さないので、ここで畳んでも巻き込まない。 */
+    let activeChoiceDismiss = null;
+    function forceCloseChoiceDialog() {
+      if (activeChoiceDismiss) {
+        const f = activeChoiceDismiss; activeChoiceDismiss = null;
+        try { f(); } catch (e) {}
+      }
+    }
     function showChoice(message, yesText = "はい", noText = "いいえ") {
       // Phase 2-K: autoplay 時は自動「はい」(true) で即座に解決
       if (window.__autoplay) {
@@ -16366,7 +16382,10 @@
           btnYes.onclick = null;
           btnNo.onclick  = null;
           document.removeEventListener("keydown", onKey, true);
+          activeChoiceDismiss = null;   // ★[バッチ1 不具合#2] 閉じたら畳む口を手放す
         };
+        /* ★[バッチ1 不具合#2] 戦闘開始/画面遷移で取り残されたら、迂回 (false) として本人の cleanup で畳む。 */
+        activeChoiceDismiss = () => { cleanup(); resolve(false); };
         const onKey = (ev) => {
           if (ev.key === "Enter") {
             ev.preventDefault(); ev.stopPropagation();
@@ -16419,7 +16438,10 @@
           setChoiceOpen(false);
           dialogPaused = false;
           document.removeEventListener("keydown", onKey, true);
+          activeChoiceDismiss = null;   // ★[バッチ1 不具合#2] 閉じたら畳む口を手放す
         };
+        /* ★[バッチ1 不具合#2] 戦闘開始/画面遷移で取り残されたら、キャンセル (null) として本人の cleanup で畳む。 */
+        activeChoiceDismiss = () => { cleanup(); resolve(null); };
         const onKey = (ev) => {
           // 1〜9 で対応する候補を選択、Esc でキャンセル
           if (ev.key === "Escape" || ev.key === "Esc") {
@@ -24798,6 +24820,9 @@
 
     // ── エンカウンターメインフロー ──
     async function runEncounter(initialEngaged) {
+      /* ★[バッチ1 不具合#2] 戦闘が始まる瞬間に、探索中に取り残された選択ダイアログ (罠解除など) を畳む。
+         ⚠ ここは encounterActive=true の**前** = 戦闘中のメイジハンド (ラウンドの頭) より手前なので巻き込まない。 */
+      forceCloseChoiceDialog();
       encounterActive = true;
       dfSheetRefresh();   // ★#89 開いたままのシートの装備欄を灰色へ
       if (window.__diag) window.__diag.beat("combat", true);   // 自動デバッグ: 戦闘開始
@@ -45408,6 +45433,7 @@
       if (window.__diag) window.__diag.beat("result", win);   // 自動デバッグ: 結果発火 (二重検出のためガード前)
       if (resultShown) return;
       resultShown = true;
+      forceCloseChoiceDialog();   // ★[バッチ1 不具合#2] 結果画面へ遷移する前に、残った選択ダイアログを畳む
       clearSpeech();   // ★ speech: リザルト(z=200)で吹き出しを一掃
       summonSlot = null;   // 闇市召喚 (M8): クエスト終了で召喚枠をクリア (同行 ally は酒場復帰のリロードで自然消滅)
       if (window.GameAudio) { GameAudio.stopBgm(); GameAudio.playJingle(win ? "victory" : "defeat"); }
