@@ -1869,6 +1869,34 @@
     #promisesBadge:hover { background: rgba(255,245,210,0.95); box-shadow: 0 0 18px rgba(139,105,20,0.4); }
     body.compact #promisesBadge, body.ui-compact #promisesBadge { font-size: 13px; padding: 11px 12px; }
 
+    /* ── ★[B2] 魔物図鑑 を開く導線 (左上の縦列の 5 段目) ───────────────────────────
+       ⭐ #37(記録棚)・#38(名簿)・#60(約束) が 2〜4 段目を使っている。この札は **その下**。
+       ⛔⛔ #townExit / #chronicleShelf / #rosterEntry / #promisesBadge の position / top / left は
+         1 バイトも動かさない (それぞれの座標を測る verify_run_chronicle / verify_mercenary_roster
+         などの assert を巻き込む)。**足すのはこの 1 枚だけ**。
+       ⭐ 記録棚が非表示 (記録 0 件 / ?chronicle=0 で DOM ごと無い) のときは 1 段詰める。既定を 186px
+         (= 記録棚が無いときの約束バッジ 130px の下) にし、記録棚が出ているときだけ兄弟セレクタで
+         242px (= 約束バッジ 186px の下) へ落とす。#rosterEntry / #promisesBadge と同じ型。
+         ⚠ そのため #bestiaryShelf は DOM 上で #chronicleShelf の **後ろ**に居ること。
+       ⭐ 絵文字は 🐲。⛔ 📜 (記録棚) / 📖 (名簿) / 🤝 (約束) は同じ縦列で使用中なので使わない。 */
+    #bestiaryShelf {
+      position: absolute; left: 18px; top: 186px; z-index: 13;
+      display: none; min-height: 44px; box-sizing: border-box;
+      padding: 10px 16px; cursor: pointer;
+      font-family: 'MedievalSharp', serif; font-size: 15px; letter-spacing: 1px;
+      color: var(--parchment-ink);
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      border-radius: 6px;
+      box-shadow: var(--parchment-shadow);
+      transition: background 0.12s, box-shadow 0.12s;
+    }
+    #bestiaryShelf.show { display: block; }
+    /* ★ 記録棚が出ている間だけ 5 段目へ下がる (#promisesBadge の 186px の下)。 */
+    #chronicleShelf.show ~ #bestiaryShelf { top: 242px; }
+    #bestiaryShelf:hover { background: rgba(255,245,210,0.95); box-shadow: 0 0 18px rgba(139,105,20,0.4); }
+    body.compact #bestiaryShelf, body.ui-compact #bestiaryShelf { font-size: 13px; padding: 11px 12px; }
+
     /* 一覧パネル。z-index 190 は #rosterOverlay(180) と #prologueOverlay(200) の間の空き番地。
        ⛔ #partyMatchOverlay(210) / #soloConfirm(230) より **下**に置く —— 「編成を見る」で
          演出を開くので、上に居ると閉じた後のパネルが演出の手前へ残る。
@@ -2013,6 +2041,85 @@
       background: linear-gradient(180deg, #f0daa0, #d8bc7e); color: #3a2010;
       border: 2px solid var(--parchment-gold); border-radius: 5px;
     }
+
+    /* ── ★[B2] 魔物図鑑 パネル ───────────────────────────────────────────────
+       z-index 185 は #rosterOverlay(180) と #promisesOverlay(190) の間の空き番地。
+       武器防具屋(160)/闇市(150)/年代記(170)/名簿(180) は覆い、プロローグ(200)・
+       マッチング(210) には覆われる。⛔ 新しいカラー変数を作らない (地は既存の --parchment-*)。
+       中身は JS が window.DFBestiary から描く。ここは**読むだけ**で、弱点/耐性・脅威度の規則を持たない。 */
+    #bestiaryOverlay {
+      position: fixed; inset: 0; z-index: 185; display: none;
+      align-items: center; justify-content: center;
+      background:
+        radial-gradient(ellipse at 50% 26%, rgba(70,45,15,0.30) 0%, rgba(18,12,5,0.88) 74%),
+        rgba(10,8,5,0.9);
+    }
+    #bestiaryOverlay.show { display: flex; }
+    #bestiaryInner {
+      width: min(640px, 94vw); max-height: 84vh;
+      display: flex; flex-direction: column;
+      padding: 18px 20px 16px;
+      background: var(--parchment-bg);
+      border: 3px double var(--parchment-gold);
+      border-radius: 8px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+      color: var(--parchment-ink);
+    }
+    #bestiarySign {
+      font-family: 'MedievalSharp', serif; font-size: 22px; letter-spacing: 3px;
+      text-align: center;
+    }
+    #bestiarySign small {
+      display: block; font-size: 12px; letter-spacing: 0; margin-top: 5px;
+      color: var(--parchment-ink-soft); font-family: 'Cinzel', serif;
+    }
+    /* ⚠ スクロールするのは本文だけ (器ごとスクロールさせると閉じるボタンが流れて届かない・#rosterBody と同じ)。 */
+    #bestiaryBody {
+      flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      margin: 12px 0; padding-right: 4px;
+      font-size: 14px; line-height: 1.6;
+    }
+    .bzList { list-style: none; margin: 0; padding: 0; }
+    .bzRow {
+      display: grid; grid-template-columns: 60px 1fr; gap: 3px 12px; align-items: start;
+      padding: 8px 10px; margin-bottom: 6px;
+      border-left: 3px solid rgba(139,105,20,0.35); border-radius: 0 4px 4px 0;
+      background: rgba(255,245,210,0.42);
+    }
+    /* 姿 = スプライト 1 コマを 56px 四方へ収める枠。背景の 1 コマは JS がインライン style で指定する。 */
+    .bzPic {
+      grid-row: 1 / span 4; width: 56px; height: 56px;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+      background: rgba(30,20,8,0.16); border: 1px solid rgba(139,105,20,0.3); border-radius: 4px;
+      font-size: 30px; line-height: 1;
+    }
+    .bzPortrait { display: block; image-rendering: pixelated; background-repeat: no-repeat; }
+    .bzHead { grid-column: 2; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+    .bzName { font-size: 16px; font-family: 'MedievalSharp', serif; }
+    .bzCr {
+      font-family: 'Cinzel', serif; font-size: 11px; letter-spacing: 1px;
+      color: #5a3a0a; background: rgba(220,180,60,0.28);
+      border: 1px solid rgba(139,105,20,0.5); border-radius: 3px; padding: 0 6px;
+    }
+    .bzFlavor { grid-column: 2; font-size: 12px; line-height: 1.5; color: var(--parchment-ink-soft); }
+    .bzStat { grid-column: 2; font-family: 'Cinzel', serif; font-size: 12px; }
+    .bzLore { grid-column: 2; font-size: 12.5px; line-height: 1.5; }
+    .bzLore b { color: #6a3a12; }
+    /* まだ解明していない = 伏せた一行。⚠ opacity を掛けない (羊皮紙の斑に食われる・#15)。 */
+    .bzLocked { grid-column: 2; font-size: 12px; font-style: italic; color: var(--parchment-ink-soft); }
+    .bzEmpty { padding: 18px; text-align: center; font-style: italic; color: var(--parchment-ink-soft); }
+    #bestiaryClose {
+      display: block; margin: 0 auto; min-height: 44px; min-width: 168px;
+      padding: 10px 22px; cursor: pointer;
+      font-size: 14px; font-family: 'Cinzel', serif; letter-spacing: 1px;
+      background: linear-gradient(180deg, #f0daa0, #d8bc7e); color: #3a2010;
+      border: 2px solid var(--parchment-gold); border-radius: 5px;
+    }
+    /* iPhone 相当。⚠ 縦スクロールは #bestiaryBody 側 (器は動かさない)。 */
+    body.compact #bestiaryInner, body.ui-compact #bestiaryInner { max-height: 88vh; padding: 14px 14px 12px; }
+    body.compact .bzRow, body.ui-compact .bzRow { padding: 6px 7px; gap: 3px 9px; }
+    body.compact .bzName, body.ui-compact .bzName { font-size: 15px; }
 
     /* 闇市 画面 (全画面オーバーレイ・theme-plaza 配下) */
     /* 背景 = 夜の地下闇市 一枚絵 (assets/plaza_bg.png)。暗色 radial-gradient を可読性ヴェールとして上に薄く重ね、
@@ -3046,6 +3153,7 @@
   <script src="js/changelog.js"></script><!-- 更新情報の文面の唯一の正 (#101)。酒場と港町が共有 -->
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。index.html と共有。撤退 ?slots=0 -->
+  <script src="js/bestiary.js"></script><!-- ★[B2] 魔物図鑑 (敵情報の段階開示・window.DFBestiary)。index.html と共有。ここは読んで描く側。撤退 ?bestiary=0 -->
   <script src="js/recruit-candidates.js"></script><!-- 同行候補 (#54)。酒場で声を掛けた相手を次の潜行まで保管。⛔ キーの前置詞は dragonfighters. のまま。撤退 ?recruittalk=0 -->
   <script src="js/companion-cast.js"></script><!-- ★#117 固定キャスト 12 人 (window.DFCast)。⚠ js/mercenary-roster.js より前 (名簿の切り替えが読む)。撤退 ?cast=0 -->
   <script src="js/mercenary-roster.js"></script><!-- 傭兵名簿 (#38)。一度共に戦った冒険者が次の依頼にも来る。⛔ キーの前置詞は dragonfighters. のまま (save-slots の keysOf が総なめ)。撤退 ?roster=0 -->
@@ -3246,6 +3354,18 @@
         <button type="button" id="promisesViewParty">🎴 編成を見る</button>
         <button type="button" id="promisesClose">閉じる</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ★[B2] 魔物図鑑 パネル (敵情報の段階開示)。z-index:185 は #rosterOverlay(180) と
+       #promisesOverlay(190) の間の空き番地。
+       ⛔ 中身は JS が window.DFBestiary (js/bestiary.js) から描く。こちらは**読むだけ**で、
+          弱点/耐性・脅威度という規則を 1 つも持たない (#rosterOverlay と同じ「読むだけ」の作法)。 -->
+  <div id="bestiaryOverlay" aria-hidden="true">
+    <div id="bestiaryInner" role="dialog" aria-label="魔物図鑑">
+      <div id="bestiarySign">🐲 魔物図鑑<small id="bestiarySub"></small></div>
+      <div id="bestiaryBody"></div>
+      <button type="button" id="bestiaryClose">閉じる</button>
     </div>
   </div>
 
@@ -3661,6 +3781,12 @@
          ⛔ ?promises=0 のときは initPromisesBadge() が DOM ごと remove する
             (#townExit / #rosterEntry と同じ作法。押せる導線を残さない)。 -->
     <div id="promisesBadge" title="同行の約束をした顔ぶれ">🤝 0 / 3</div>
+    <!-- ★[B2] 魔物図鑑 を開く導線。押すと #bestiaryOverlay が開く。
+         ⚠⚠ DOM 上で #chronicleShelf の **後ろ**に置くこと (記録棚が出ていないときに 1 段詰める
+            兄弟セレクタ #chronicleShelf.show ~ #bestiaryShelf が効かなくなる)。
+         ⚠ 既定は display:none。1 種以上記録があるときだけ JS が .show を付ける (空の図鑑は開かせない)。
+         ⛔ ?bestiary=0 のときは initBestiaryEntry() が DOM ごと remove する (押せる導線を残さない)。 -->
+    <div id="bestiaryShelf" title="これまで戦った魔物の記録">🐲 魔物図鑑</div>
 
     <!-- v7.1: 武器防具屋 画面 -->
     <div id="shopScreen">
@@ -6977,6 +7103,125 @@
       const ov = document.getElementById("rosterOverlay");
       return !!(ov && ov.classList.contains("show"));
     },
+  };
+
+  /* ══ ★[B2] 魔物図鑑 パネル (敵情報の段階開示) ═══════════════════════════════════
+     記録の実体は js/bestiary.js (window.DFBestiary)。ここは **読んで描くだけ**で、
+     弱点/耐性・脅威度という規則を 1 つも持たない (唯一の正は index.html の ENEMY_TRAITS #75 / LORE_* #76)。
+     段階開示: 初遭遇 = 姿と名前 + 遭遇/討伐数 (基本情報) / 伝承判定(#76)成功 = 弱点・耐性・脅威度・分類。
+     ⛔ 撤退 ?bestiary=0 → 導線を出さず、記録もしない (DFBestiary.enabled() が握る)。
+     ⚠ 閉じる口は click と touchend の両方 (既存 chronicleBindTap を流用。第二の実装を作らない)。 */
+  function bestiaryOnTv() { return !!(window.DFBestiary && DFBestiary.enabled()); }
+
+  /* 姿 = スプライト 1 コマ (col 0) を 56px 枠へ収めた <span> の HTML。幾何が無ければ足跡の絵文字で代替。
+     ⛔ 当たり判定や戦闘には一切関与しない。見た目だけ (background-position で先頭コマを切り出す)。 */
+  function bestiaryPortraitHtml(por) {
+    const BOX = 56;
+    if (!por || !por.sprite || !(por.frameW > 0) || !(por.frameH > 0)) {
+      return '<span class="bzPic">🐾</span>';
+    }
+    const k = BOX / Math.max(por.frameW, por.frameH);   // 1 コマを枠へフィット
+    const w = Math.round(por.frameW * k), h = Math.round(por.frameH * k);
+    const bgW = Math.round((por.sheetW || por.frameW) * k);
+    const bgH = Math.round((por.sheetH || por.frameH) * k);
+    const posY = -Math.round((por.rowOffset || 0) * por.frameH * k);   // 先頭の行 (多くは 0)
+    const style = 'width:' + w + 'px;height:' + h + 'px;'
+      + "background-image:url('" + por.sprite + "');"
+      + 'background-size:' + bgW + 'px ' + bgH + 'px;'
+      + 'background-position:0px ' + posY + 'px;';
+    return '<span class="bzPic"><span class="bzPortrait" style="' + style + '"></span></span>';
+  }
+
+  function renderBestiaryPanel() {
+    const body = document.getElementById("bestiaryBody");
+    if (!body) return -1;
+    const list = window.DFBestiary ? DFBestiary.all() : [];
+    const sub = document.getElementById("bestiarySub");
+    if (sub) {
+      const known = window.DFBestiary ? DFBestiary.knownCount() : 0;
+      sub.textContent = "記録した魔物 " + list.length + " 種 / 正体を解明 " + known + " 種";
+    }
+    if (!list.length) {
+      /* ⚠ 空でも開ける経路はあるが、導線は 1 種以上で出す (initBestiaryEntry)。ここは保険。 */
+      body.innerHTML = '<div class="bzEmpty">まだ魔物と戦っていない。'
+        + 'ダンジョンで敵と相対するたびに、この図鑑が少しずつ埋まっていく。</div>';
+      body.scrollTop = 0;
+      return 0;
+    }
+    let html = '<ul class="bzList">';
+    list.forEach((m) => {
+      html += '<li class="bzRow">'
+        + bestiaryPortraitHtml(m.por)
+        + '<div class="bzHead"><span class="bzName">' + chEsc(m.name) + '</span>'
+        + (m.lore && m.cr ? '<span class="bzCr">脅威度 ' + chEsc(m.cr) + '</span>' : '')
+        + '</div>';
+      if (m.flavor) html += '<div class="bzFlavor">' + chEsc(m.flavor) + '</div>';
+      html += '<div class="bzStat">⚔ 討伐 ' + chEsc(String(m.slain)) + ' 体 ・ 遭遇 ' + chEsc(String(m.seen)) + ' 回</div>';
+      if (m.lore) {
+        /* 伝承判定に成功して開示済み = 弱点/耐性を見せる。traits が空 (特筆なし) なら素直にそう書く。 */
+        html += '<div class="bzLore"><b>弱点・耐性:</b> ' + chEsc(m.traits || "際立った弱点はない") + '</div>';
+        if (m.skill) html += '<div class="bzLore"><b>伝承:</b> ' + chEsc(m.skill) + 'の心得で正体を見抜いた</div>';
+      } else {
+        html += '<div class="bzLocked">弱点・耐性は未だ不明 — 戦場で伝承判定に成功すると明かされる</div>';
+      }
+      html += '</li>';
+    });
+    html += "</ul>";
+    body.innerHTML = html;
+    body.scrollTop = 0;
+    return list.length;
+  }
+
+  function openBestiary() {
+    if (!bestiaryOnTv()) return false;
+    const ov = document.getElementById("bestiaryOverlay");
+    if (!ov) return false;
+    renderBestiaryPanel();
+    ov.classList.add("show");
+    ov.setAttribute("aria-hidden", "false");
+    return true;
+  }
+  function closeBestiary() {
+    const ov = document.getElementById("bestiaryOverlay");
+    if (!ov) return;
+    ov.classList.remove("show");        /* ★ 閉じるのは display (.show を外す)。⛔ opacity で消さない */
+    ov.setAttribute("aria-hidden", "true");
+  }
+  (function wireBestiaryOverlay() {
+    const ov = document.getElementById("bestiaryOverlay");
+    if (!ov) return;
+    chronicleBindTap(document.getElementById("bestiaryClose"), () => closeBestiary());
+    /* 背景タップでも閉じる。⚠ 羊皮紙 (#bestiaryInner) の中のタップでは閉じない。 */
+    const bg = (ev) => {
+      if (ev && ev.target !== ov) return;
+      if (ev && ev.preventDefault) ev.preventDefault();
+      closeBestiary();
+    };
+    ov.addEventListener("click", bg);
+    ov.addEventListener("touchend", bg);
+  })();
+  /* 図鑑を開く導線 (HUD 左上の縦列 5 段目)。
+     ⛔ 撤退 ?bestiary=0 のときは DOM ごと消す (押せる導線を残さない)。
+     ⚠ 1 種も記録が無いうちは出さない (空の図鑑を開かせない・記録棚 #37 と同じ作法)。 */
+  (function initBestiaryEntry() {
+    const btn = document.getElementById("bestiaryShelf");
+    if (!btn) return;
+    if (!bestiaryOnTv()) { btn.remove(); return; }
+    if (!window.DFBestiary || DFBestiary.count() === 0) return;
+    btn.classList.add("show");
+    chronicleBindTap(btn, () => openBestiary());
+  })();
+  /* 読み取り窓 (検証ドライバ用)。⛔ 第二の実装を置かない (全部上の本番関数を呼ぶ)。 */
+  window.__bestiary = {
+    on:     () => bestiaryOnTv(),
+    open:   () => openBestiary(),
+    close:  () => closeBestiary(),
+    render: () => renderBestiaryPanel(),
+    isOpen: () => {
+      const ov = document.getElementById("bestiaryOverlay");
+      return !!(ov && ov.classList.contains("show"));
+    },
+    all:    () => (window.DFBestiary ? DFBestiary.all() : []),
   };
 
   function isUnlocked(sc) {
