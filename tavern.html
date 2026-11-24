@@ -3857,6 +3857,12 @@
         at: Date.now(),
       }));
     } catch (e) {}
+    /* ★[バッチ1 不具合#1] 受注した瞬間に酒場上部の副題を**追随**させる。⛔ これが無いと
+       applyQuestSubline() はページ読込時の 1 回しか走らず、別の依頼を受け直しても
+       受注中の表示が前回のまま残る (実測 2026-11-24)。⚠ 器を書いた**後**に呼ぶ
+       (applyQuestSubline → questSubline → readActiveQuest が今書いた値を読む)。
+       ⚠ 関数宣言は巻き上がるので定義順 (applyQuestSubline は下) は問題にならない。 */
+    try { applyQuestSubline("title"); } catch (e) {}
   }
   function clearActiveQuest() {
     /* ⭐ 撤退中でも消す。消すのは常に安全側 (fail-safe)。 */
@@ -9683,12 +9689,25 @@
       // 風景画: 未生成シナリオは broken アイコンを消し CSS のアトモス帯にフォールバック
       sceneEl.onerror = function () { this.removeAttribute("src"); };
       sceneEl.src = "assets/scene_" + sc.id + ".png";
-      // 依頼人: 全6シナリオ分あり。万一欠落なら隠す (帯 + 文字箱は成立)
-      portraitEl.classList.remove("hidden");
-      portraitEl.onerror = function () { this.classList.add("hidden"); };
-      // 闇市 synthetic は clientPortrait を優先 (無ければ従来の固定シナリオ client_<id>.png)
-      portraitEl.src = sc.clientPortrait || ("assets/client_" + sc.id + ".png");
-      portraitEl.alt = clientName || "";
+      /* ★[バッチ1 不具合#3] 依頼人の肖像は「実在が見込めるパスだけ」を src にする。
+         ⛔ 旧実装は生成クエスト (client_generated-quest.png) や立ち絵未整備の本筋外 (client_<id>.png) でも
+            必ず 404 になるパスを src に入れ、onerror で隠す前に壊れアイコン (unavailable image) が
+            一瞬見えることがあった (実測 2026-11-24)。実在が見込めないときは **最初から隠し、src を入れない**。
+         ⭐ 実在が見込める = 闇市 synthetic の clientPortrait、または立ち絵のある本筋 (CLIENT_ART が true)。 */
+      var clientPortraitSrc = sc.clientPortrait
+        || ((sc.id && CLIENT_ART[sc.id] === true) ? ("assets/client_" + sc.id + ".png") : null);
+      if (clientPortraitSrc) {
+        portraitEl.classList.remove("hidden");
+        portraitEl.onerror = function () { this.classList.add("hidden"); };   // 実在が見込めても万一の失敗は隠す (保険)
+        portraitEl.src = clientPortraitSrc;
+        portraitEl.alt = clientName || "";
+      } else {
+        // 肖像が無いクエスト (掲示板の生成・立ち絵未整備) は帯 + 文字箱だけで成立 = 肖像は出さない。
+        portraitEl.onerror = null;
+        portraitEl.removeAttribute("src");
+        portraitEl.classList.add("hidden");
+        portraitEl.alt = "";
+      }
       overlay.classList.add("quest-accept");
     }
     overlay.classList.remove("fading");
