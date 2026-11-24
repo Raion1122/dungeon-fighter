@@ -14826,6 +14826,8 @@
           partySkills:  localStorage.getItem("dragonfighters.partySkills"),
           // 行動の優先度 (実装依頼書 #19): { classKey: {general,mob,boss,travel} } の JSON 文字列
           actionPriority: localStorage.getItem("dragonfighters.actionPriority"),
+          // ★B1 作戦 (行動優先度の作り込み・縮小版): { classKey: {bossSpell,healLow} } の JSON 文字列
+          actionTactics: localStorage.getItem("dragonfighters.actionTactics"),
           allyEquip:    localStorage.getItem("dragonfighters.allyEquip"),
           // Phase 2-G: アクセサリー所持リスト / 装備中スロット 1/2
           accessoryIds:    accIds,
@@ -36882,6 +36884,36 @@
     try { actionPriorityMap = JSON.parse(persistent.actionPriority || "null"); }
     catch (e) { actionPriorityMap = null; }
 
+    // ── B1 作戦 (行動優先度の作り込み・縮小版) ────────────────────────────────
+    // #19 の「傾向」(状況ごとに技を 1 つ名指す) の上に、軽い ON/OFF の「作戦」を重ねる。
+    // 命令ではなく傾向なので、既存の射程・スロット・緊急回復などの条件は一切曲げない。
+    // 効くのは #19 と同じ「候補の重み」と「先出しするか」だけ = 上げるだけ・下げない。
+    //   ① bossSpell … ボス戦では、覚えている一番強い攻撃技を先に試す (攻撃職)。
+    //   ② healLow   … 味方の HP が早め (9 割) に欠けたら回復へ回る (僧侶)。
+    // ⚠⚠ tavern.html の AP_TACTICS と「キー名・効く職」を揃えること (二重定義)。食い違うと
+    //    「酒場で入れたのに効かない作戦」ができる。driver_action_tactics.js の (T0) が突合する。
+    let actionTacticsMap = null;   // { classKey: {bossSpell:bool, healLow:bool} }
+    try { actionTacticsMap = JSON.parse(persistent.actionTactics || "null"); }
+    catch (e) { actionTacticsMap = null; }
+    // ボス戦で優先する「大技」の候補。強い順。装備している中で最初に見つかったものを狙う。
+    // ⚠ すべて「敵を対象に取る攻撃技」であること (self バフ / autoCast / reactive を混ぜない)。
+    const AP_BOSS_BIG_IDS = {
+      warrior: ["finisher", "strong-cleave", "sweep", "shield-bash"],
+      dwarf:   ["earth-shatter", "axe-storm", "power-attack", "throwing-axe"],
+      mage:    ["ice-storm", "cone-of-cold", "fireball", "lightning-bolt", "burning-hands", "fire-bolt", "magic-missile"],
+      elf:     ["conjure-volley", "lightning-arrow", "hail-of-thorns", "aimed-shot", "magic-arrow", "cordon-of-arrows"],
+      rogue:   ["poison-blade", "shadow-step", "thrown-dagger"],
+    };
+    // 「早めに回復」で狙う僧侶の回復呪文 (大きい順)。⚠ 味方対象の cure-*-wounds だけ
+    //   (エルフの cure-minor は self 専用なので「味方を」癒せない = ここには入れない)。
+    const AP_HEAL_IDS = { cleric: ["cure-critical-wounds", "cure-serious-wounds", "cure-moderate-wounds", "cure-light-wounds"] };
+    const AP_HEAL_EARLY_RATIO = 0.9;   // 最弱の味方がこの割合を切ったら「早めに回復」が起動
+    function apTacticOn(classKey, tacticKey) {
+      if (!ACTION_PRIORITY_ON || !actionTacticsMap) return false;
+      const t = actionTacticsMap[classKey];
+      return !!(t && t[tacticKey]);
+    }
+
     // 今この瞬間の状況キー。general / mob / boss / travel の 4 値。
     // ⚠ evaluateThreat().hasBoss は maxSummons だけを見る別物なので使わない (依頼書 §2-8)。
     function apSituationNow() {
@@ -36900,11 +36932,48 @@
       if (!row) return null;
       return row[situation] || row.general || null;
     }
+    // ★B1 #19 の名指し (apPreferredId) に、作戦で決まる「実質の優先技」を重ねた結果を返す。
+    //   名指しが最優先 (作戦は名指しが空のときだけ効く)。作戦 off / ?actionpri=0 では
+    //   apPreferredId と完全に同じ値を返す = 既存の挙動は 1 ビットも変わらない。
+    function apEffectivePreferredIdForUnit(unit, situation) {
+      const cls = (unit && unit.classKey) || null;
+      if (!cls) return null;
+      const explicit = apPreferredId(cls, situation);
+      if (explicit) return explicit;
+      // 作戦①: ボス戦では大技を優先 (攻撃職)
+      if (situation === "boss" && apTacticOn(cls, "bossSpell")) {
+        const equipped = Array.isArray(unit.equippedSkills) ? unit.equippedSkills : [];
+        for (const id of (AP_BOSS_BIG_IDS[cls] || [])) if (equipped.indexOf(id) >= 0) return id;
+      }
+      // 作戦②: 手負いの味方を早めに回復 (僧侶)。最弱が 9 割を切っているときだけ。
+      if (apTacticOn(cls, "healLow") && AP_HEAL_IDS[cls]) {
+        const low = findLowestHpPartyMember();
+        if (low && low.ratio < AP_HEAL_EARLY_RATIO) {
+          const heal = bestAffordableHeal(unit, false);
+          if (heal) return heal;
+        }
+      }
+      return null;
+    }
+    // リーダー (pickLeaderAction) 用。unit.equippedSkills の代わりに choices (この手番の選択肢) を見る。
+    function apLeaderTacticPreferredId(cls, situation, choices, weakest) {
+      if (!cls || !Array.isArray(choices)) return null;
+      const has = (id) => choices.indexOf(id) >= 0;
+      if (situation === "boss" && apTacticOn(cls, "bossSpell")) {
+        for (const id of (AP_BOSS_BIG_IDS[cls] || [])) if (has(id)) return id;
+      }
+      if (apTacticOn(cls, "healLow") && AP_HEAL_IDS[cls]
+          && weakest && isFinite(weakest.ratio) && weakest.ratio < AP_HEAL_EARLY_RATIO) {
+        for (const id of (AP_HEAL_IDS[cls] || [])) if (has(id)) return id;
+      }
+      return null;
+    }
     // 確率ゲートの引き上げ。⭐ 上げるだけで下げない = 指定していない技の挙動は 1 ビットも変わらない。
     function apGateP(unit, skillId, base) {
       const cls = (unit && unit.classKey) || null;
       if (!cls) return base;
-      return (apPreferredId(cls, apSituationNow()) === skillId) ? Math.max(base, AP_P) : base;
+      // ★B1 名指し (#19) に作戦 (bossSpell/healLow) を重ねた「実質の優先技」で比較する。
+      return (apEffectivePreferredIdForUnit(unit, apSituationNow()) === skillId) ? Math.max(base, AP_P) : base;
     }
     // ⚠ classic script 直下の const/function は window に自動で載らない → 検証シームを明示公開する
     //    (先例: window.pickLeaderAction / window.isBossLikeDef)。
@@ -36917,6 +36986,13 @@
       window.WARRIOR_ALLY_ON    = WARRIOR_ALLY_ON;
       window.AP_BOOST           = AP_BOOST;
       window.AP_P               = AP_P;
+      // ★B1 作戦の検証シーム (driver_action_tactics.js が読む)。
+      window.apTacticOn                    = apTacticOn;
+      window.apLeaderTacticPreferredId     = apLeaderTacticPreferredId;
+      window.apEffectivePreferredIdForUnit = apEffectivePreferredIdForUnit;
+      window.AP_BOSS_BIG_IDS               = AP_BOSS_BIG_IDS;
+      window.AP_HEAL_IDS                   = AP_HEAL_IDS;
+      window.AP_HEAL_EARLY_RATIO           = AP_HEAL_EARLY_RATIO;
     }
 
     // ── #19 STEP4-b: 仲間の「先出し」 ───────────────────────────────────────────
@@ -36990,7 +37066,8 @@
       if (!ACTION_PRIORITY_ON) return false;
       const cls = (unit && unit.classKey) || null;
       if (!cls) return false;
-      const id = apPreferredId(cls, apSituationNow());
+      // ★B1 名指し (#19) + 作戦 (bossSpell/healLow) を重ねた実質の優先技を先出しする。
+      const id = apEffectivePreferredIdForUnit(unit, apSituationNow());
       if (!id) return false;
       // ⚠⚠ 指定された技を **そのキャラが実際に枠へ入れているか** を必ず確認する。
       //    ここを外すと未装備の技が発動する (酒場の候補と本番がずれる = 一番たちの悪い欠陥)。
@@ -37147,7 +37224,9 @@
       const T = Math.min(4, Math.max(0.2, LEADER_PICK_T));
       // ★#19 行動の優先度: 酒場で指定された技をループの外で 1 回だけ引く。
       //   候補ごとに引き直さないのは、状況キーが 1 回の抽選中に変わらないため。
-      const apPrefId = apPreferredId(leaderClassKey, apSituationNow());
+      let apPrefId = apPreferredId(leaderClassKey, apSituationNow());
+      // ★B1 作戦: 名指しが空なら、作戦 (ボス大技 / 早め回復) が実質の優先技を決める。
+      if (!apPrefId) apPrefId = apLeaderTacticPreferredId(leaderClassKey, apSituationNow(), choices, weakest);
       let nonFinite = 0;
       const weights = [];
       const meta = [];   // 各候補の理由メタ {name, phrase}。normal / その他(d) / バフ非開幕 / 辞書欠けは null (無言)。
