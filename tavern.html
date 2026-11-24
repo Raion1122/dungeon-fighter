@@ -7806,6 +7806,14 @@
       return sessionStorage.getItem("dragonfighters.accEquipOff") !== "1";
     } catch (e) { return !/[?&]accequip=0(&|$)/.test(location.search); }
   })();
+  /* ★#121 (B3) 撤退 ?affinity=0 を sessionStorage へ写す (?accequip=0 と同じ型)。酒場では掛け合いを出さないが、
+     出発すると index.html はパラメータ無しで開くので、ここで写しておけば index の affinityOn() が読める。*/
+  (function () {
+    try {
+      if (/[?&]affinity=0(&|$)/.test(location.search)) sessionStorage.setItem("dragonfighters.affinityOff", "1");
+      else if (/[?&]affinity=1(&|$)/.test(location.search)) sessionStorage.removeItem("dragonfighters.affinityOff");
+    } catch (e) {}
+  })();
   /* ★[#108] 装身具の名前の色: 伝承の品 = 紫 (rarity-epic) / ゲート付き (マジックアイテム) = 青 (rarity-rare) / それ以外の品 = 従来の item-special */
   function accColorClassTV(acc) {
     if (!acc || acc.id === "none") return "";

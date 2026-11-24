@@ -67,7 +67,7 @@ const MUTATIONS = {
     from: '      if (speechQueue.length || speechBubbles.length || Date.now() < speechBusyUntil) return false;',
     to:   '      if (false) return false; /* ★変異nogate */' }],
   affinityleak: [{ file: I,
-    from: '      try { return new URLSearchParams(window.location.search).get("affinity") !== "0"; } catch (e) { return true; }',
+    from: '      try { return new URLSearchParams(window.location.search).get("affinity") !== "0" && !affinitySuppressedBySession(); } catch (e) { return true; }',
     to:   '      try { return true; /* ★変異affinityleak */ } catch (e) { return true; }' }],
   pairall: [{ file: CC,
     from: '    for (var j = 0; j < PAIRS.length; j++) if (set[PAIRS[j].a] && set[PAIRS[j].b]) out.push(copyPair(PAIRS[j]));',
@@ -155,7 +155,7 @@ function stopServer(srv) {
 }
 
 /* ── 結果 ── */
-const ALL_IDS = ['(0a)', '(0b)', '(1a)', '(1b)', '(2a)', '(2b)', '(2c)', '(2d)', '(2e)'];
+const ALL_IDS = ['(0a)', '(0b)', '(1a)', '(1b)', '(2a)', '(2b)', '(2c)', '(2d)', '(2e)', '(2f)', '(3a)', '(3b)'];
 function mkResults() {
   const R = [];
   R.check = (id, name, ok, detail) => {
@@ -243,7 +243,8 @@ function installHelpers() {
 }
 
 /* ── 1 回分の検査 ── */
-async function runSuite(browser, port) {
+async function runSuite(browser, port, opts) {
+  opts = opts || {};
   const R = mkResults();
   const ERRS = [];
   let seq = 0;
@@ -283,7 +284,7 @@ async function runSuite(browser, port) {
   }
 
   /* ════ Page A: PARTY_PAIR (banter ON) ════ */
-  await sect(['(0a)', '(0b)', '(1a)', '(2a)', '(2b)', '(2c)', '(2d)'], async () => {
+  await sect(['(0a)', '(0b)', '(1a)', '(2a)', '(2b)', '(2c)', '(2d)', '(2f)'], async () => {
     const pg = await openIndex(PARTY_PAIR, '');
     const z = await pg.evaluate(() => {
       const all = DFCast.all().map((c) => c.id);
@@ -335,6 +336,18 @@ async function runSuite(browser, port) {
     const c = await pg.evaluate(() => __at.sayBusy('rolf', 'A', 'knut', 'B'));
     R.check('(2c)', '行列が埋まっている (speechBusyUntil が先) ときは say が false・予約は 0 本 (遭遇/罠を押し出さない)',
       c.ret === false && c.q.length === 0, c);
+    /* (2f) sessionStorage の持越し: 酒場で ?affinity=0 を付けて出発すると index は URL 無しで開くので、
+            affinityOff=1 が書いてあれば affinityOn()=false になる必要がある (消せば true へ戻る) */
+    const carry = await pg.evaluate(() => {
+      const before = __affinity.on();
+      sessionStorage.setItem('dragonfighters.affinityOff', '1');
+      const after = __affinity.on();
+      sessionStorage.removeItem('dragonfighters.affinityOff');
+      const restored = __affinity.on();
+      return { before, after, restored };
+    });
+    R.check('(2f)', 'sessionStorage の持越し: affinityOff=1 で affinityOn()=false・消すと true に戻る (酒場→ダンジョンの撤退持越し)',
+      carry.before === true && carry.after === false && carry.restored === true, carry);
     /* (2d) affinity=0 の別ページで on()=false */
     const pg0 = await openIndex(PARTY_PAIR, '&affinity=0');
     const off = await pg0.evaluate(() => ({ on: __affinity.on() }));
@@ -352,6 +365,37 @@ async function runSuite(browser, port) {
       !anyQueued && t.every((r) => !r.err), { anyQueued, errs: t.map((r) => r.err).filter(Boolean).slice(0, 2) });
   });
 
+  /* ════ Page C: 実プレイで掛け合いが「実際に発火する」ことの統合検証 (base のみ) ════
+     ⚠ (2a)(2b) の tryTick 直呼びは speechOnScreen の関所を通らない。ここは本物の tickIdleChatter を
+        オートプレイで回し、画面内にペアが揃うのを待って掛け合いが積まれるのを観測する。
+        これが 2026-11-25 の「受入は緑なのに実機で一度も掛け合いが出ない」を捕まえる節 (発火自体の検証)。
+     ⛔ 変異パスでは走らせない (時間節約・NEG_EXPECT に (3a)(3b) は含めない)。 */
+  if (opts.live) {
+    await sect(['(3a)', '(3b)'], async () => {
+      /* (3a) banter ON: 90 秒以内に banter.pair が 1 往復 (2 行) そろって積まれる。__at.pushed で観測・早期終了 */
+      const pg = await openIndex(PARTY_PAIR, '');
+      await pg.evaluate(() => __at.reset());
+      let fired = 0, waited = 0;
+      for (let i = 0; i < 90 && fired < 2; i++) {
+        await sleep(1000); waited++;
+        fired = await pg.evaluate(() => __at.pushed.filter((e) => e.key === 'banter.pair').length);
+      }
+      const d = await pg.evaluate(() => {
+        const b = __at.pushed.filter((e) => e.key === 'banter.pair');
+        return { n: b.length, sample: b.slice(0, 4).map((e) => e.sp + '/' + String(e.text || '').slice(0, 10)),
+          prioOk: b.every((e) => e.prio === 0), sceneOk: b.every((e) => e.meta && e.meta.scene === 'banter') };
+      });
+      R.check('(3a)', 'オートプレイ中に tickIdleChatter 経由で掛け合いが実発火する (90 秒以内に banter.pair を 2 行観測・優先度 0・meta.scene=banter)',
+        d.n >= 2 && d.prioOk && d.sceneOk, { waitedSec: waited, ...d });
+      /* (3b) banter OFF (?affinity=0): 同じ編成を 20 秒回しても掛け合いは 1 本も積まれない */
+      const pg0 = await openIndex(PARTY_PAIR, '&affinity=0');
+      await pg0.evaluate(() => __at.reset());
+      await sleep(20000);
+      const off = await pg0.evaluate(() => __at.pushed.filter((e) => e.key === 'banter.pair').length);
+      R.check('(3b)', '?affinity=0 では 20 秒オートプレイしても掛け合いが 1 本も積まれない', off === 0, { banter: off });
+    });
+  }
+
   if (ERRS.length) { R.check('(PE)', 'ページ例外なし', false, ERRS.slice(0, 6).join(' || ')); }
   return R;
 }
@@ -362,11 +406,11 @@ async function runSuite(browser, port) {
   const exe = findBrowser();
   const launch = async () => puppeteer.launch({ headless: !HEADFUL, executablePath: exe, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 
-  async function oneRun(port, mutKey, label) {
+  async function oneRun(port, mutKey, label, liveOpts) {
     const srv = await startServer(port, mutKey);
     const browser = await launch();
     let R;
-    try { R = await runSuite(browser, port); }
+    try { R = await runSuite(browser, port, liveOpts); }
     finally { try { await browser.close(); } catch (e) {} await stopServer(srv); }
     summarize(R, label);
     return R;
@@ -377,7 +421,7 @@ async function runSuite(browser, port) {
       const R = await oneRun(PORT, MUTATE, 'mutate=' + MUTATE);
       process.exit(R.filter((r) => !r.ok).length ? 0 : 1);
     }
-    const base = await oneRun(PORT, null, '素 (pristine)');
+    const base = await oneRun(PORT, null, '素 (pristine)', { live: true });
     const baseFail = base.filter((r) => !r.ok).length;
     if (!NEGATIVE) { process.exit(baseFail ? 1 : 0); }
 

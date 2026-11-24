@@ -3504,7 +3504,10 @@
   </div>
   <div id="startScreen">
     <div id="startBox">
-      <div id="startTitle">廃坑のゴブリンの巣窟</div>
+      <!-- ⛔ ここに実在シナリオ名を直書きしない。setup で currentScenario.title に差し替わる (:45362) が、
+           直書きがあると差し替え前の一瞬だけ前のダンジョン名 (旧「廃坑のゴブリンの巣窟」) が見えて
+           受注した依頼と食い違って見える (2026-11-25 ブリッジ検証)。空のまま起動し、必ず実名で埋める。 -->
+      <div id="startTitle"></div>
       <div id="startFlavor" style="font-size:14px;opacity:0.8;margin-bottom:12px;letter-spacing:1px;"></div>
       <div id="startText">画面をクリック / タップ / 何かキーで開始<br>英雄は自動で探索・戦闘します (AUTO PILOT)<br><span style="font-size:14px;opacity:0.75;">戦闘も自動進行 ／ [ I ] キーでインベントリ確認</span></div>
       <!-- Phase 2-G DEBUG: 残影回避モードのトグル (装備中のみ反映)。
@@ -14343,23 +14346,41 @@
     const IDLE_CHATTER_RETRY_MS = 3000;    // 話し手がいない / 行列が埋まっていたら少し先へずらすだけ
     let idleChatterNextAt = 0;             // 0 = まだ予定を立てていない
     const idleChatterLast = {};            // castId → 直前に話した文 (同じ人が同じ文を続けない)
-    // ★#121 (B3): 相性ペアの掛け合い。独り言と同じ ambient 枠を共有する (= 発話頻度を増やさない)。
-    const PAIR_BANTER_CHANCE = 0.5;        // 画面内にペアが揃っている時、独り言の代わりに掛け合いにする確率
+    // ★#121 (B3): 相性ペアの掛け合い。
+    //   当初は「独り言と同じ 25〜45 秒枠を、ペアが画面内に揃った一瞬だけ 50% で間借りする」設計だったが、
+    //   実プレイではその一瞬の同時成立がほとんど起きず「一度も掛け合いが出ない」状態だった (2026-11-25 ブリッジ検証)。
+    //   → 掛け合いには**独り言より短い独自の周期**を与え、揃っていなければ数秒後に挑み直す。
+    //   ⚠ それでも ambient 枠 (sayPairBanter の行列ゲート) は保つので、遭遇・罠・ボスの台詞は絶対に押し出さない。
+    //   ⚠ RNG を引くのは cands が非空 (castId を持つ編成) のときだけ = オートプレイ/戦闘ドライバの決定論は不変。
+    const PAIR_BANTER_CHANCE   = 0.9;      // ペアが画面内に揃っている時に掛け合いへ回す確率 (独り言より強く優先)
+    const PAIR_BANTER_FIRST_MS = 8000;     // 探索に入ってから最初の出番までの目安
+    const PAIR_BANTER_MIN_MS   = 22000;    // 掛け合いどうしの最短間隔
+    const PAIR_BANTER_SPAN_MS  = 16000;    // 〃 のゆらぎ
+    let pairBanterNextAt = 0;              // 0 = まだ予定を立てていない (⛔ 初期化で乱数を使わない = 決定論)
     function tickIdleChatter() {
       try {
         if (!window.DFCast || typeof allies === "undefined") return;
         const now = Date.now();
         if (!idleChatterNextAt) { idleChatterNextAt = now + IDLE_CHATTER_FIRST_MS + Math.random() * IDLE_CHATTER_SPAN_MS; return; }
-        if (now < idleChatterNextAt) return;
         if (currentPhase !== "explore" || dialogPaused || gameOver) return;
         const cands = allies.filter(a => a && a.alive && a.castId && speechOnScreen(a));
         if (!cands.length) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; }
-        // ★#121: 相性ペアが画面内に揃っていれば、たまに独り言の代わりに 2 人の掛け合いを出す。
-        //   ⚠ cands が空の時はここに来ない = castId を持たない編成 (オートプレイ検証) では RNG を 1 つも消費しない。
-        if (affinityOn() && tryPairBanter(cands)) {
-          idleChatterNextAt = now + IDLE_CHATTER_MIN_MS + Math.random() * IDLE_CHATTER_SPAN_MS;
-          return;
+        // ★#121: 相性ペアの掛け合い (独り言より短い独自周期・画面内に 2 人揃った時だけ)。
+        //   ⚠ ここは cands が非空のときだけ通る = castId を持たない編成は上の !cands.length で return 済み
+        //      → tryPairBanter を呼ばない → RNG を 1 つも消費しない (決定論は不変)。
+        if (affinityOn()) {
+          if (!pairBanterNextAt) {
+            pairBanterNextAt = now + PAIR_BANTER_FIRST_MS;              // ⛔ 初期化で乱数を使わない
+          } else if (now >= pairBanterNextAt) {
+            if (tryPairBanter(cands)) {                                 // 揃って行列が空なら 2 行を積む
+              pairBanterNextAt  = now + PAIR_BANTER_MIN_MS + Math.random() * PAIR_BANTER_SPAN_MS;
+              idleChatterNextAt = Math.max(idleChatterNextAt, now + IDLE_CHATTER_MIN_MS);   // 直後に独り言を重ねない
+              return;
+            }
+            pairBanterNextAt = now + IDLE_CHATTER_RETRY_MS;             // 揃っていない/行列が埋まっている → 少し先で挑み直す
+          }
         }
+        if (now < idleChatterNextAt) return;                            // 独り言はこれまでどおり 25〜45 秒周期
         const a = cands[Math.floor(Math.random() * cands.length)];
         const c = DFCast.byId(a.castId);
         if (!c || !c.idle || !c.idle.length) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; }
@@ -14369,13 +14390,25 @@
         if (!sayLine("idle.chatter", a, { text, ambient: true, prio: 0 })) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; }
         idleChatterLast[a.castId] = text;
         idleChatterNextAt = now + IDLE_CHATTER_MIN_MS + Math.random() * IDLE_CHATTER_SPAN_MS;
+        pairBanterNextAt  = Math.max(pairBanterNextAt, now + PAIR_BANTER_MIN_MS);           // 直後に掛け合いを重ねない
       } catch (e) {}
     }
 
     // ══════════ ★#121 (B3 縮小版) 相性ペアの掛け合い ══════════
-    // 撤退スイッチ ?affinity=0。呼ぶたびに読む (banterOn と同じ作法)。
+    // 撤退スイッチ ?affinity=0。酒場→世界地図→ダンジョンの遷移をまたいで効かせるため、
+    //   読み込み時に 1 回だけ URL の値を sessionStorage へ写す (?accequip=0 と同じ型)。
+    //   酒場から出発すると index.html はパラメータ無しで開くので、URL だけ見ると撤退が効かない。
+    //   ⚠ affinityOn() は毎フレーム呼ばれるので、中では setItem しない (sessionStorage は読むだけ)。
+    try {
+      if (/[?&]affinity=0(&|$)/.test(location.search)) sessionStorage.setItem("dragonfighters.affinityOff", "1");
+      else if (/[?&]affinity=1(&|$)/.test(location.search)) sessionStorage.removeItem("dragonfighters.affinityOff");
+    } catch (e) {}
+    function affinitySuppressedBySession() {
+      try { return sessionStorage.getItem("dragonfighters.affinityOff") === "1"; } catch (e) { return false; }
+    }
+    // 呼ぶたびに読む (banterOn と同じ作法)。URL に ?affinity=0 が無くても sessionStorage の持越しを見る。
     function affinityOn() {
-      try { return new URLSearchParams(window.location.search).get("affinity") !== "0"; } catch (e) { return true; }
+      try { return new URLSearchParams(window.location.search).get("affinity") !== "0" && !affinitySuppressedBySession(); } catch (e) { return true; }
     }
     // 画面内に揃った相性ペアを 1 組選び、2 人の掛け合い (A→B の 2 行) を続けて積む。
     // ⚠ cands = 画面内の生きたキャスト仲間 (tickIdleChatter が castId を確かめた後に渡す)。
