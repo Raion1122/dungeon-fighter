@@ -617,6 +617,8 @@
     '#' + OVERLAY_ID + ' .dfSheetRow .rl { flex: 1 1 auto; min-width: 0; }',
     '#' + OVERLAY_ID + ' .dfSheetRow .rv { flex: 0 0 auto; margin-left: auto; font-size: 16px; }',
     '#' + OVERLAY_ID + ' .dfSheetRow .rs { flex: 0 0 100%; font-size: 11px; color: #6b4f2a; }',
+    /* C3: 装備行の種別アイコン (武器/防具/盾)。名前テキストとは別要素。 */
+    '#' + OVERLAY_ID + ' .dfSheetRow .eqTypeIcon { flex: 0 0 auto; font-size: 14px; line-height: 1; margin-right: -2px; }',
     /* ── 数値の小箱 (AC / 先制 / 移動 / HP / 習熟) ── */
     '#' + OVERLAY_ID + ' .dfSheetStatBox {',
     '  display: inline-block; box-sizing: border-box; max-width: 100%;',
@@ -947,6 +949,22 @@
     if (sub) { var s = document.createElement("span"); s.className = "rs"; s.textContent = sub; r.appendChild(s); }
     return r;
   }
+  /* ── C3 (縮小版): 装備スロットの種別アイコン ──────────────────────────────
+     供給口 (slots) は cur.name しか持たない (range 等は無い) ので名前のキーワードで引く。
+     酒場 tavern.html getEquipIcon と同じ絵。武器/防具/盾だけ対象 (装身具は空を返す)。 */
+  function equipKindIcon(kind, name) {
+    name = name || "";
+    if (kind === "shield") return "🛡️";
+    if (kind === "armor") return /ローブ|法衣|聖装|粗布|服/.test(name) ? "🧥" : "🦺";
+    if (kind !== "weapon") return "";
+    if (/ボウ|弓/.test(name)) return "🏹";
+    if (/スリング/.test(name)) return "🪨";
+    if (/アックス|斧/.test(name)) return "🪓";
+    if (/メイス|モーニングスター|ハンマー|鎚|スロウワー/.test(name)) return "🔨";
+    if (/スタッフ|杖|ワンド|ロッド/.test(name)) return "🪄";
+    if (/短剣|ダガー|デイガー|ナイフ/.test(name)) return "🗡️";
+    return "⚔️";
+  }
   /* 空の枠。⛔ 中身に "—" / "0" / "-" を書かない (「取れなかった」に見える。依頼書 §5-3)。
      ⚠ id は BLANK_FIELD_IDS のホワイトリストに在るものだけ。無いものを名乗ると (6a) が赤。 */
   function blankBox(fieldId, title, inline) {
@@ -1237,6 +1255,13 @@
         var crow = rowEl(null, sl.label || sl.kind, cur.name || "なし", cur.note || null);
         crow.setAttribute("data-stat", "equip_" + sl.kind);
         crow.setAttribute("data-equip-current", String(cur.idx));
+        /* C3: 種別アイコンを行頭へ (ラベル .rl / 名前 .rv の textContent は素のまま = 受入ドライバを壊さない) */
+        var eqIcon = equipKindIcon(sl.kind, cur.name);
+        if (eqIcon) {
+          var ei = document.createElement("span");
+          ei.className = "eqTypeIcon"; ei.setAttribute("aria-hidden", "true"); ei.textContent = eqIcon;
+          crow.insertBefore(ei, crow.firstChild);
+        }
         box2.appendChild(crow);
         if (sl.locked && sl.lockReason) {
           var lk = wrapDiv("dfSheetEquipReason");
