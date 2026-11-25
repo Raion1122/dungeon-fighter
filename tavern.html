@@ -11213,9 +11213,20 @@
   // 初期化
   // ─────────────────────────────────────────────────────────────
   // ── オーディオ: 初回ジェスチャで unlock + 酒場BGM (合成トラック TRACKS.tavern = メタルバラード / #88)、UIクリックで効果音、⚙で設定 ──
+  // ★[① 闇市ダークアンビエント / 2026-11-26 会議] 闇市 (#plazaScreen) を開いている間だけ TRACKS.plaza (不気味系) を鳴らす。
+  //   撤退 ?plazabgm=0 → 闇市でも酒場のメタルバラード (従来どおり) に戻す。⚠ 時刻の ?plazaclock とは別の口。
+  var PLAZA_BGM_ID = (function () {
+    try { return new URLSearchParams(location.search).get("plazabgm") === "0" ? "tavern" : "plaza"; } catch (e) { return "plaza"; }
+  })();
+  function plazaScreenOpen() {
+    var s = document.getElementById("plazaScreen");
+    return !!(s && getComputedStyle(s).display !== "none");
+  }
   document.addEventListener("pointerdown", function () {
-    var TAVERN_BGM_ID = "tavern";
-    if (window.GameAudio) { GameAudio.unlock(); GameAudio.playBgm(TAVERN_BGM_ID); }
+    if (!window.GameAudio) return;
+    GameAudio.unlock();
+    // ★港町の石段から来ると闇市がロード時に開く (initEnterVia)。その時は酒場曲でなく闇市曲で始める。
+    GameAudio.playBgm(plazaScreenOpen() ? PLAZA_BGM_ID : "tavern");
   }, { once: true });
   document.addEventListener("click", function (e) {
     if (!window.GameAudio) return;
@@ -11674,6 +11685,8 @@
     try { updatePlazaFangCount(); } catch (e) {}
     s.style.display = "flex";
     try { plazaMapAfterOpenTV(from); } catch (e) { console.warn("[plaza] 地下街の地図を開けなかった", e); }   // ★[#98]
+    // ★[① 闇市ダークアンビエント] 入った瞬間に不気味系へクロスフェード (未解錠なら pendingBgm に積まれ解錠時に鳴る)。
+    try { if (window.GameAudio) GameAudio.playBgm(PLAZA_BGM_ID); } catch (e) {}
   }
   function closePlaza() {
     const s = document.getElementById("plazaScreen");
@@ -11681,6 +11694,8 @@
     if (plazaWalkTV && plazaWalkTV.crowdPause) { try { plazaWalkTV.crowdPause(); } catch (e) {} }   // ★[#100] 隠れている間に住人の rAF を回さない
     if (plazaUndercityOnTV) plazaCloseBoardTV();
     if (s) s.style.display = "none";
+    // ★[① 闇市ダークアンビエント] 酒場へ戻るのでメタルバラードへ戻す (閉じ口は常に tavern。撤退時も同じ)。
+    try { if (window.GameAudio) GameAudio.playBgm("tavern"); } catch (e) {}
   }
   async function enterPlaza(opts) {
     try { refreshPlazaStock(); } catch (e) {}      // 来訪ごとに在庫を再抽選
