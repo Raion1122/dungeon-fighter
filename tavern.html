@@ -554,6 +554,11 @@
     }
     .equipItem.selected .eName,
     .equipItem.selected .eSpec { color: #3a2010; }
+    /* C3: 種別アイコン (武器=⚔🏹🔨…/ 防具=🦺🧥 / 盾=🛡)。名前テキストとは別要素。 */
+    .eqTypeIcon { flex: 0 0 auto; font-size: 13px; line-height: 1; margin-right: 1px; }
+    .slotLabel .eqTypeIcon { margin-right: 3px; }
+    .shopName .eqTypeIcon,
+    .shopItem > .eqTypeIcon { margin-right: 2px; }
 
     /* v7.1: 2段構成 装備画面 (上段=装備中サマリ / 下段=所持品) */
     .equipTierLabel {
@@ -5093,6 +5098,33 @@
     return "item-normal";
   }
 
+  /* ── C3 (縮小版): 武器・防具・盾の種別アイコン ─────────────────────────
+     装備札の先頭へ「種別が一目で分かる絵文字」を添えるだけの演出。
+     文面・世界観・数値は一切変えない (素の品名はそのまま)。
+     ⚠ アイコンは必ず **名前テキストとは別の要素** に描く (eName / slotVal /
+       shopName の textContent は従来どおり素の品名のまま保つ)。でないと
+       verify_sheet_equip (1e) の `drawer === names.n2` 等の完全一致や
+       driver_equip_compact_ios (11) の summary.indexOf(cardName) が崩れる。 */
+  function getEquipIcon(kind, item) {
+    item = item || {};
+    const k = (kind || "").replace(/s$/, "");   // 道具袋は複数形 (weapons→weapon)
+    const n = item.name || "";
+    if (k === "shield") return "🛡️";
+    if (k === "armor") {
+      // 布・法衣系は外套、革/鎖/板金はベストのアイコン。
+      if (/ローブ|法衣|聖装|粗布|服/.test(n)) return "🧥";
+      return "🦺";
+    }
+    // 武器: 名前のキーワードで種別を引く → 最後は剣。range==="bow" も弓扱い。
+    if (/ボウ|弓/.test(n) || item.range === "bow") return "🏹";
+    if (/スリング/.test(n)) return "🪨";
+    if (/アックス|斧/.test(n)) return "🪓";
+    if (/メイス|モーニングスター|ハンマー|鎚|スロウワー/.test(n)) return "🔨";
+    if (/スタッフ|杖|ワンド|ロッド/.test(n)) return "🪄";
+    if (/短剣|ダガー|デイガー|ナイフ/.test(n)) return "🗡️";
+    return "⚔️";
+  }
+
   // ── スキルデータ (戦士・index.html の WARRIOR_SKILLS と同期) ──
   const WARRIOR_SKILLS_UI = [
     { id: "strong-cleave",   name: "強斬り",      category: "攻撃", range: "melee",  flavor: "単体 2d8+STR" },
@@ -8113,7 +8145,9 @@
         } else {
           btnHtml = `<button type="button" class="shopBtn sell">売却 ${price}G</button>`;
         }
+        // C3: 種別アイコン (shopName とは別要素 = textContent は素の品名のまま)
         row.innerHTML =
+          `<span class="eqTypeIcon" aria-hidden="true">${getEquipIcon(kind, r.item)}</span>` +
           `<span class="shopName ${colorCls}">${r.item.name}</span>` +
           `<span class="shopSpec">${r.item.spec || ""}</span>` +
           btnHtml;
@@ -8657,7 +8691,9 @@
       item.className = "equipItem" + (owned ? "" : " locked");
       const colorCls = getItemColorClass(it.name, it.rarity);
       const rangeTag = (kind === "weapon" && it.range) ? `[${RANGE_LABEL[it.range] || ""}] ` : "";
+      // C3: 種別アイコン (名前とは別要素 = eName の textContent は素の品名のまま)
       item.innerHTML =
+        `<span class="eqTypeIcon" aria-hidden="true">${getEquipIcon(kind, it)}</span>` +
         `<span class="eName ${colorCls}">${it.name}</span>` +
         `<span class="eSpec">${owned ? rangeTag + it.spec : "未所持"}</span>`;
       if (owned) {
@@ -8709,7 +8745,9 @@
       opt = opt || {};
       const d = document.createElement("div");
       d.className = "equipSlotChip" + (opt.locked ? " locked" : "") + (opt.placeholder ? " placeholder" : "");
-      d.innerHTML = `<div class="slotLabel">${label}</div>` +
+      // C3: 種別アイコンは slotLabel 側に置く (slotVal の textContent は素の品名のまま)
+      const iconHtml = opt.icon ? `<span class="eqTypeIcon" aria-hidden="true">${opt.icon}</span>` : "";
+      d.innerHTML = `<div class="slotLabel">${iconHtml}${label}</div>` +
                     `<div class="slotVal ${colorCls || ""}">${name}${opt.tag || ""}</div>` +
                     (opt.sub ? `<div class="slotSub">${opt.sub}</div>` : "");
       if (opt.onClick && !opt.locked && !opt.placeholder) {
@@ -8719,10 +8757,10 @@
       }
       el.appendChild(d);
     };
-    chip("武器", wp.name, getItemColorClass(wp.name, wp.rarity));
+    chip("武器", wp.name, getItemColorClass(wp.name, wp.rarity), { icon: getEquipIcon("weapon", wp) });
     chip("盾", locked ? "🔒 両手武器装備中" : sh.name, locked ? "" : getItemColorClass(sh.name, sh.rarity),
-      { locked, onClick: () => { if (sel.shield !== 0) { dfEquip(charKey, "shield", 0); saveSelections(); sumRepaint(); } } });
-    chip("鎧", ar.name, getItemColorClass(ar.name, ar.rarity));
+      { locked, icon: "🛡️", onClick: () => { if (sel.shield !== 0) { dfEquip(charKey, "shield", 0); saveSelections(); sumRepaint(); } } });
+    chip("鎧", ar.name, getItemColorClass(ar.name, ar.rarity), { icon: getEquipIcon("armor", ar) });
     if (isHero) {
       normalizeHeroAccessories();          // 職業変更で装備不能になった classReq アクセを外す
       const ids = heroAccessoryIds();
@@ -8783,7 +8821,10 @@
       if (!item) continue;
       const itemEl = document.createElement("div");
       itemEl.className = "equipItem bagItem";
-      itemEl.innerHTML = `<span class="eName">🎒 ${item.name}</span>`;
+      // C3: 種別アイコン (🎒=道具袋 の印はそのまま、前に種別アイコンを添える)
+      itemEl.innerHTML =
+        `<span class="eqTypeIcon" aria-hidden="true">${getEquipIcon(kind, item)}</span>` +
+        `<span class="eName">🎒 ${item.name}</span>`;
       itemEl.style.cursor = "pointer";
       itemEl.addEventListener("click", () => {
         // 道具袋から取り出して装備セットに移す + tavern の最強所持上限を更新
