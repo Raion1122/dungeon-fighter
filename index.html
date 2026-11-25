@@ -18280,11 +18280,37 @@
       if (filterStr  !== undefined) e.vfxFilter  = filterStr  || "";
       if (opacityStr !== undefined) e.vfxOpacity = opacityStr || "";
     }
-    function updateEnemyDamageFlash(enemyEl, enemy) {
+    /* ── C3 (縮小版): 人気の雑魚種の個体差 ──────────────────────────────
+       ゴブリン / オーク / コボルド等の「よく出る雑魚」は共有スプライトを使う
+       ため、同じ種が並ぶと全員うり二つに見える。個体ごとに **ごく淡い色差** を
+       与えて「同じ種でも別個体」に見せる (既存のゴブリン亜種の色替えと同じ手法)。
+       ⚠ 新アート不要・色替えのみ。強さ・文面・世界観・数値は一切不変。
+       ⚠ 固有フィルタ持ちの亜種/ボス (goblinShaman のオーラ等) は対象外。対象に
+          すると setEnemyVfx の "" 復帰規約を壊し、クラス側 filter を潰すため。 */
+    const ENEMY_VARIATION_TYPES = {
+      goblin: 1, goblinArcher: 1, goblinRider: 1, orc: 1, hobgoblin: 1, kobold: 1,
+    };
+    const ENEMY_VARIATION_FILTERS = [
+      "",                                                    // 無加工の個体 (1/5)
+      "hue-rotate(10deg) saturate(1.08) brightness(1.06)",   // やや明るく青寄り
+      "hue-rotate(-12deg) saturate(1.06) brightness(0.93)",  // やや暗く黄寄り
+      "hue-rotate(6deg) saturate(0.92) brightness(1.02)",    // 彩度控えめ
+      "hue-rotate(-6deg) saturate(1.12) brightness(0.9)",    // 濃いめ・暗め
+    ];
+    function enemyVariationFilter(enemy, index) {
+      if (!enemy || !ENEMY_VARIATION_TYPES[enemy.type]) return "";
+      const i = (index != null ? index : 0) | 0;
+      return ENEMY_VARIATION_FILTERS[((i % 5) + 5) % 5];
+    }
+    function updateEnemyDamageFlash(enemyEl, enemy, index) {
       const flashOn = enemy.damageFlashTimer > 0 && (enemy.damageFlashTimer % 4 < 2);
+      // 個体差フィルタは一度だけ算出してキャッシュ (素の状態 = フラッシュも VFX も無い時の下地)
+      if (enemy._baseFilter === undefined) {
+        enemy._baseFilter = enemyVariationFilter(enemy, index != null ? index : enemies.indexOf(enemy));
+      }
       const nextFilter = flashOn
         ? "brightness(2.6) drop-shadow(0 0 4px rgba(255,255,255,0.95))"   // 白くカッと光るパンチ
-        : (enemy.vfxFilter || "");
+        : (enemy.vfxFilter || enemy._baseFilter || "");
       const nextOpacity = flashOn ? "1" : (enemy.vfxOpacity || "1");
       // dirty-check: 変わっていないなら書かない。無条件に書くと敵30体 × 60fps = 3,600回/秒の
       // スタイル無効化になり、クラス側 filter の再解決とスプライト再ペイントを毎フレーム誘発する。
@@ -18645,7 +18671,7 @@
           enemyEl.style.display = "block";
           enemyEl.style.left = SX(enemy.x) + "px";
           enemyEl.style.top  = SY(enemy.y) + "px";
-          updateEnemyDamageFlash(enemyEl, enemy);
+          updateEnemyDamageFlash(enemyEl, enemy, index);
           updateEnemyAnim(enemy, enemyEl);
           /* ステータスエフェクト連動: スリープ (stunned > 0)。
              ★[#57] ⚠⚠ **金縛りの敵には紫の眠りオーラを出さない。**
