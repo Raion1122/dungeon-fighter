@@ -122,7 +122,7 @@ const MUTATIONS = {
 const NEG_EXPECT = {
   castidfromroster: ['(1d)', '(3a)'], castbyname: ['(5d)'], migrateevery: ['(2c)'], noname1st: ['(2a)'],
   nocopy: ['(2b)', '(2e)', '(5c)'], keeprecruit: ['(2d)'], idleincombat: ['(3d)'], idleprio2: ['(3c)'],
-  oldnewface: ['(0c)', '(1a)'], nocastoff: ['(5a)', '(5b)'],
+  oldnewface: ['(1a)'], nocastoff: ['(5a)', '(5b)'],
 };
 /* 担当外で赤くなると実走で確かめた節 (記録用。⚠ 合否には使わない)。2026-11-21 の --negative 実走の値。
    - castidfromroster → (5d): 関所が「持っている castId を読むだけ」になるので、?cast=0 の約束に残った古い castId が本体へ届く
@@ -132,7 +132,10 @@ const NEG_EXPECT = {
    - nocopy → (2c)(2f): 印が無いので開くたびに切り替えが走り、消した知らせの印がまた立つ
    - oldnewface → (1b)(1c)(3a)、ときどき (3b)(3c): 新顔に castId が付かない / 戦士の新顔が 90 人の表から出る。
      ⚠ 90 人の表にはキャストと同じ名前が 11 人いるので、出発の関所が名前から castId を付け直す人が出ることがあり、
-       (3b)(3c) は抽選しだいで緑にもなる (2 回の実走で 1 回ずつ)。担当の (0c)(1a) は毎回赤
+       (3b)(3c) は抽選しだいで緑にもなる (2 回の実走で 1 回ずつ)。担当の (1a) は毎回赤
+     ★#121: (0c) は oldnewface では赤にならなくなった = 相性ペアの 2 席が makeNpcMember を通らず DFCast から
+       直に座り、全 12 キャストを供給するため「12 人全員が 1 回以上出る」は満たされる。この変異は (1a) が
+       「全席が妥当なキャスト (pickCompanion 由来の 2 席が 90 人の表の非キャストになる)」でより強く捕えるので担当を (1a) 単独へ移した
    - nocastoff → (5c)(5d): ?cast=0 でもキャスト ON 扱い = 写しを読まない / 出発で castId が付く */
 const NEG_ALSO = {
   castidfromroster: ['(5d)'], castbyname: ['(4a)'], migrateevery: ['(2b)', '(2f)', '(5c)'], noname1st: [],
@@ -365,27 +368,36 @@ async function runSuite(browser, port) {
       const byClass = {}; cast.forEach((c) => { (byClass[c.classKey] = byClass[c.classKey] || []).push(c.name); });
       const outside = cast.filter((c) => !(NPC_NAMES_BY_CLASS[c.classKey] || []).includes(c.name)).map((c) => c.name);
       const byName = {}; cast.forEach((c) => { byName[c.name] = c; });
-      const seen = {}; const bad = []; const bad1b = []; let n = 0;
+      const seen = {}; const bad = []; const bad1b = []; let n = 0, pairDraws = 0;
       /* ⭐ 職は pickCompanion へ渡した職 (引数) と 人物の classKey の両方で突き合わせる。
-         引数は卓の席の名前 (patronA〜D) からは分からないので、本番の pickCompanion を包んで記録する (終わったら戻す) */
+         引数は卓の席の名前 (patronA〜D) からは分からないので、本番の pickCompanion を包んで記録する (終わったら戻す)。
+         ★#121: 相性ペアの 2 席は pickCompanion を通らず DFCast から直に座る (同職ペアは pickCompanion では
+            揃えられないため)。その席は「DFCast に実在するキャスト (名前の職 = classKey) かつ castId が引ける」で妥当とする。
+            pickCompanion 由来の席は従来どおり引数の職とも一致まで要求する (oldnewface はこの席で赤になる)。 */
       const orig = pickCompanion; const args = new Map();
       pickCompanion = function (ck, used) { const m = orig(ck, used); if (m) args.set(m, ck); return m; };
       try {
       for (let i = 0; i < 200; i++) {
         const out = drawTodaysPatrons();
+        const seatIds = [];
         Object.keys(out).forEach((slot) => {
           const m = out[slot]; n++;
           seen[m.name] = 1;
+          if (m.castId) seatIds.push(m.castId);
           const c = byName[m.name];
-          const arg = args.has(m) ? args.get(m) : '(pickCompanion を通っていない)';
-          if (!c || c.classKey !== m.classKey || c.classKey !== arg) bad.push({ slot, arg, cls: m.classKey, name: m.name });
+          const viaPick = args.has(m);
+          const arg = viaPick ? args.get(m) : '(相性ペアの専用枠)';
+          const okSeat = !!c && c.classKey === m.classKey
+            && (viaPick ? (c.classKey === arg) : (typeof m.castId === 'string' && !!DFCast.byId(m.castId)));
+          if (!okSeat) bad.push({ slot, arg, cls: m.classKey, name: m.name });
           const b = m.castId ? DFCast.byId(m.castId) : null;
           if (!b || b.name !== m.name || b.trait !== m.trait || b.line !== m.line || b.variant !== m.variant) bad1b.push({ name: m.name, castId: m.castId || null });
         });
+        if (DFCast.activePairs(seatIds).length > 0) pairDraws++;
       }
       } finally { pickCompanion = orig; }
       return { cast, byClass, names: new Set(cast.map((c) => c.name)).size, outside, seen: Object.keys(seen).filter((k) => byName[k]).length,
-        seenAll: Object.keys(seen).length, n, bad: bad.slice(0, 3), nbad: bad.length, bad1b: bad1b.slice(0, 3), nbad1b: bad1b.length,
+        seenAll: Object.keys(seen).length, n, pairDraws, bad: bad.slice(0, 3), nbad: bad.length, bad1b: bad1b.slice(0, 3), nbad1b: bad1b.length,
         slots: Object.keys(todaysPatrons) };
     });
     CAST = a.cast;
@@ -394,8 +406,8 @@ async function runSuite(browser, port) {
       a.outside.length === 1, { outside: a.outside });
     R.check('(0c)', '[装置] 卓の抽選 (drawTodaysPatrons) 200 回でキャスト 12 人全員が 1 回以上出る', a.seen === 12 && a.cast.length === 12,
       { seenCast: a.seen, seenAllNames: a.seenAll, draws: a.n });
-    R.check('(1a)', '名簿が空のとき、卓の 4 人 × 200 回の全員の名前が DFCast にいて、職が pickCompanion の引数 と 人物の classKey の両方で一致',
-      a.n === 800 && a.nbad === 0, { n: a.n, nbad: a.nbad, sample: a.bad, slots: a.slots });
+    R.check('(1a)', '名簿が空のとき、卓の 4 人 × 200 回の全員が DFCast にいて職が一致 (pickCompanion 由来は引数の職とも一致・★#121 相性ペアの専用枠は castId が引ける)・★#121 どの回も相性ペアが同席する',
+      a.n === 800 && a.nbad === 0 && a.pairDraws === 200, { n: a.n, nbad: a.nbad, pairDraws: a.pairDraws, sample: a.bad, slots: a.slots });
     R.check('(1b)', '返された人物の castId が引けて、name / trait / line / variant が DFCast.byId(castId) と一致', a.n === 800 && a.nbad1b === 0,
       { nbad: a.nbad1b, sample: a.bad1b });
     R.check('(2e)', '空の名簿で開くと、写しが空の名簿として書かれ、名簿本体と知らせのキーは書かれない',
