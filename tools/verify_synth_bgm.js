@@ -8,7 +8,7 @@
  *   ⚠ unlock() 経由の再生 (pendingBgm) はモジュール内部の playBgm を呼ぶのでスパイには写らない (#20 / 依頼書 §2-4)。
  *     だから経路 A だけでは「渡した ID は正しいのに鳴らない」(罠 A) を永久に見逃す。
  *
- *   §0 装置   (0a-<page>) 経路 A が 1 件以上 / (0b) __bgmTrackIds() = 11 件 (#88 の 9 + #94 の 2・名前で全部) /
+ *   §0 装置   (0a-<page>) 経路 A が 1 件以上 / (0b) __bgmTrackIds() = 12 件 (#88 の 9 + #94 の 2 + 闇市 plaza・名前で全部) /
  *             (0c) 全ページの経路 A の ID がすべて __bgmTrackIds() に在る (罠 A の検出器) / (0d) 旧フック 3 つが undefined
  *   §1 ページ (1a)〜(1e) title/town/world/tavern/index を -A (スパイ) と -B (__bgmTrack) に分けて見る /
  *             (1f) どのページも「/assets/bgm/」を要求しない (サーバの要求ログ = 別経路)
@@ -427,9 +427,10 @@ for (const key of ['title', 'town', 'world', 'tavern', 'index']) {
   }]);
 }
 // ★[#94 言い直し] 9 件 (#88) → 11 件 (#88 の 9 曲 + #94 の mine_gate / finalboss)。件数だけでなく名前で全部縛る。
-const ALL11 = ['tavern', 'explore', 'combat', 'boss', 'midboss', 'rest', 'title', 'town', 'world', 'mine_gate', 'finalboss'];
-ASSERTS.push(['0b', '__bgmTrackIds() が 11 件 (#88 の 9 曲 + #94 の 2 曲) で、名前が全部一致する',
-  m => { const ids = idsOf(m); return [ids.length === ALL11.length && ALL11.every(x => ids.indexOf(x) >= 0), J(ids)]; }]);
+//   ★[① 闇市 / 2026-11-26] 11 → 12 件 (闇市ダークアンビエント plaza を追加)。これだけが dist:0 のクリーン曲。
+const ALL_TRACKS = ['tavern', 'explore', 'combat', 'boss', 'midboss', 'rest', 'title', 'town', 'world', 'mine_gate', 'finalboss', 'plaza'];
+ASSERTS.push(['0b', '__bgmTrackIds() が 12 件 (#88 の 9 曲 + #94 の 2 曲 + 闇市 plaza) で、名前が全部一致する',
+  m => { const ids = idsOf(m); return [ids.length === ALL_TRACKS.length && ALL_TRACKS.every(x => ids.indexOf(x) >= 0), J(ids)]; }]);
 ASSERTS.push(['0c', '⭐ 全ページで経路 A に渡った ID がすべて __bgmTrackIds() に在る (罠 A の検出器)',
   m => {
     const ids = idsOf(m);
