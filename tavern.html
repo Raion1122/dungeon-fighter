@@ -9931,18 +9931,82 @@
   }
   /* 席 key → その席に座っている member。撤退時と抽選前は null。 */
   let todaysPatrons = null;
+  /* ★#121 (B3) 相性ペアを卓に同席させる助け (キャスト ON のときだけ)。
+     ⭐ これが無いと卓は「6 職から重複なしで 4 職」しか座らせないため、同職の相性ペア
+        (戦士 irena↔mira / ドワーフ / エルフ / 盗賊) は **2 人同時に卓へ出られず = 永久に誘えない**。
+        cleric+mage の 2 組も「両方が座り かつ 2 人の識別子が噛み合う」低確率でしか誘えなかった。
+        → これが「公開ページの通常プレイで掛け合いが一度も出ない」真因 (2026-11-25 ブリッジ特定)。
+     ⚠ 2 人目は専用シート (variant 2 = castmira/castdag/castgawain/castbernt/castbran/castknut) を
+        持つので、同職 2 人でも絵で区別できる (旧コメントの「職ごとに 1 枚」は #117 のキャスト導入で解消済み)。
+     ⛔ localStorage には触れない・例外を投げない (読み出しだけ)。castId は departToScenario の
+        stampCastIdsTV が名前から付け直すので、ここでは makeCastMember と同じ形で返すだけでよい。 */
+  function castSeatMember(id, used) {
+    try {
+      const c = window.DFCast && DFCast.byId(id);
+      if (!c) return null;
+      /* 名簿 (DFRoster) にその顔 (同職・同名) が居れば Lv / 実績 (mercId) を引き継いで座らせる
+         (pickCompanion の名簿枝と同じ扱い = 育った仲間が相性ペアでもそのまま育ちを保つ)。
+         ⚠ name / trait / line / variant は必ずキャスト正本を使う (verify_companion_cast (1b) が
+            DFCast.byId(castId) との一致を要求するため・名簿の写しは項目を落とすことがある)。 */
+      try {
+        if (window.DFRoster && typeof DFRoster.enabled === "function" && DFRoster.enabled()) {
+          const vet = (DFRoster.all() || []).find(function (v) {
+            return v && v.classKey === c.classKey && v.name === c.name && !(used && used.has(v.name));
+          });
+          if (vet) return { classKey: c.classKey, isHero: false, zone: PARTY_ZONES[c.classKey],
+                            name: c.name, trait: c.trait, line: c.line, variant: c.variant,
+                            level: vet.level, mercId: vet.id, castId: c.id };
+        }
+      } catch (e) {}
+      return { classKey: c.classKey, isHero: false, zone: PARTY_ZONES[c.classKey],
+               name: c.name, trait: c.trait, line: c.line, variant: c.variant, castId: c.id };
+    } catch (e) { return null; }
+  }
+  function seatableAffinityPair(used) {
+    try {
+      if (!(window.DFCast && typeof DFCast.pairs === "function")) return null;
+      const pairs = DFCast.pairs();
+      if (!pairs || !pairs.length) return null;
+      const p = pairs[Math.floor(Math.random() * pairs.length)];
+      const a = castSeatMember(p.a, used), b = castSeatMember(p.b, used);
+      return (a && b) ? [a, b] : null;
+    } catch (e) { return null; }
+  }
+  function shuffleInPlace(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    }
+    return arr;
+  }
   function drawTodaysPatrons() {
     if (!isRecruitTalkOn()) return null;
-    /* 職業は 6 職から重複なしで 4 つ。⛔ 同じ職が 2 席に座ると「誰を誘ったか」が
-       絵で区別できなくなる (変種スプライトは職ごとに 1 枚しか使っていないため)。 */
-    const pool = ALL_CLASS_KEYS.slice();
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
-    }
     const used = new Set();
     const out = {};
-    RECRUIT_SEATS.forEach(function (key, i) { out[key] = pickCompanion(pool[i], used); });
+    /* ★#121: キャスト ON なら「気の合う 2 人」を必ず同席させる (さもないと同職ペアは誘えない)。
+       ペアの 2 人を 2 席へ据え、残り 2 席はペアの職を避けた相異なる職から従来どおり pickCompanion で引く。
+       ⚠ 据えるだけ = プレイヤーは依然どちらか片方 / 全く別の 3 人を選べる (強制はしない)。 */
+    let seatedPair = false;
+    if (typeof isCastOnTV === "function" && isCastOnTV()) {
+      const pm = seatableAffinityPair(used);
+      if (pm) {
+        const seats = shuffleInPlace(RECRUIT_SEATS.slice());
+        out[seats[0]] = pm[0]; used.add(pm[0].name);
+        out[seats[1]] = pm[1]; used.add(pm[1].name);
+        const avoid = new Set([pm[0].classKey, pm[1].classKey]);
+        const rest = shuffleInPlace(ALL_CLASS_KEYS.filter(function (k) { return !avoid.has(k); }));
+        out[seats[2]] = pickCompanion(rest[0], used);
+        out[seats[3]] = pickCompanion(rest[1], used);
+        seatedPair = true;
+      }
+    }
+    if (!seatedPair) {
+      /* 従来どおり: 職業は 6 職から重複なしで 4 つ (?cast=0 / キャスト不在時の姿)。
+         ⛔ 同じ職が 2 席に座ると「誰を誘ったか」が絵で区別できなくなる (キャスト不在では変種が 1 枚のため)。 */
+      const pool = ALL_CLASS_KEYS.slice();
+      shuffleInPlace(pool);
+      RECRUIT_SEATS.forEach(function (key, i) { out[key] = pickCompanion(pool[i], used); });
+    }
     return out;
   }
   /* member → 歩行シート。⚠ PARTY_PORTRAIT_SPRITES は職ごとに 4 枠だが実体は
