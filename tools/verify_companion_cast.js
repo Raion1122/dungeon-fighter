@@ -107,8 +107,8 @@ const MUTATIONS = {
   keeprecruit: [{ file: MR, from: '            if (kept.length) lsSet(RECRUIT_KEY, JSON.stringify(kept)); else lsDel(RECRUIT_KEY);',
     to: '            void kept; /* ★変異keeprecruit */' }],
   /* 独り言の currentPhase の条件を外す */
-  idleincombat: [{ file: I, from: '        if (currentPhase !== "explore" || dialogPaused || gameOver) return;',
-    to: '        if (dialogPaused || gameOver) return; /* ★変異idleincombat */' }],
+  idleincombat: [{ file: I, from: '        if (currentPhase !== "explore" || dialogPaused || gameOver) { idleWasExplore = false; return; }',
+    to: '        if (dialogPaused || gameOver) { idleWasExplore = false; return; } /* ★変異idleincombat */' }],
   /* 独り言を優先度 2 で積む */
   idleprio2: [{ file: I, from: '        if (!sayLine("idle.chatter", a, { text, ambient: true, prio: 0 })) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; }',
     to: '        if (!sayLine("idle.chatter", a, { text, ambient: true, prio: 2 })) { idleChatterNextAt = now + IDLE_CHATTER_RETRY_MS; return; } /* ★変異idleprio2 */' }],
