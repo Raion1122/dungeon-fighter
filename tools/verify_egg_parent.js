@@ -979,18 +979,39 @@ async function runSuite(browser, port, mutKey, label) {
       KK.cleared === true && KK.egg === true && eggSaid.length === 1, { cleared: KK.cleared, egg: KK.egg, saidClear: KK.saidClear, checkErr: KK.checkErr || null });
     /* ── §6 ── */
     const curIndex = servedFile(F_INDEX, mutKey);
-    const fnRows = KEEP_FNS.map((n) => { const a = fnSource(BASE_INDEX, n), b = fnSource(curIndex, n); return { n, base: a ? a.length : null, cur: b ? b.length : null, same: !!a && a === b }; });
-    R.check('(6a)', '⭐ 触らない約束の関数 (' + KEEP_FNS.join(' / ') + ') のソースが ' + BASE_REV + ' と同じ',
-      fnRows.every((r) => r.same && r.cur > 200),
-      '関数 / 長さ (基準→今) / 同じ: ' + fnRows.map((r) => r.n + ' / ' + r.base + '→' + r.cur + ' / ' + (r.same ? '同' : '✗違')).join(' ; '));
+    /* ★[2026-11-26 棚卸し] §6 の基準は着手前の 62f500a。その後 #112 (巣穴 ★★) / #114 (不意打ち) 等が
+       defeatEnemy / runEncounter を**正当に**変えたので「BASE と 1 バイト違わない」は構造的に満たせない
+       (実測 2026-11-26: 両関数とも egg-parent 由来の字面は 0 件・checkDungeonClear / hydraFireBreath /
+       applyFireBreathToAlly は今も BASE と同一)。⇒ #111 の本当の不変条件「egg-parent のロジックが握られた
+       関数へ漏れていない」を測る形へ言い直す: 各関数が《BASE と同一》 OR 《egg-parent 固有の字面を含まない》。
+       ⚠ redEgg は卵クエスト報酬の鍵で checkDungeonClear に #111 以前から在るため字面リストに入れない。
+       ⭐ 負のコントロール defeatedit は defeatEnemy へ redDragonWyrmling を注入する = 《同一》も《字面無し》も
+         破れて (6a) 赤を保つ (この言い直しで検出力は落ちない)。 */
+    const EGG_FN_TOKENS = ['redDragonWyrmling', 'EGG_PARENT', 'eggParent'];
+    const fnRows = KEEP_FNS.map((n) => {
+      const a = fnSource(BASE_INDEX, n), b = fnSource(curIndex, n);
+      const same = !!a && a === b;
+      const tokens = b ? EGG_FN_TOKENS.filter((t) => b.indexOf(t) >= 0) : ['(抽出不能)'];
+      return { n, base: a ? a.length : null, cur: b ? b.length : null, same, clean: !!b && tokens.length === 0, tokens };
+    });
+    R.check('(6a)', '⭐ 触らない約束の関数 (' + KEEP_FNS.join(' / ') + ') が《' + BASE_REV + ' と同一》か《egg-parent 固有の字面 (' + EGG_FN_TOKENS.join('/') + ') を含まない》',
+      fnRows.every((r) => (r.same || r.clean) && r.cur > 200),
+      '関数 / 長さ (基準→今) / 同一 / egg字面: ' + fnRows.map((r) => r.n + ' / ' + r.base + '→' + r.cur + ' / ' + (r.same ? '同' : '違') + ' / ' + (r.tokens.length ? r.tokens.join(',') : 'なし')).join(' ; '));
     const lineRows = ANCHOR_LINES.map((l) => ({ line: l.trim().slice(0, 60), base: lineCount(BASE_INDEX, l), cur: lineCount(curIndex, l) }));
     R.check('(6b)', '錨の 3 行 (台帳の引き / questFlagOn の concat / 冷気の息の入口) が ' + BASE_REV + ' と今でちょうど 1 行ずつ同じ字面',
       lineRows.every((r) => r.base === 1 && r.cur === 1), lineRows);
+    /* ★[2026-11-26 棚卸し] 巣穴 n1 (印なし) の BASE 一致は egg-parent の核心なので残す
+       (負のコントロール flaggate = 印なしでも親竜が湧く を sameBuild(kwB,kwC) が捕まえる)。
+       一方 goblin-mine 側は #112 以降の無関係な更新で BASE から変わっており、BASE 一致は egg-parent の
+       責務でない (無関係シナリオが egg-parent で変わらない不変は (1e) が別途見る)。⇒ mine 側は
+       「種だけで決まり大域 Math.random を 1 回も食わない (= egg-parent が共有 buildNode へ大域乱数を
+       差し込んでいない)・敵が湧く」= egg-parent 固有の不変条件へ言い直す。 */
     const m6 = (mineBase && mineCur) ? { base: mineBase.built, cur: mineCur.built } : null;
-    R.check('(6c)', '印なしの巣穴 n1 と ' + OTHERS[0] + ' の入口ノードで、同じ種の buildNode の後の Math.random の次の値・呼び出し回数・顔ぶれ・座標・HP が ' + BASE_REV + ' と同じ',
-      sameBuild(kwB.built, kwC.built) && !!m6 && sameBuild(m6.base, m6.cur) && (m6.cur.enemies || []).length > 0 && (kwC.built.enemies || []).length > 0,
+    const mineClean = !!m6 && !m6.cur.err && m6.cur.calls === 0 && (m6.cur.enemies || []).length > 0;
+    R.check('(6c)', '印なしの巣穴 n1 の buildNode が ' + BASE_REV + ' と同じ (次の値・回数・顔ぶれ・座標・HP) / ' + OTHERS[0] + ' は種だけで決まり大域乱数 0・敵が湧く',
+      sameBuild(kwB.built, kwC.built) && mineClean && (kwC.built.enemies || []).length > 0,
       { kw: { calls: [kwB.built && kwB.built.calls, kwC.built && kwC.built.calls], next: [kwB.built && kwB.built.next, kwC.built && kwC.built.next], err: [kwB.built && kwB.built.err, kwC.built && kwC.built.err] },
-        mine: m6 && { node: m6.cur.node, calls: [m6.base.calls, m6.cur.calls], next: [m6.base.next, m6.cur.next], n: [m6.base.enemies.length, m6.cur.enemies.length], err: [m6.base.err, m6.cur.err] } });
+        mine: m6 && { node: m6.cur.node, calls: m6.cur.calls, baseCalls: m6.base.calls, next: m6.cur.next, n: (m6.cur.enemies || []).length, err: m6.cur.err } });
     /* ══════════ (0c) ══════════ */
     R.check('(0c)', '[装置] 全ページで pageerror 0 件 (段の例外は記録だけ: 例外の出た段の節が赤になる)', ctx.booted > 0 && ctx.errs.length === 0,
       '起動 ' + ctx.booted + ' 回 / pageerror ' + J(ctx.errs.slice(0, 3)) + ' / 段の例外 ' + J(STAGE_ERRS) + ' / 直接呼びの例外 ' + J((D || {}).err || null));
