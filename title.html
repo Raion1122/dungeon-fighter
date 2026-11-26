@@ -66,12 +66,14 @@
       --parchment-bg: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
       --parchment-ink: #3a2912;
       --parchment-ink-soft: #5a4323;
-      --parchment-gold: #8b6914;
-      --parchment-border: #8b6914;
-      --parchment-shadow: 0 0 12px rgba(40,20,0,0.6), inset 0 0 20px rgba(120,80,30,0.25);
-      --wood-dark: #3a2614;
-      --wood-mid: #5a3a1e;
-      --stone: #2a251e;
+      --parchment-gold: #8a5e10;
+      --parchment-border: #6e4d10;
+      --parchment-shadow: 0 2px 16px rgba(20,10,0,0.7), inset 0 0 22px rgba(90,55,20,0.3), inset 0 0 0 2px rgba(120,86,24,0.45);
+      --wood-dark: #2b1c0e;
+      --wood-mid: #472d16;
+      --stone: #201c15;
+      --brass-light: #c9a24e;
+      --brass-deep: #4a3308;
     }
     * { box-sizing: border-box; }
     html, body {
@@ -327,13 +329,24 @@
     #namingActions button {
       flex: 1; padding: 12px 8px;
       font-family: 'Cinzel', 'Times New Roman', serif; font-size: 14px; letter-spacing: 1px;
-      border: 1px solid rgba(60,36,10,0.45); border-radius: 3px; cursor: pointer; color: #fff8e0;
-      transition: filter 0.1s;
+      border: 1px solid var(--brass-deep); border-radius: 3px; cursor: pointer; color: #fff8e0;
+      box-shadow:
+        inset 0 1px 1px rgba(255,245,215,0.40),
+        inset 0 -3px 5px rgba(50,28,4,0.38),
+        0 2px 5px rgba(20,10,0,0.38);
+      transition: filter 0.1s, transform 0.08s, box-shadow 0.08s;
     }
     #btnNamingBack { background: #5a3a20; flex: 0 0 34%; }
     #btnDepart { background: var(--parchment-gold); }
-    #namingActions button:hover { filter: brightness(1.15); }
-    #namingActions button:disabled { background: #4a4034; color: #8d8272; cursor: default; filter: none; }
+    #namingActions button:hover { filter: brightness(1.12); }
+    #namingActions button:active {
+      transform: translateY(1px);
+      filter: brightness(0.92);
+      box-shadow:
+        inset 0 2px 5px rgba(40,22,2,0.48),
+        0 1px 2px rgba(20,10,0,0.28);
+    }
+    #namingActions button:disabled { background: #4a4034; color: #8d8272; cursor: default; filter: none; box-shadow: none; }
   </style>
 </head>
 <body>
