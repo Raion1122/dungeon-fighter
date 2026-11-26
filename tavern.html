@@ -3266,6 +3266,7 @@
     body.compact #backroomBar .backroomTitle { font-size: 14px; letter-spacing: 1px; }
   </style>
   <script src="audio.js"></script>
+  <script src="js/ui-feel.js"></script><!-- UI重厚感 Phase3 D: 画面遷移のめくり(動き)+ めくり音。撤退 ?uifeel=0 -->
   <!-- 技能判定エンジン (知覚チェック等)。index.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/changelog.js"></script><!-- 更新情報の文面の唯一の正 (#101)。酒場と港町が共有 -->
@@ -3551,7 +3552,7 @@
            ⚠ ラベルは review モードでは「酒場へ戻る」へ差し替わる (行き先が出発ではないため)。
              ⚠ #60 で「準備へ戻る」から改めた —— その準備画面は #55 で廃止済 = 行き先が無かった。
              ⛔ id は変えない — 既存 golden 5 本がこの id で出発の口を掴む。 -->
-      <button id="pmDepart" type="button" hidden>出発する</button>
+      <button id="pmDepart" type="button" hidden data-ui-turn>出発する</button>
       <div id="pmHint">タップでスキップ</div>
     </div>
   </div>

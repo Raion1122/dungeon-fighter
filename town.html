@@ -519,7 +519,7 @@
        ⛔ #townTitle の子にしない (あちらは pointer-events: none)。
        ⚠ ?titleback=0 のときは JS が **DOM ごと remove** する。display:none で残さない
          (elementFromPoint に写って受入条件が濁る)。 -->
-  <button type="button" id="townBack">← はじめの画面へ</button>
+  <button type="button" id="townBack" data-ui-turn>← はじめの画面へ</button>
 
   <!-- ★[#101] 更新情報。文面は js/changelog.js (酒場と共有)。
        ⚠ 常にたたんで出す — 720px 幅で開いて出すと武器防具屋の看板を覆う (依頼書 §2-3)。
@@ -540,6 +540,7 @@
   <script src="js/plaza-hours.js"></script><!-- ★[#102] 闇市が開いている時間 (20:00〜24:59) の唯一の正。⚠ 外すと時刻を見ない (撤退と同じ姿) -->
   <script src="js/npc-crowd.js"></script><!-- 酒場と街の NPC 配置の唯一の正 (#41)。⚠ *-map.js より後。撤退 ?npc=0 -->
   <script src="audio.js"></script>
+  <script src="js/ui-feel.js"></script><!-- UI重厚感 Phase3 D: 画面遷移のめくり(動き)+ めくり音。撤退 ?uifeel=0 -->
   <script>
   (function () {
     "use strict";
