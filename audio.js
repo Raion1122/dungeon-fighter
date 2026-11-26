@@ -250,7 +250,15 @@
     cageOpen: function (c, d, t) { noise(c, d, t, { dur: 0.16, peak: 0.18, filter: "bandpass", cutoff: 2200, q: 2 }); tone(c, d, t + 0.02, { freq: 90, glideTo: 70, dur: 0.18, peak: 0.16 }); tone(c, d, t + 0.18, { freq: mtof(76), dur: 0.12, peak: 0.14 }); },
     levelUp: function (c, d, t) { arp(c, d, t, { type: "square", root: 60, steps: [0, 4, 7, 12], stepDur: 0.09, peak: 0.2, dur: 0.16 }); tone(c, d, t + 0.36, { type: "triangle", freq: mtof(72), dur: 0.25, peak: 0.18, a: 0.01 }); },
     coin: function (c, d, t) { tone(c, d, t, { freq: mtof(83), dur: 0.06, peak: 0.18 }); tone(c, d, t + 0.06, { freq: mtof(88), dur: 0.12, peak: 0.18 }); },
-    button: function (c, d, t) { tone(c, d, t, { freq: 660, dur: 0.03, peak: 0.12, a: 0.001 }); },
+    // 木を軽く叩いた「トッ」。⚠ bus へ繋ぐノードは tone 1 本のまま (= UI バスへの edge は 1 本)。
+    //   verify_pen_* が「button は ui へ 1 edge」を検める (値は不問) ので、本数を増やさないこと。
+    button: function (c, d, t) { tone(c, d, t, { type: "triangle", freq: 300, glideTo: 190, dur: 0.05, peak: 0.13, a: 0.001, r: 0.03 }); },
+    // 羊皮紙をめくる「サラッ」(画面遷移 = js/ui-feel.js の pageTurn)。帯域を上→下へ払う擦過音 + ごく低い紙の胴鳴り。
+    pageTurn: function (c, d, t) {
+      noise(c, d, t, { filter: "bandpass", cutoff: 2600, cutoffTo: 900, q: 0.9, dur: 0.26, peak: 0.12, a: 0.015 });
+      noise(c, d, t + 0.03, { filter: "bandpass", cutoff: 1500, cutoffTo: 600, q: 0.8, dur: 0.2, peak: 0.07, a: 0.02 });
+      tone(c, d, t, { type: "sine", freq: 150, glideTo: 90, dur: 0.18, peak: 0.05, a: 0.02 });
+    },
     narration: function (c, d, t) {
       if (PEN_NARRATION) { penStrokes(c, d, t); return; }
       tone(c, d, t, { type: "sine", freq: 880, dur: 0.012, peak: 0.05, a: 0.001 });   // 従来 (⛔ 値を 1 つも変えない)
@@ -268,7 +276,7 @@
     sword_swing: 0.10, hit_flesh: 0.10, hit_bone: 0.08, hit_slime: 0.10, hit_blocked: 0.06,
     spellDamage: 0.06, enemyDeath: 0.07, bossDeath: 0.05, counter: 0.07, trap: 0.07,
     playerDamage: 0.07, allyDamage: 0.07, coin: 0.05, chestFound: 0, chestOpen: 0.05,
-    button: 0, narration: 0,
+    button: 0, narration: 0, pageTurn: 0.05,
   };
   var SFX_ALIAS = { levelup: "levelUp" };   // 呼び出し名の表記ゆれ吸収 (index.html に levelup/levelUp 両方あり)
 

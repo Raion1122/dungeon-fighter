@@ -621,7 +621,7 @@
        ⛔ #worldTitle の子にしない (あちらは pointer-events: none)。
        ⚠ ?titleback=0 のときは JS が **DOM ごと remove** する。display:none で残さない
          (elementFromPoint に写って受入条件が濁る)。 -->
-  <button type="button" id="worldBack">← はじめの画面へ</button>
+  <button type="button" id="worldBack" data-ui-turn>← はじめの画面へ</button>
 
   <!-- 入場の確認 (依頼書 #23 §6-3)。⛔ 文言はここに書かない —— 地名の唯一の正は
        js/world-map.js の label で、JS が読んで #worldEnterText へ流し込む。
@@ -657,6 +657,7 @@
   <script src="js/world-map.js"></script>
   <script src="js/road-events.js"></script><!-- 街道の出来事 (#45) のイベント表と器の描画の唯一の正。⚠ js/world-map.js より後 (地形を STEPS[id].on から引く)。撤退 ?roadevent=0 -->
   <script src="audio.js"></script>
+  <script src="js/ui-feel.js"></script><!-- UI重厚感 Phase3 D: 画面遷移のめくり(動き)+ めくり音。撤退 ?uifeel=0 -->
   <script>
   (function () {
     "use strict";
