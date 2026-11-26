@@ -70,12 +70,14 @@
          ⚠ 消すと箱の背景が透明になり、地図の上で文字が読めない (依頼書 §2-4)。 */
       --parchment-bg: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
       --parchment-ink-soft: #5a4323;
-      --parchment-border: #8b6914;
-      --parchment-shadow: 0 0 12px rgba(40,20,0,0.6), inset 0 0 20px rgba(120,80,30,0.25);
+      --parchment-border: #6e4d10;
+      --parchment-shadow: 0 2px 16px rgba(20,10,0,0.7), inset 0 0 22px rgba(90,55,20,0.3), inset 0 0 0 2px rgba(120,86,24,0.45);
       --parchment-ink: #3a2912;
-      --parchment-gold: #8b6914;
-      --wood-dark: #3a2614;
-      --wood-mid: #5a3a1e;
+      --parchment-gold: #8a5e10;
+      --wood-dark: #2b1c0e;
+      --wood-mid: #472d16;
+      --brass-light: #c9a24e;
+      --brass-deep: #4a3308;
     }
     * { box-sizing: border-box; }
     html, body {
@@ -314,8 +316,16 @@
       border: 2px solid var(--parchment-gold, #c8a45a);
       border-radius: 8px;
       cursor: pointer;
+      box-shadow:
+        inset 0 1px 1px rgba(255,240,200,0.28),
+        inset 0 -3px 6px rgba(0,0,0,0.42),
+        0 2px 5px rgba(10,6,2,0.45);
+      transition: filter 0.1s, transform 0.08s, box-shadow 0.08s;
     }
-    #townBack:active { transform: translateY(1px); }
+    #townBack:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 5px rgba(0,0,0,0.50), 0 1px 2px rgba(10,6,2,0.30);
+    }
 
     /* compact 用の施設ボタン列。⚠ デスクトップでは出さない (看板が十分大きいので) */
     #townHud {
@@ -337,8 +347,16 @@
       border: 2px solid var(--parchment-gold);
       border-radius: 8px;
       cursor: pointer;
+      box-shadow:
+        inset 0 1px 1px rgba(255,240,200,0.28),
+        inset 0 -3px 6px rgba(0,0,0,0.42),
+        0 2px 5px rgba(10,6,2,0.45);
+      transition: filter 0.1s, transform 0.08s, box-shadow 0.08s;
     }
-    #townHud button:active { transform: translateY(1px); }
+    #townHud button:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 5px rgba(0,0,0,0.50), 0 1px 2px rgba(10,6,2,0.30);
+    }
     body.compact #townHud { display: flex; }
     body.compact #townTitle { font-size: 16px; }
 
