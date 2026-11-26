@@ -92,6 +92,9 @@
       --brass-light: #c9a24e;
       --brass-deep: #4a3308;
       --route-ink: #f6ead0;            /* 点線の明色。luma 234.7 (依頼書 §12-2 の「luma >= 220」) */
+      /* ★Phase3-A(羊皮紙化): 他画面と同値の「卓の地と光」。冷たい暗色の浮きを温かい卓へ寄せる(同値を全ファイルへ=最小限の束ね)。 */
+      --table-ground: radial-gradient(ellipse 120% 80% at 50% 12%, rgba(120,82,38,0.40) 0%, rgba(40,26,13,0.30) 42%, transparent 72%), radial-gradient(ellipse 150% 130% at 50% 60%, transparent 48%, rgba(0,0,0,0.62) 100%), linear-gradient(180deg, #171009 0%, #0c0805 60%, #060402 100%);
+      --table-vignette: radial-gradient(ellipse 100% 70% at 50% 8%, rgba(200,150,70,0.12) 0%, transparent 46%), radial-gradient(ellipse 130% 115% at 50% 50%, transparent 60%, rgba(0,0,0,0.5) 100%);
     }
     * { box-sizing: border-box; }
     html, body {
@@ -116,6 +119,14 @@
       pointer-events: none;
       z-index: 0;
     }
+    /* ★Phase3-A(羊皮紙化): 冷たい暗色の背景を「卓に広げた地図」へ寄せる。
+       天頂からの温かい光 + 四隅のビネット。z-index:0 なので地図/ルート/HUD より下 = 可読性に触れない。 */
+    #worldBackdrop::after {
+      content: "";
+      position: absolute; inset: 0;
+      background: var(--table-vignette);
+      pointer-events: none;
+    }
 
     /* ── 舞台 ────────────────────────────────────────────────────────────
        #worldViewport が画面いっぱいの窓、#worldStage が絵の実寸 (1536x1024)。
@@ -129,7 +140,8 @@
     #worldStage {
       position: absolute; left: 0; top: 0;
       transform-origin: 0 0;
-      box-shadow: 0 0 34px 8px rgba(0,0,0,0.55);
+      /* ★Phase3-A: 地図が卓に広げられた落ち影を深める(既存の 1 本を 2 本に。新しい z-index は足さない)。 */
+      box-shadow: 0 0 34px 8px rgba(0,0,0,0.55), 0 20px 50px -12px rgba(0,0,0,0.72);
     }
     /* ⭐ 背景画像を CSS の background ではなく <img> で敷く理由:
        受入条件 (0b) が **naturalWidth / naturalHeight を DOM から**読んで

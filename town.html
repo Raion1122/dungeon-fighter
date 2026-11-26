@@ -72,7 +72,12 @@
       --parchment-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='pt'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23pt)' opacity='0.06'/%3E%3C/svg%3E"), linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
       --parchment-ink-soft: #5a4323;
       --parchment-border: #6e4d10;
-      --parchment-shadow: 0 2px 16px rgba(20,10,0,0.7), inset 0 0 22px rgba(90,55,20,0.3), inset 0 0 0 2px rgba(120,86,24,0.45);
+      /* ★Phase3-A(奥行きと光): 落ち影を強め(光源=上)+天面のハイライト。パネルを卓から持ち上げる。※inset の暖色グロー/真鍮リングは据え置き。 */
+      --parchment-shadow: 0 14px 30px -12px rgba(0,0,0,0.6), 0 5px 13px -5px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,241,214,0.4), inset 0 0 22px rgba(90,55,20,0.3), inset 0 0 0 2px rgba(120,86,24,0.45);
+      /* ★Phase3-A: 卓(石床/木天板)の地と光。地図/依頼票が「卓に広げられている」地。world/town の余白と body 地に使う(同値を全ファイルへ=最小限の束ね)。 */
+      --table-ground: radial-gradient(ellipse 120% 80% at 50% 12%, rgba(120,82,38,0.40) 0%, rgba(40,26,13,0.30) 42%, transparent 72%), radial-gradient(ellipse 150% 130% at 50% 60%, transparent 48%, rgba(0,0,0,0.62) 100%), linear-gradient(180deg, #171009 0%, #0c0805 60%, #060402 100%);
+      /* ★Phase3-A: 卓上の物に重ねるビネット+天頂光(pointer-events:none で可読性に触れない)。 */
+      --table-vignette: radial-gradient(ellipse 100% 70% at 50% 8%, rgba(200,150,70,0.12) 0%, transparent 46%), radial-gradient(ellipse 130% 115% at 50% 50%, transparent 60%, rgba(0,0,0,0.5) 100%);
       --parchment-ink: #3a2912;
       --parchment-gold: #8a5e10;
       --wood-dark: #2b1c0e;
@@ -97,7 +102,8 @@
     #townViewport {
       position: fixed; inset: 0;
       overflow: hidden;
-      background: #0a0805;
+      /* ★Phase3-A: 地図の外側の余白を「卓(木天板/石床)の地」に。一定方向の光(上)+ビネット。 */
+      background: var(--table-ground);
       cursor: pointer;
     }
     #townStage {
@@ -107,6 +113,8 @@
       background-size: 100% 100%;
       background-repeat: no-repeat;
       image-rendering: auto;
+      /* ★Phase3-A: 地図が卓に広げられて置かれている落ち影(world の #worldStage と同系)。 */
+      box-shadow: 0 0 34px 8px rgba(0,0,0,0.55), 0 20px 50px -12px rgba(0,0,0,0.72);
     }
 
     /* 項目7: 読み込み中オーバーレイ。背景(town_phlan.jpg)が出るまで数秒真っ黒で無表示だったため、
