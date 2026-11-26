@@ -59,11 +59,13 @@
     .unit.acting { filter: drop-shadow(0 0 10px rgba(255,220,120,0.85)); }
     .unit.turn   { filter: drop-shadow(0 0 6px rgba(120,200,255,0.75)); }
 
-    /* 戦士(Adamant Knight): 32x32 × 10列 × 5行 → 2.5倍表示 = 80x80 */
+    /* 戦士: 本編 index.html と同じ正規シートを流用(旧 assets/knight_anim.png は存在せず 404 で戦士が消えていた)。
+       歩行 warrior_walk.png(576×384 = 96px×6列×4行, 右向き=row3)を待機に、
+       攻撃 warrior_attack.png(480×384 = 96px×5列×4行, 右向き=row3)を攻撃に使う。 */
     .unit.warrior {
-      width: 80px; height: 80px;
-      background-image: url("assets/knight_anim.png");
-      background-size: 800px 400px;
+      width: 96px; height: 96px;
+      background-image: url("assets/warrior_walk.png?v=8");
+      background-size: 576px 384px;
     }
     /* ゴブリン: 32x32 × 10列 × 10行 → 2倍表示 = 64x64 */
     .unit.goblin {
@@ -238,7 +240,8 @@
       font-size: 15px;
       line-height: 1.55;
       overflow-y: auto;
-      z-index: 20;
+      /* 勝敗時の暗幕(#result, z-index:100)の上に出して、下部ログが暗く沈んで読めなくなるのを防ぐ */
+      z-index: 120;
     }
     #log::before, #log::after {
       content: "";
@@ -376,8 +379,14 @@
   // ユニット定義
   // ─────────────────────────────────────────────────────────────
   const SPR = {
-    warrior: { w: 80, h: 80, frameW: 32, scale: 2.5, rowIdle: 0, rowAttack: 3, rowHurt: 1, rowDead: 4 },
-    goblin:  { w: 64, h: 64, frameW: 32, scale: 2.0, rowIdle: 0, rowAttack: 3, rowHurt: 1, rowDead: 4 },
+    // 戦士: 本編 index.html と同じ正規シートを流用(96px フレーム・右向き=row3)。
+    // 歩行(待機にも流用)と攻撃で別シート。死亡専用コマは無いので dead クラスで沈める。
+    warrior: {
+      w: 96, h: 96, frameW: 96, row: 3, hasDeath: false,
+      walk:   { url: "assets/warrior_walk.png?v=8",    sheetW: 576, sheetH: 384, cols: 6 },
+      attack: { url: "assets/warrior_attack.png?v=11", sheetW: 480, sheetH: 384, cols: 5 },
+    },
+    goblin:  { w: 64, h: 64, frameW: 32, scale: 2.0, rowIdle: 0, rowAttack: 3, rowHurt: 1, rowDead: 4, hasDeath: true },
   };
 
   function makeUnit(def) {
@@ -426,7 +435,22 @@
     u.hpWrap.style.top  = (u.y - 22) + "px";
   }
 
+  // 戦士は別シート(歩行/攻撃)を切り替える。ゴブリンは単一シートの行/列指定。
+  function setWarriorSheet(u, which) {
+    const spr = SPR.warrior;
+    if (u._sheet === which) return;
+    const sh = spr[which];
+    u.el.style.backgroundImage = `url("${sh.url}")`;
+    u.el.style.backgroundSize  = `${sh.sheetW}px ${sh.sheetH}px`;
+    u._sheet = which;
+  }
+  function setWarriorFrame(u, col, which) {
+    const spr = SPR.warrior;
+    setWarriorSheet(u, which);
+    u.el.style.backgroundPosition = `${-col * spr.frameW}px ${-spr.row * spr.frameW}px`;
+  }
   function setFrame(u, col, row) {
+    if (u.kind === "warrior") { setWarriorFrame(u, col, "walk"); return; }
     const spr = SPR[u.kind];
     const fx = col * spr.frameW * spr.scale;
     const fy = row * spr.frameW * spr.scale;
@@ -473,13 +497,22 @@
   // アニメーション
   // ─────────────────────────────────────────────────────────────
   async function playAttackAnim(u) {
-    const spr = SPR[u.kind];
     u.el.classList.add("acting");
-    for (let f = 0; f < 10; f++) {
-      setFrame(u, f, spr.rowAttack);
-      await sleep(55);
+    if (u.kind === "warrior") {
+      // 攻撃シートの 5 コマ(右向き=row3)を再生し、待機姿勢へ戻す
+      for (let f = 0; f < SPR.warrior.attack.cols; f++) {
+        setWarriorFrame(u, f, "attack");
+        await sleep(70);
+      }
+      setWarriorFrame(u, 0, "walk");
+    } else {
+      const spr = SPR[u.kind];
+      for (let f = 0; f < 10; f++) {
+        setFrame(u, f, spr.rowAttack);
+        await sleep(55);
+      }
+      setFrame(u, 0, spr.rowIdle);
     }
-    setFrame(u, 0, spr.rowIdle);
     u.el.classList.remove("acting");
   }
   async function playHurtFlash(u) {
@@ -489,9 +522,14 @@
   }
   async function playDeath(u) {
     const spr = SPR[u.kind];
-    for (let f = 0; f < 10; f++) {
-      setFrame(u, f, spr.rowDead);
-      await sleep(60);
+    if (spr.hasDeath) {
+      for (let f = 0; f < 10; f++) {
+        setFrame(u, f, spr.rowDead);
+        await sleep(60);
+      }
+    } else {
+      // 専用の死亡コマが無い戦士: 待機姿勢のまま dead クラス(灰色+減光)で沈める
+      setWarriorFrame(u, 0, "walk");
     }
     u.el.classList.add("dead");
     u.hpWrap.style.display = "none";
