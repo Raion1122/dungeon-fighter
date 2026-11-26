@@ -68,14 +68,15 @@
     :root {
       /* ★[#101] 更新情報の箱が使う 4 つ (値は tavern.html:12-17 と同じ。⛔ 闇市版 tavern.html:1418- の値は写さない)。
          ⚠ 消すと箱の背景が透明になり、地図の上で文字が読めない (依頼書 §2-4)。 */
-      /* 方針Y(縮小版): CSS 生成の微細グレイン(SVG noise・容量ゼロ)を薄く重ねる。紙面の明度・可読性は据え置き。 */
-      --parchment-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='pt'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23pt)' opacity='0.06'/%3E%3C/svg%3E"), linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      /* ★Phase3-B(本物テクスチャ): 方針Y の微細グレインを「厚塗り」へ深化。繊維グレイン+経年ムラの2層 SVG noise(容量ゼロ)で古びた羊皮紙の手触りに。紙面の明度・gradient 値は不変=可読性保護。 */
+      --parchment-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='pm'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.015' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Cfilter id='pg'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23pm)' opacity='0.09'/%3E%3Crect width='140' height='140' filter='url(%23pg)' opacity='0.13'/%3E%3C/svg%3E"), linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
       --parchment-ink-soft: #5a4323;
       --parchment-border: #6e4d10;
       /* ★Phase3-A(奥行きと光): 落ち影を強め(光源=上)+天面のハイライト。パネルを卓から持ち上げる。※inset の暖色グロー/真鍮リングは据え置き。 */
       --parchment-shadow: 0 14px 30px -12px rgba(0,0,0,0.6), 0 5px 13px -5px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,241,214,0.4), inset 0 0 22px rgba(90,55,20,0.3), inset 0 0 0 2px rgba(120,86,24,0.45);
-      /* ★Phase3-A: 卓(石床/木天板)の地と光。地図/依頼票が「卓に広げられている」地。world/town の余白と body 地に使う(同値を全ファイルへ=最小限の束ね)。 */
-      --table-ground: radial-gradient(ellipse 120% 80% at 50% 12%, rgba(120,82,38,0.40) 0%, rgba(40,26,13,0.30) 42%, transparent 72%), radial-gradient(ellipse 150% 130% at 50% 60%, transparent 48%, rgba(0,0,0,0.62) 100%), linear-gradient(180deg, #171009 0%, #0c0805 60%, #060402 100%);
+      /* ★Phase3-A: 卓(石床/木天板)の地と光。地図/依頼票が「卓に広げられている」地。world/town の余白と body 地に使う(同値を全ファイルへ=最小限の束ね)。
+         ★Phase3-B: 黒樫の木目(横方向に伸ばした SVG noise・容量ゼロ)を最上層へ薄く重ねて「木天板の手触り」を足す。暗色面=本文なし=可読性に無関係。 */
+      --table-ground: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='160'%3E%3Cfilter id='wd'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.008 0.14' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='160' filter='url(%23wd)' opacity='0.14'/%3E%3C/svg%3E"), radial-gradient(ellipse 120% 80% at 50% 12%, rgba(120,82,38,0.40) 0%, rgba(40,26,13,0.30) 42%, transparent 72%), radial-gradient(ellipse 150% 130% at 50% 60%, transparent 48%, rgba(0,0,0,0.62) 100%), linear-gradient(180deg, #171009 0%, #0c0805 60%, #060402 100%);
       /* ★Phase3-A: 卓上の物に重ねるビネット+天頂光(pointer-events:none で可読性に触れない)。 */
       --table-vignette: radial-gradient(ellipse 100% 70% at 50% 8%, rgba(200,150,70,0.12) 0%, transparent 46%), radial-gradient(ellipse 130% 115% at 50% 50%, transparent 60%, rgba(0,0,0,0.5) 100%);
       --parchment-ink: #3a2912;
