@@ -1280,7 +1280,10 @@
       color: var(--parchment-ink);
       font-family: 'Noto Serif JP', serif;
       z-index: 15;            /* title(10) より上、モーダル(90/100) より下 */
-      pointer-events: auto;   /* スクロール可 */
+      /* ★[群衆/#101] 本体は押下を透過させる。desktop では更新情報パネルが舞台右上の扉札
+         (武器防具屋 tavernDoor_shop・tile [13,3]) の中心へ重なり、押下を奪っていた
+         (verify_npc_crowd (2b)(5b) の赤)。開閉ヘッダだけ下で pointer-events:auto へ戻す。 */
+      pointer-events: none;
     }
     #changelogBox .changelogHeader {
       font-family: 'MedievalSharp', serif;
@@ -1290,6 +1293,7 @@
       letter-spacing: 1px;
       border-bottom: 1px solid var(--parchment-border);
       padding-bottom: 5px; margin-bottom: 6px;
+      pointer-events: auto;   /* ★[群衆] 本体を none にしても開閉タップは効かせる(スマホは既定で畳む) */
     }
     #changelogBox .changelogList { margin: 0; padding-left: 16px; }
     #changelogBox .changelogList li {
