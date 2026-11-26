@@ -92,8 +92,9 @@
       --brass-light: #c9a24e;
       --brass-deep: #4a3308;
       --route-ink: #f6ead0;            /* 点線の明色。luma 234.7 (依頼書 §12-2 の「luma >= 220」) */
-      /* ★Phase3-A(羊皮紙化): 他画面と同値の「卓の地と光」。冷たい暗色の浮きを温かい卓へ寄せる(同値を全ファイルへ=最小限の束ね)。 */
-      --table-ground: radial-gradient(ellipse 120% 80% at 50% 12%, rgba(120,82,38,0.40) 0%, rgba(40,26,13,0.30) 42%, transparent 72%), radial-gradient(ellipse 150% 130% at 50% 60%, transparent 48%, rgba(0,0,0,0.62) 100%), linear-gradient(180deg, #171009 0%, #0c0805 60%, #060402 100%);
+      /* ★Phase3-A(羊皮紙化): 他画面と同値の「卓の地と光」。冷たい暗色の浮きを温かい卓へ寄せる(同値を全ファイルへ=最小限の束ね)。
+         ★Phase3-B: 黒樫の木目(横方向に伸ばした SVG noise・容量ゼロ)を最上層へ。他画面の --table-ground と同値を保つ(world では未消費=見た目は不変)。 */
+      --table-ground: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='160'%3E%3Cfilter id='wd'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.008 0.14' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='160' filter='url(%23wd)' opacity='0.14'/%3E%3C/svg%3E"), radial-gradient(ellipse 120% 80% at 50% 12%, rgba(120,82,38,0.40) 0%, rgba(40,26,13,0.30) 42%, transparent 72%), radial-gradient(ellipse 150% 130% at 50% 60%, transparent 48%, rgba(0,0,0,0.62) 100%), linear-gradient(180deg, #171009 0%, #0c0805 60%, #060402 100%);
       --table-vignette: radial-gradient(ellipse 100% 70% at 50% 8%, rgba(200,150,70,0.12) 0%, transparent 46%), radial-gradient(ellipse 130% 115% at 50% 50%, transparent 60%, rgba(0,0,0,0.5) 100%);
       /* ★Phase3-A 修正(木目): 温かい卓が backdrop の filter(brightness 0.34)に潰され黒く見えた(実テストの指摘)。
          filter の掛からない body へ木目テクスチャ(feTurbulence の横木目・半透明の重ね)を据える。 */
