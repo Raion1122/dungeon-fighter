@@ -63,8 +63,10 @@
   -->
   <style>
     :root {
-      /* ★Phase3-B(本物テクスチャ): 方針Y の微細グレインを「厚塗り」へ深化。繊維グレイン+経年ムラの2層 SVG noise(容量ゼロ)で古びた羊皮紙の手触りに。紙面の明度・gradient 値は不変=可読性保護。 */
-      --parchment-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='pm'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.015' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Cfilter id='pg'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23pm)' opacity='0.09'/%3E%3Crect width='140' height='140' filter='url(%23pg)' opacity='0.26'/%3E%3C/svg%3E"), linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      /* ★Phase3-B 修正(本物テクスチャ): 繊維グレインを異方性ノイズ(横方向に伸びた筋)へ作り直し+タイルを200pxへ拡大。
+         旧 baseFrequency 0.9 は細かすぎて通常の距離では一様グレーに均されて見えなかった(実測)。
+         通常の距離でも繊維の筋が見え、かつ紙面の明度・gradient 値は不変=可読性保護。経年ムラ(pm)は据え置き。 */
+      --parchment-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='pm'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.015' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Cfilter id='pg'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.022 0.4' numOctaves='2' seed='11' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23pm)' opacity='0.09'/%3E%3Crect width='200' height='200' filter='url(%23pg)' opacity='0.5'/%3E%3C/svg%3E"), linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
       --parchment-ink: #3a2912;
       --parchment-ink-soft: #5a4323;
       --parchment-gold: #8a5e10;
