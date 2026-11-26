@@ -153,13 +153,15 @@
       color: #a08046;
       margin-top: 6px;
     }
-    /* ★Phase3-C(飾り罫 + 封蝋ロゼット): 中世写本の見出し罫。中央に真鍮の菱形の封蝋(SVG)。 */
+    /* ★Phase3-C 修正(封蝋): 金の菱形では「封蝋」に見えなかった(実テストの指摘)。
+       飾り罫の中央に、押印跡つきの赤い丸の封蝋(SVG)を据える。溝を落とす drop-shadow で卓から持ち上げる。 */
     #titleRule {
       width: min(320px, 82%);
-      height: 14px; margin: 12px auto 10px;
+      height: 30px; margin: 12px auto 10px;
       background:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='14'%3E%3Cpath d='M11 0.5 L15.5 7 L11 13.5 L6.5 7 Z' fill='%236e4d10'/%3E%3Cpath d='M11 3 L13.6 7 L11 11 L8.4 7 Z' fill='%238a5e10'/%3E%3Ccircle cx='11' cy='7' r='1.1' fill='%23c9a24e'/%3E%3C/svg%3E") no-repeat center / 22px 14px,
-        linear-gradient(90deg, transparent 0, var(--parchment-gold) 14%, var(--parchment-gold) 40%, transparent 46%, transparent 54%, var(--parchment-gold) 60%, var(--parchment-gold) 86%, transparent 100%) no-repeat center / 100% 1.6px;
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30'%3E%3Ccircle cx='15' cy='15' r='13.5' fill='%235c0f0c'/%3E%3Ccircle cx='15' cy='15' r='12.5' fill='%23a81f17'/%3E%3Cellipse cx='11' cy='10.5' rx='6' ry='4.4' fill='%23d05542' opacity='0.5'/%3E%3Ccircle cx='15' cy='15' r='9' fill='none' stroke='%236e130e' stroke-width='1'/%3E%3Cpath d='M15 7 L16.9 13.1 L23 15 L16.9 16.9 L15 23 L13.1 16.9 L7 15 L13.1 13.1 Z' fill='%236e130e'/%3E%3Ccircle cx='15' cy='15' r='1.9' fill='%23c74a3a'/%3E%3C/svg%3E") no-repeat center / 30px 30px,
+        linear-gradient(90deg, transparent 0, var(--parchment-gold) 14%, var(--parchment-gold) 38%, transparent 44%, transparent 56%, var(--parchment-gold) 62%, var(--parchment-gold) 86%, transparent 100%) no-repeat center / 100% 1.6px;
+      filter: drop-shadow(0 2px 2px rgba(20,4,2,0.55));
     }
     #titleTag { font-size: clamp(11px, 3vw, 13px); color: #8d7a55; letter-spacing: 1px; }
 

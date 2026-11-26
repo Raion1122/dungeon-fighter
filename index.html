@@ -23,7 +23,9 @@
       /* ★Phase3-A: 卓上の物に重ねるビネット+天頂光(pointer-events:none で可読性に触れない)。 */
       --table-vignette: radial-gradient(ellipse 100% 70% at 50% 8%, rgba(200,150,70,0.12) 0%, transparent 46%), radial-gradient(ellipse 130% 115% at 50% 50%, transparent 60%, rgba(0,0,0,0.5) 100%);
       /* ★Phase3-C(彫り込み影): 見出しを紙/金属へ彫り込む。溝=上の暗、下の明(光源=上)。本文には使わない=可読性不可侵。 */
-      --heading-carve: 0 1px 0 rgba(255,246,220,0.45), 0 -1px 1px rgba(52,30,8,0.6), 0 2px 4px rgba(20,10,0,0.3);
+      /* ★Phase3-C 修正(彫り込みを強める): 旧値はごく薄く通常表示でほぼ平ら(実テストの指摘)。
+         上の暗い溝 + 下の明るい縁 + 落ち影を強め、紙・金属へくっきり彫り込む。本文には使わない=可読性不可侵。 */
+      --heading-carve: 0 1px 0 rgba(255,248,226,0.8), 0 -1px 0 rgba(44,25,6,0.9), 0 -1px 3px rgba(26,14,2,0.55), 0 2px 3px rgba(18,9,0,0.45), 0 4px 7px rgba(10,5,0,0.35);
       --brass-light: #c9a24e;
       --brass-deep: #4a3308;
       /* 戦闘HUDの占有領域 (JS computeUiMetrics が viewport に応じて上書き; カメラ計算と同一ソース) */
@@ -1406,15 +1408,15 @@
       margin-bottom: 14px;
       text-align: center;
     }
-    /* ★Phase3-C: 飾り罫 + 中央の封蝋ロゼット(SVG)。中世写本の見出し罫。本文の可読性には触れない。 */
+    /* ★Phase3-C 修正(封蝋): 飾り罫の中央に、押印跡つきの赤い丸の封蝋(SVG)。金の菱形では封蝋に見えなかった(実テストの指摘)。本文の可読性には触れない。 */
     .dmHeader::after {
       content: "";
       display: block;
-      height: 14px;
+      height: 20px;
       margin: 8px auto 0;
       background:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='14'%3E%3Cpath d='M11 0.5 L15.5 7 L11 13.5 L6.5 7 Z' fill='%236e4d10'/%3E%3Cpath d='M11 3 L13.6 7 L11 11 L8.4 7 Z' fill='%238a5e10'/%3E%3Ccircle cx='11' cy='7' r='1.1' fill='%23c9a24e'/%3E%3C/svg%3E") no-repeat center top / 22px 14px,
-        linear-gradient(90deg, transparent 0, rgba(110,77,16,0.5) 8%, rgba(110,77,16,0.5) 42%, transparent 46%, transparent 54%, rgba(110,77,16,0.5) 58%, rgba(110,77,16,0.5) 92%, transparent 100%) no-repeat center 6px / 100% 1.5px;
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30'%3E%3Ccircle cx='15' cy='15' r='13.5' fill='%235c0f0c'/%3E%3Ccircle cx='15' cy='15' r='12.5' fill='%23a81f17'/%3E%3Cellipse cx='11' cy='10.5' rx='6' ry='4.4' fill='%23d05542' opacity='0.5'/%3E%3Ccircle cx='15' cy='15' r='9' fill='none' stroke='%236e130e' stroke-width='1'/%3E%3Cpath d='M15 7 L16.9 13.1 L23 15 L16.9 16.9 L15 23 L13.1 16.9 L7 15 L13.1 13.1 Z' fill='%236e130e'/%3E%3Ccircle cx='15' cy='15' r='1.9' fill='%23c74a3a'/%3E%3C/svg%3E") no-repeat center top / 20px 20px,
+        linear-gradient(90deg, transparent 0, rgba(110,77,16,0.5) 8%, rgba(110,77,16,0.5) 40%, transparent 44%, transparent 56%, rgba(110,77,16,0.5) 60%, rgba(110,77,16,0.5) 92%, transparent 100%) no-repeat center 9px / 100% 1.5px;
     }
     .dmBody {
       font-size: 17px;

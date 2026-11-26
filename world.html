@@ -95,12 +95,24 @@
       /* ★Phase3-A(羊皮紙化): 他画面と同値の「卓の地と光」。冷たい暗色の浮きを温かい卓へ寄せる(同値を全ファイルへ=最小限の束ね)。 */
       --table-ground: radial-gradient(ellipse 120% 80% at 50% 12%, rgba(120,82,38,0.40) 0%, rgba(40,26,13,0.30) 42%, transparent 72%), radial-gradient(ellipse 150% 130% at 50% 60%, transparent 48%, rgba(0,0,0,0.62) 100%), linear-gradient(180deg, #171009 0%, #0c0805 60%, #060402 100%);
       --table-vignette: radial-gradient(ellipse 100% 70% at 50% 8%, rgba(200,150,70,0.12) 0%, transparent 46%), radial-gradient(ellipse 130% 115% at 50% 50%, transparent 60%, rgba(0,0,0,0.5) 100%);
+      /* ★Phase3-A 修正(木目): 温かい卓が backdrop の filter(brightness 0.34)に潰され黒く見えた(実テストの指摘)。
+         filter の掛からない body へ木目テクスチャ(feTurbulence の横木目・半透明の重ね)を据える。 */
+      --table-wood: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='wg'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.009 0.12' numOctaves='4' seed='14' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23wg)' opacity='0.22'/%3E%3C/svg%3E");
     }
     * { box-sizing: border-box; }
     html, body {
       margin: 0; padding: 0; width: 100%; height: 100%;
       overflow: hidden;                       /* ⚠ 受入条件 (5a): 横スクロールバーを出さない */
-      background: #0a0805;
+      /* ★Phase3-A 修正(木目+温かい光): 地図の外側を「温かい木の卓」に。body は #worldBackdrop の filter が
+         掛からない層なので、天頂の暖色光+四隅ビネット+木目テクスチャがそのまま効く。
+         ⚠ 受入(5a②)は「素の背景色 #0a0805 が可視域 5% 未満」= 卓色なら 0% なので余裕で通る。 */
+      background:
+        radial-gradient(ellipse 125% 80% at 50% -4%, rgba(238,188,100,0.30) 0%, rgba(150,96,36,0.12) 30%, transparent 60%),
+        radial-gradient(ellipse 150% 130% at 50% 55%, transparent 48%, rgba(0,0,0,0.6) 100%),
+        var(--table-wood),
+        linear-gradient(180deg, #4a3017 0%, #37240f 55%, #2a1a0c 100%);
+      background-size: 100% 100%, 100% 100%, 300px 300px, 100% 100%;
+      background-repeat: no-repeat, no-repeat, repeat, no-repeat;
       color: #f5e8c8;
       font-family: 'Cinzel', 'Times New Roman', serif;
       -webkit-text-size-adjust: 100%;
@@ -114,8 +126,11 @@
       position: fixed; inset: 0;
       background-image: url("assets/world_region.jpg");
       background-size: cover; background-position: center;
-      filter: blur(22px) brightness(0.34) saturate(0.55);
+      /* ★Phase3-A 修正: 地図の blur ゴーストを「温かい卓の上の淡い影」へ。暖色(sepia)で持ち上げ、
+         opacity を下げて body の木の卓を透かす = 余白が黒帯でなく木目+温光になる。 */
+      filter: blur(22px) brightness(0.6) saturate(0.6) sepia(0.35);
       transform: scale(1.08);                 /* blur の縁が透けるのを隠す */
+      opacity: 0.4;
       pointer-events: none;
       z-index: 0;
     }
