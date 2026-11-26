@@ -153,10 +153,13 @@
       color: #a08046;
       margin-top: 6px;
     }
+    /* ★Phase3-C(飾り罫 + 封蝋ロゼット): 中世写本の見出し罫。中央に真鍮の菱形の封蝋(SVG)。 */
     #titleRule {
       width: min(320px, 82%);
-      height: 1px; margin: 14px auto 10px;
-      background: linear-gradient(90deg, transparent, var(--parchment-gold), transparent);
+      height: 14px; margin: 12px auto 10px;
+      background:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='14'%3E%3Cpath d='M11 0.5 L15.5 7 L11 13.5 L6.5 7 Z' fill='%236e4d10'/%3E%3Cpath d='M11 3 L13.6 7 L11 11 L8.4 7 Z' fill='%238a5e10'/%3E%3Ccircle cx='11' cy='7' r='1.1' fill='%23c9a24e'/%3E%3C/svg%3E") no-repeat center / 22px 14px,
+        linear-gradient(90deg, transparent 0, var(--parchment-gold) 14%, var(--parchment-gold) 40%, transparent 46%, transparent 54%, var(--parchment-gold) 60%, var(--parchment-gold) 86%, transparent 100%) no-repeat center / 100% 1.6px;
     }
     #titleTag { font-size: clamp(11px, 3vw, 13px); color: #8d7a55; letter-spacing: 1px; }
 
