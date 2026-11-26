@@ -14,6 +14,12 @@
          通常の距離でも繊維の筋が見え、かつ紙面の明度・gradient 値は不変=可読性保護。経年ムラ(pm)は据え置き。 */
       --parchment-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='pm'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.015' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Cfilter id='pg'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.022 0.4' numOctaves='2' seed='11' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23pm)' opacity='0.09'/%3E%3Crect width='200' height='200' filter='url(%23pg)' opacity='0.5'/%3E%3C/svg%3E"), linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
       --parchment-ink: #3a2912;
+      /* ★Phase3-B 修正2(2026-11-26): 繊維グレインだけを取り出した再利用トークン。
+         --parchment-bg は #startBox/#inventory 専用で、DM ナレ・ステータス枠・各羊皮紙バナーは
+         素の linear-gradient のままだったため「繊維の筋が見えない」の指摘が出た(実測)。
+         この grain(pm 経年ムラ 0.09 + pg 異方性繊維 0.5・200px タイル)を各パネルの gradient の
+         手前へ重ねて筋を出す。gradient の色/向きは不変=可読性保護。 */
+      --parchment-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='pm'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.015' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Cfilter id='pg'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.022 0.4' numOctaves='2' seed='11' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23pm)' opacity='0.09'/%3E%3Crect width='200' height='200' filter='url(%23pg)' opacity='0.5'/%3E%3C/svg%3E");
       --parchment-ink-soft: #5a4323;
       --parchment-gold: #8a5e10;
       --parchment-gold-bright: #d4a84b;
@@ -1090,7 +1096,7 @@
       max-width: 680px;
       min-width: 280px;
       padding: 12px 26px;
-      background: linear-gradient(180deg, #f5e8c8 0%, #e8d4a0 50%, #dcc68e 100%);
+      background: var(--parchment-grain), linear-gradient(180deg, #f5e8c8 0%, #e8d4a0 50%, #dcc68e 100%);
       border: 3px solid #6a4010;
       border-radius: 4px;
       box-shadow: 0 6px 20px rgba(0,0,0,0.65), inset 0 0 20px rgba(130,80,30,0.25);
@@ -1389,7 +1395,7 @@
       transform: translateX(-50%);
       width: 760px;
       max-width: 92vw;
-      background: linear-gradient(180deg, #f5e8c8 0%, #e8d4a0 50%, #dcc68e 100%);
+      background: var(--parchment-grain), linear-gradient(180deg, #f5e8c8 0%, #e8d4a0 50%, #dcc68e 100%);
       border: 6px solid #6a4010;
       border-radius: 6px;
       box-shadow: 0 8px 32px rgba(0,0,0,0.7), inset 0 0 30px rgba(130,80,30,0.3);
@@ -2516,7 +2522,7 @@
     .hpChip {
       flex: 1 1 0; min-width: 52px; max-width: 140px; min-height: 56px;
       display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 4px 6px;
-      background: linear-gradient(135deg, #f1e2bb, #d8bc7e);
+      background: var(--parchment-grain), linear-gradient(135deg, #f1e2bb, #d8bc7e);
       border: 2px solid var(--parchment-border); border-radius: 3px; cursor: pointer; box-sizing: border-box;
     }
     .hpChip .chipName { font: 700 10px 'MedievalSharp', serif; color: var(--parchment-ink);
@@ -2546,7 +2552,7 @@
       font-family: 'MedievalSharp', 'Cinzel', serif;
       width: 100%;
       padding: 8px 14px 8px 14px;
-      background: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      background: var(--parchment-grain), linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
       border: 3px double var(--parchment-border);
       border-radius: 3px;
       box-shadow: 0 0 12px rgba(40,20,0,0.7), inset 0 0 20px rgba(120,80,30,0.25);
@@ -3071,7 +3077,7 @@
       z-index: 12;                    /* 矢印より上 (画面端でクランプされた時に重なるため) */
       max-width: 240px;
       padding: 7px 12px;
-      background: linear-gradient(180deg, #f5e8c8 0%, #e8d4a0 50%, #dcc68e 100%);
+      background: var(--parchment-grain), linear-gradient(180deg, #f5e8c8 0%, #e8d4a0 50%, #dcc68e 100%);
       border: 3px solid #6a4010;
       border-radius: 4px;
       box-shadow: 0 6px 20px rgba(0,0,0,0.65), inset 0 0 20px rgba(130,80,30,0.25);
@@ -3131,7 +3137,7 @@
     #resultBox {
       position: relative;
       padding: 44px 60px;
-      background: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      background: var(--parchment-grain), linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
       border: 3px double #8b6914;
       box-shadow: 0 0 12px rgba(40,20,0,0.6), inset 0 0 20px rgba(120,80,30,0.25);
       text-align: center;
