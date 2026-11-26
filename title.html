@@ -63,7 +63,8 @@
   -->
   <style>
     :root {
-      --parchment-bg: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      /* 方針Y(縮小版): CSS 生成の微細グレイン(SVG noise・容量ゼロ)を薄く重ねる。紙面の明度・可読性は据え置き。 */
+      --parchment-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='pt'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23pt)' opacity='0.06'/%3E%3C/svg%3E"), linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
       --parchment-ink: #3a2912;
       --parchment-ink-soft: #5a4323;
       --parchment-gold: #8a5e10;

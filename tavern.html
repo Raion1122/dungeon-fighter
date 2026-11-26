@@ -9,7 +9,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=MedievalSharp&display=swap" rel="stylesheet">
   <style>
     :root {
-      --parchment-bg: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      /* 方針Y(縮小版): 実テクスチャの代わりに CSS 生成の微細グレイン(SVG noise・容量ゼロ)を薄く重ねる。紙面の明度・可読性は据え置き。 */
+      --parchment-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='pt'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23pt)' opacity='0.06'/%3E%3C/svg%3E"), linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
       --parchment-ink: #3a2912;
       --parchment-ink-soft: #5a4323;
       --parchment-gold: #8a5e10;
@@ -290,6 +291,15 @@
       padding: 6px 0 6px 12px; margin-bottom: 16px; line-height: 1.7;
     }
     #recruitSlots { font-size: 13px; opacity: 0.8; margin-bottom: 14px; }
+    /* ⑥ 開閉アニメ(縮小版): モーダルの開き際に軽いポップイン(フェード+わずかな浮き上がり)。
+       箱は position:relative で base transform を持たないので transform を安全に動かせる。
+       親(#dialog 等)が display:none→表示に切り替わる度にアニメは再生される。
+       prefers-reduced-motion では無効化(酔い対策・index の 13 箇所前例に倣う)。 */
+    @keyframes dfBoxIn { from { opacity: 0; transform: translateY(10px) scale(0.985); } to { opacity: 1; transform: none; } }
+    #dialogBox, #soloBox, #recruitBox, #helpBox { animation: dfBoxIn 0.25s ease-out; }
+    @media (prefers-reduced-motion: reduce) {
+      #dialogBox, #soloBox, #recruitBox, #helpBox { animation: none; }
+    }
     #dialog {
       position: fixed;
       inset: 0;
@@ -364,7 +374,7 @@
     }
     .meta .k { color: var(--parchment-ink-soft); font-weight: 700; letter-spacing: 1px; }
     .meta .v { color: var(--parchment-ink); }
-    .meta .v.reward { color: #8b6914; font-weight: 700; }
+    .meta .v.reward { color: var(--parchment-gold); font-weight: 700; }
 
     .enemyList { margin-top: 4px; }
     .enemyList .tag {
@@ -796,7 +806,7 @@
       width: 17px;
       height: 17px;
       margin-top: 1px;
-      accent-color: #8b6914;
+      accent-color: var(--parchment-gold);
     }
     .apTacticRow label {
       flex: 1 1 auto;
@@ -1300,7 +1310,7 @@
       font-size: 15px;
       color: #f1e2bb;
       background: rgba(26,17,8,0.9);
-      border: 1px solid #8b6914;
+      border: 1px solid var(--parchment-border);
       border-radius: 6px;
       cursor: pointer;
       letter-spacing: 1px;
@@ -1318,7 +1328,7 @@
       font-size: 14px;
       color: #f1e2bb;
       background: rgba(26,17,8,0.88);
-      border: 1px solid #8b6914;
+      border: 1px solid var(--parchment-border);
       border-radius: 6px;
       cursor: pointer;
       letter-spacing: 1px;
@@ -1362,7 +1372,7 @@
       font-family: 'MedievalSharp', 'Noto Serif JP', serif;
       font-size: 15px; color: #f1e2bb;
       background: rgba(26,17,8,0.9);
-      border: 1px solid #8b6914; border-radius: 6px; cursor: pointer;
+      border: 1px solid var(--parchment-border); border-radius: 6px; cursor: pointer;
     }
     #helpCloseBtn:hover { background: rgba(60,40,15,0.95); color: #fff; }
 
@@ -1584,7 +1594,7 @@
     /* ════════ 闇市 ポドルプラザ ════════ */
     /* テーマ差し替え: 配下で CSS 変数を闇市カラーに上書き (背後の銀の鹿亭は羊皮紙のまま) */
     .theme-plaza {
-      --parchment-bg: linear-gradient(135deg, #221636 0%, #1a1226 50%, #120c1c 100%);
+      --parchment-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='pt'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23pt)' opacity='0.08'/%3E%3C/svg%3E"), linear-gradient(135deg, #221636 0%, #1a1226 50%, #120c1c 100%);
       --parchment-ink: #d8c8f0;
       --parchment-ink-soft: #a892c8;
       --parchment-gold: #45e0a8;       /* 怪しい燐光 */
@@ -2765,7 +2775,7 @@
     #pmRetreatRow .intelBtn { min-height: 44px; flex: 1 1 28%; justify-content: center; }
     #pmRetreatRow .intelBtn.on {
       background: var(--parchment-gold, #c8a046); color: #1a1108;
-      border-color: #8b6914; font-weight: 700;
+      border-color: var(--parchment-border); font-weight: 700;
     }
     /* 判定結果は行が増えるので帯の中だけで巻き取る (出発の口を画面外へ押し出さない)。 */
     #pmIntelResultList { max-height: 17vh; overflow-y: auto; }
@@ -3370,7 +3380,7 @@
     };
   })();
   </script>
-  <button id="settingsBtn" type="button" title="設定" style="position:fixed;bottom:18px;right:18px;z-index:30;background:rgba(26,17,8,0.86);color:#e9d7a8;border:1px solid #8b6914;border-radius:6px;padding:5px 11px;font-size:18px;line-height:1;cursor:pointer;font-family:'MedievalSharp',serif;">⚙</button>
+  <button id="settingsBtn" type="button" title="設定" style="position:fixed;bottom:18px;right:18px;z-index:30;background:rgba(26,17,8,0.86);color:#e9d7a8;border:1px solid var(--parchment-border);border-radius:6px;padding:5px 11px;font-size:18px;line-height:1;cursor:pointer;font-family:'MedievalSharp',serif;">⚙</button>
   <!-- オープニング前口上オーバーレイ (初回来訪時のみ表示) -->
   <div id="prologueOverlay">
     <div id="questAcceptArt">
