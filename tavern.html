@@ -4298,6 +4298,34 @@
       locked: true,
       unlockAfter: "undead-temple",   /* ★[#107] 神殿のクリア後 (js/world-map.js の UNLOCK と同じ) */
     },
+    /* ★[B / 2026-11-27] 新しい行き先「崩れた魔術師の塔」(本筋外・独立依頼)。
+       ⭐ 開発会議 (dev-meetings/2026-11-27_new-location-scenario.md) の候補 B を実施。construct アート流用・A2 知識(魔法)判定・新メカ無し。
+       ⭐ side = 卓の抽選の母集団には入るが「本筋」「次の未解放」の判定からは外れる (#82 と同じ)。
+       ⭐ locked:true = 開始直後の卓は今日のまま。砦のクリアで解放。
+       ⚠ ワールドマップには札を出さない (js/world-map.js の SITES に入れない) = 受注後は index.html へ直行する
+         (departToScenario の viaWorld 条件が SITES 不在で false になる)。⛔ world-map.js / world.html は触らない。
+       ⚠ id は index.html の SCENARIOS と同じ。 */
+    {
+      id: "arcane-tower",
+      place: "崩れた塔",            /* ⚠ id の直後に置く (検証ドライバが id → place の並びで配信バイトを読む) */
+      side: true,
+      title: "崩れた魔術師の塔",
+      difficulty: "★★★★",
+      recommendedLevel: 7,         /* 砦の後・神殿の前。⚠ 強さの実測で直してよい (リッチ流用のため手応えは重め) */
+      reward: "塔に遺された魔法の品",
+      client: { name: "賢者ヴェラ", role: "フラン魔術師ギルドの書記", type: "mage" },
+      dialog:
+        "「フランの郊外に、崩れかけた魔術師の塔がある。昔、禁じられた術——死を超える術を研究していた者の塔だ。" +
+        "最近、塔から魔力の脈動が漏れ出している。眠っていた術式を、誰かが、あるいは何かが目覚めさせたのだ。" +
+        "塔の主が遺した魔法の品と、そこに刻まれた術の知識。ギルドはそれを欲している。頼めるか」",
+      enemies: [
+        { name: "動く鎧", boss: false },
+        { name: "ガーゴイル", boss: false },
+        { name: "塔の主(リッチ)", boss: true },
+      ],
+      locked: true,
+      unlockAfter: "orc-fort",
+    },
   ];
   /* ══ 撤退スイッチ ?tower=0 (実装依頼書 #82 §7) ═════════════════════════════
      ⭐ このページだけで読む (world.html も自分で読む = ?heromark=0 と同じ「ページ単位で独立」)。
@@ -4365,6 +4393,16 @@
     if (!off) return;
     for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "frost-hold") scenarios.splice(i, 1);
     try { if (window.WORLD_MAP && window.WORLD_MAP.retireGiant) window.WORLD_MAP.retireGiant(); } catch (e) {}
+  })();
+  /* ══ 撤退スイッチ ?arcane=0 (新しい行き先 B・2026-11-27) ═════════════════════════════
+     ⭐ ?tower=0 〜 ?giant=0 と同じ「ページ単位で独立」。⛔ sessionStorage へ写さない。
+     配列から arcane-tower を外すだけ。⚠ ワールドマップには札を出していない (SITES 不在) ので
+     retire の呼び出しは無い (world.html / js/world-map.js は一切触らない)。 */
+  (function () {
+    var off = false;
+    try { off = new URLSearchParams(location.search).get("arcane") === "0"; } catch (e) { off = false; }
+    if (!off) return;
+    for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "arcane-tower") scenarios.splice(i, 1);
   })();
   /* ★[#82] 本筋 6 本 (side を除いた scenarios)。1 枚絵 (renderTables の既定) と奥の間が使う。
      ⭐ 毎回 scenarios から引く (別表を作らない = side を足し引きしても写しがズレない)。 */
