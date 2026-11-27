@@ -4377,6 +4377,35 @@
       locked: true,
       unlockAfter: "bandits-forest",
     },
+    /* ★[A 2026-11-28] 近海の難破船 — 海蝕洞の鱗の群れ (本筋外・独立依頼・会議の A 案の縮小版)。
+       海という未踏テーマを足す。潮の満ち引きメカは落とし (新メカ無し)、敵は鱗の魔物 1 種に絞る。
+       ⚠ 地図は消えた積荷 (lost-cargo) の卓上マップ 2 枚を themeId で流用 = 新しい codex マップ 0
+         (港の倉庫 → 浸水した甲板 / 地下水道の祠 → 海蝕洞の祭壇)。
+       ⚠ 敵は既存の鱗人スプライト流用 (lizardWarrior / lizardChieftain) + Giant Frog。新規スプライト 0・新 enemy 型 0。
+         ⇒ サハギン専用の絵と型 (§7 の全数表言い直し + SRD 照合) は予算と時間の制約で見送り、A2 の伝承で
+           「古い船乗りがサハギンと呼ぶ海の魚人」として海テーマを成立させる。
+       ⚠ ワールドマップには札を出さない (SITES 不在) = 受注後は index.html へ直行 (world-map.js / world.html は触らない)。
+       ⚠ id は index.html の SCENARIOS と同じ。 */
+    {
+      id: "sea-wreck",
+      place: "近海の難破船",        /* ⚠ id の直後に置く (検証ドライバが id → place の並びで配信バイトを読む) */
+      side: true,
+      title: "近海の難破船",
+      difficulty: "★★★",
+      recommendedLevel: 5,         /* 沼地の後の海の寄り道。⚠ 強さの実測で直してよい */
+      reward: "難破船に沈んだ交易品",
+      client: { name: "港湾警備隊長ソルン", role: "フラン港湾警備隊", type: "warrior" },
+      dialog:
+        "「近海の岩礁に、古い難破船が引っかかっておってな。先日から、鱗に覆われた海の魔物が甲板に這い上がり、港へ入る小舟を襲っておる。" +
+        "古い船乗りは奴らを『サハギン』と呼んで恐れた。海蝕洞の奥に巣があり、群れを束ねる大きな一体がいるという。あれを討てば、残りは海へ散る。フランの船路を守ってくれ」",
+      enemies: [
+        { name: "リザードマン戦士", boss: false },
+        { name: "Giant Frog", boss: false },
+        { name: "リザードマン族長", boss: true },
+      ],
+      locked: true,
+      unlockAfter: "lizard-swamp",
+    },
   ];
   /* ══ 撤退スイッチ ?tower=0 (実装依頼書 #82 §7) ═════════════════════════════
      ⭐ このページだけで読む (world.html も自分で読む = ?heromark=0 と同じ「ページ単位で独立」)。
@@ -4464,6 +4493,16 @@
     try { off = new URLSearchParams(location.search).get("raiders") === "0"; } catch (e) { off = false; }
     if (!off) return;
     for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "raider-camp") scenarios.splice(i, 1);
+  })();
+  /* ══ 撤退スイッチ ?wreck=0 (新しい行き先 A・2026-11-28) ═════════════════════════════
+     ⭐ ?tower=0 〜 ?raiders=0 と同じ「ページ単位で独立」。⛔ sessionStorage へ写さない。
+     配列から sea-wreck を外すだけ。⚠ ワールドマップには札を出していない (SITES 不在) ので
+     retire の呼び出しは無い (world.html / js/world-map.js は一切触らない)。 */
+  (function () {
+    var off = false;
+    try { off = new URLSearchParams(location.search).get("wreck") === "0"; } catch (e) { off = false; }
+    if (!off) return;
+    for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "sea-wreck") scenarios.splice(i, 1);
   })();
   /* ★[#82] 本筋 6 本 (side を除いた scenarios)。1 枚絵 (renderTables の既定) と奥の間が使う。
      ⭐ 毎回 scenarios から引く (別表を作らない = side を足し引きしても写しがズレない)。 */
@@ -7569,6 +7608,9 @@
        ロダン隊長 = 地図を手にした鎧の護衛隊長の立ち絵を、隊商頭ガレス (護衛頭・warrior) の代役に流用する。
        ⭐ 流用元 id を文字列で持つ = assets を複製せず (scene は 2.3MB) バイト増ゼロ。 */
     "raider-camp":    "orc-fort",
+    /* ★[A 2026-11-28] 近海の難破船。専用立ち絵は作らない方針 (新規スプライト 0)。⇒ 砦 (orc-fort) の
+       鎧の隊長の立ち絵を、港湾警備隊長ソルン (警備隊長・warrior) の代役に流用する (バイト増ゼロ)。 */
+    "sea-wreck":      "orc-fort",
   };
   // ── 受注ナレ 風景帯(段階導入)──────────────────────────
   // 風景画 assets/scene_<id>.png を用意済みの scenarioId のみ src を入れる。未用意 (本筋外の
@@ -7584,6 +7626,9 @@
     /* ★[D 不具合#1 2026-11-27] 砦 (orc-fort) の崩れた石造りの廃墟 = 丘の道 → 崩れた物見櫓 の舞台と合う。
        立ち絵と同じく流用元 id を文字列で持つ (バイト増ゼロ)。 */
     "raider-camp":    "orc-fort",
+    /* ★[A 2026-11-28] 近海の難破船。水辺の舞台に合わせ、沼地 (lizard-swamp) の水場の風景を
+       浸水した甲板 → 海蝕洞の背景として流用する (立ち絵と同じく流用元 id を文字列で持つ・バイト増ゼロ)。 */
+    "sea-wreck":      "lizard-swamp",
   };
   /* CLIENT_ART / SCENE_ART の値から読む立ち絵/風景の id を解決する。
      true → 自分の id / 文字列 → その流用元 id / 偽値 → null (立ち絵・風景を出さない)。 */
