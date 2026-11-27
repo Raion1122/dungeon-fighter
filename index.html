@@ -3948,6 +3948,7 @@
       "silent-tomb":     75,   // ★[#105] 隠し 3 (礼金 250 と合わせて 325)
       "witch-hut":       75,   // ★[#106] 隠し 3 (礼金 250 と合わせて 325。取り引きを選ぶと礼金 0 = 75 だけ)
       "frost-hold":      75,   // ★[#107] 隠し 3 (礼金 400 と合わせて 475)
+      "arcane-tower":    75,   // ★[B 2026-11-27] 隠し 3 (礼金と合わせる)
     };
     function roadChestBonusGold() {
       if (!ROAD_CHEST_ON || !currentScenario) return 0;
@@ -4289,6 +4290,12 @@
                           wallFace: "wall_face_undead-temple.png",
                           wallTop:  "wall_top_undead-temple.png",
                           wallTint: { color: "92,100,116",  a: 0.42 } },
+      /* ★[B 2026-11-27] 崩れた魔術師の塔 (本筋外・独立依頼)。新しい素材は足さない (塔の 1 枚絵は silent-tomb を流用)。
+       * ⚠ 無いと SCENARIO_TEX の既定 (廃坑) へ落ちる = 宣言して落ちていないことを明示する。 */
+      "arcane-tower":   { floor: "床1.png",        wall: "壁1.png",
+                          wallFace: "wall_face_goblin-mine.png",
+                          wallTop:  "wall_top_goblin-mine.png",
+                          wallTint: { color: "228,234,244", a: 0.34 } },
       // 隊商護衛 (7.9-3): 屋外の街道。専用テクスチャ = 踏み固めた土の道 + 街道脇の路肩(低い乾式石積み)。
       // ChatGPT 自動生成 (painterly・シームレス)。iOS の 96px/タイル制約に合わせ粒度は粗め。
       // ⚠️ [地平線ビュー STEP4] wall は**路肩専用の横長ストリップ 1024×96**。旧 caravan_road_wall.png は
@@ -4930,6 +4937,10 @@
        *   (trapCount:1 × search を両方に宣言) / 宝箱は n0 (峠道) だけ。
        *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。 */
       t["frost-hold"] = { n0: ["search", "loot"], n1: ["search"] };
+      /* ★[B 2026-11-27] 崩れた魔術師の塔も 2 ノード (崩れた広間 n0 → 塔主の書斎 n1)。罠は「部屋ごとに 1 つ」
+       *   (trapCount:1 × search を両方に宣言) / 宝箱は n0 (広間) だけ。
+       *   ⛔ 忘れると罠も宝箱も無言でゼロになる (森 #16 で実際に踏んだ)。 */
+      t["arcane-tower"] = { n0: ["search", "loot"], n1: ["search"] };
       return t;
     })();
     /* ★[P9 / 2026-08-20 ユーザー決定] 大部屋 n1 の「行かない小部屋」への寄り道の撤退スイッチ。
@@ -12544,6 +12555,31 @@
           ["frostGiant", 57, 13],
         ],
       },
+      /* ★[B 2026-11-27] 崩れた魔術師の塔 (本筋外・独立依頼・砦の後・推奨 Lv7)。
+       * ⭐ 実際の盤面は buildArcaneTowerRun (卓上マップ 2 枚・themeId は silent-tomb を流用)。spawns は ?graph=0 の単一マップ用の退避先。
+       * ⭐ trapCount:1 × NODE_EXTRA_SPAWN_KINDS の n0/n1 両方の search = 罠は部屋ごとに 1 つ。
+       *   trapTypeByNode は罠の**語り**だけを変える (乱数を 1 つも足さない) = glyph (銀の紋) / manaRune (魔力の紋)。
+       * ⭐ 敵は構造物系 (tombArmor / tombGargoyle = 休眠しない既存型) + ボスはリッチ (不死の大魔道士)。
+       * ⚠ 値は出発点。強さの実測 (別途のプレイテスト) と合わせて直してよい。 */
+      "arcane-tower": {
+        title: "崩れた魔術師の塔 — フラン郊外の魔法研究所跡",
+        flavor: "崩れた塔に棲みついた構造物の番人を抜け、禁じられた術で不死を得た塔の主を再び鎮めよ",
+        perceptionDC: 15,
+        trapCount: 1,
+        trapTypeByNode: { n0: "glyph", n1: "manaRune" },
+        hiddenChestCount: 3,
+        clearXp: 900,
+        clearGold: 300,
+        spawns: [
+          /* ?graph=0 用。buildArcaneTowerRun の slots と同じ顔ぶれを並べる (⛔ animatedArmor / gargoyle / stoneGolem を置かない) */
+          // 崩れた広間: ガーゴイル 2 + 動く鎧 2
+          ["tombGargoyle", 27, 13], ["tombGargoyle", 28, 14],
+          ["tombArmor", 39, 12], ["tombArmor", 39, 14],
+          // 塔主の書斎: 動く鎧 1 + ガーゴイル 1 + リッチ
+          ["tombArmor", 55, 14], ["tombGargoyle", 55, 11],
+          ["lich", 57, 13],
+        ],
+      },
     };
 
     // 生成クエスト (酒場の掲示板) があれば ad-hoc シナリオとして採用 (敵キーは ENEMY_TYPES で検証)
@@ -16920,6 +16956,13 @@
         "峠の道には、潰れた荷車が転がっている。空から降ってきた岩が、隊商を荷ごと押し潰したのだ。",
         "峠の上に、古い氷の砦がある。山から下りてきた霜の巨人が、そこを新しい住処にしたという。",
         "さあ、雪の峠へ踏み込め。",
+      ],
+      /* ★[B 2026-11-27] 崩れた魔術師の塔 (ファラクサスの魔術の系譜・不死を求めた塔の主の伏線) */
+      "arcane-tower": [
+        "フランの郊外、崩れかけた石の塔の前に君たちは立った。ひび割れた壁の隙間から、青白い光がかすかに漏れている。",
+        "塔の扉は、魔法の封印で閉ざされていた——が、封は内側から、すでに破られていた。",
+        "床にも壁にも、古い術式が刻まれている。禁じられた術——死を超える術を、この塔の主は求めたのだ。",
+        "さあ、崩れた塔へ踏み込め。",
       ],
     };
     /* ★[#111] 卵の親が居る回だけ、巣穴の開幕の語りの 3 行目と 4 行目の間に 1 行 (EGG_PARENT_ON = 赤い卵の印・撤退 ?eggparent=0)。
@@ -28952,6 +28995,27 @@
     }
     setInterval(tryFrostHallNarration, 400);
 
+    /* ══ ★[B 2026-11-27] 塔主の書斎の語り (n1 に入ったとき 1 回・魔力の暴発 + ファラクサスの伏線) ═══════════════════════
+     * ⭐ 会議の具体案「ボスの手番行動で『魔力の暴発』1 回」。⛔ 戦闘ループ (runEncounter) には触れない =
+     *   tryFrostHallNarration (#107) をそのまま写した**語りだけ**の演出 (リッチは既に召喚・恐怖・ファイアボールを持つ)。
+     * ⭐ 塔の主が不死を得た術の残響としてファラクサスの脅威を本筋の外から語る (dm-narration のトーン)。
+     *   到着の語り・ボス部屋の囁きを上書きしない (#dmMessage が出ていない tick を待つ)。
+     * ⛔ 2 択を作らない・Math.random を 1 度も引かない。⚠ ?graph=0 の単一マップ (RUN = null) では語らない。 */
+    let arcaneSurgeNarrated = false;
+    window.__arcaneSurgeProbe = window.__arcaneSurgeProbe || [];
+    function tryArcaneSurgeNarration() {
+      if (arcaneSurgeNarrated) return;
+      if (!RUN || !gameStarted || gameOver || dungeonCleared) return;
+      if (scenarioId !== "arcane-tower" || currentNodeId !== RUN.bossNodeId) return;
+      if (nodeBusy || narrationPlaying || dialogPaused || skillCheckActive) return;
+      const dm = document.getElementById("dmMessage");
+      if (dm && dm.classList.contains("show")) return;   // 到着・ボス部屋の語りを上書きしない
+      arcaneSurgeNarrated = true;
+      window.__arcaneSurgeProbe.push({ node: currentNodeId, at: Date.now(), encounter: !!(encounterActive || encounterRunning) });
+      showDMMessage("書斎の空気が歪み、床の術式の綻びから魔力が暴発した——骨の指をかざした塔の主が、嗤う。「死を超える術は、まだ完成しておらぬ。だが貴様らを塵にするには、これで足りる」", 4800);
+    }
+    setInterval(tryArcaneSurgeNarration, 400);
+
     async function runWitchHagDialog() {
       showDMMessage("大鍋の湯気の向こうで、緑の肌の老婆が笑った。霧の中に、溺れた村人たちが立ち尽くしている。", 4200);
       await sleepMs(1200);
@@ -29587,6 +29651,8 @@
       /* ★[#107] 雪崩の罠 / 氷の床 = 語りだけ違う罠 (ダイス・解除 XP は damage と同じ)。霜の巨人の砦の n0 (峠道) / n1 (大広間) が宣言する。 */
       avalanche: { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "張られた綱が切れた——崖の上から雪と岩が崩れ落ちてくる!" },
       iceFloor:  { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "磨かれた氷の床で足が滑った——氷の棘の上へ叩きつけられる!" },
+      /* ★[B 2026-11-27] 魔力の紋 = 語りだけ違う罠 (ダイス・解除 XP は damage と同じ = 強さを崩さない)。崩れた魔術師の塔の n1 (書斎) が宣言する。 */
+      manaRune:  { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "宙に浮かぶ術式の紋が青白く燃え上がった——魔力の罠だ!" },
     };
     /* ★[#103] いまのノードの罠の種類。⛔ Math.random を呼ばない (spawnTraps の乱数の消費順を変えない = 依頼書 §2-4)。 */
     function trapTypeForNode() {
@@ -43555,6 +43621,23 @@
         fail:    "熱気に揺らぐ岩肌からは、骨の軋みのほかに何も読み取れなかった。",
         damageOnFumble: false,
       },
+      /* ★[B 2026-11-27] 崩れた魔術師の塔 — 入口で封印の術式を読み解く知識(魔法学)判定。
+       *   会議の具体案「A2 知識(魔法)判定で封印を解く(入口)」。救済 = 候補 0 無罰 / 失敗も無罰 (見逃すだけ)。 */
+      "arcane-tower": {
+        key: "a2_tower_arcana",
+        prompt: "崩れた扉の跡に、半ば破られた封印の術式が、まだ宙に青白く浮かんでいる。文様は、かすかに脈動している。",
+        proceedLabel: "術式に触れず先へ進む",
+        actLabel: "封印の術式を読み解く(魔法学)",
+        escLabel: "立ち去る (Esc)",
+        check: "arcana", dc: 13, classes: ["mage", "elf"],
+        title: "魔法学判定",
+        flavor: "宙に浮かぶ術式の文様を一つずつ辿り、塔の主が編んだ封印の意味を手繰り寄せる…",
+        proceed: "君たちは脈動する術式に触れず、崩れた広間の奥へと進んだ。",
+        success: "術式は『生者を阻み、死者を繋ぎ止める』ための封印だった。塔の主は死してなお、自らをこの塔に縛りつけている——奥で待つのは、もはや生きた人間ではない。",
+        crit:    "術式は完全に読み解けた。これはファラクサスの術の系譜に連なる不死の封印——塔の主はリッチと化し、竜の主がもたらした術でこの塔に留まり続けている。綻びを突けば、その守りは緩むだろう。",
+        fail:    "文様は半ば崩れ、意味を結ばなかった。ただ、奥から漏れる魔力の脈動だけが、確かに強くなっている。",
+        damageOnFumble: false,
+      },
     };
 
     async function runA2Event(ev, spec) {
@@ -43707,6 +43790,7 @@
       if (scenId === "silent-tomb") return buildSilentTombRun();   // ★[#105] 本筋外の 10 本目
       if (scenId === "witch-hut") return buildWitchHutRun();   // ★[#106] 本筋外の 11 本目
       if (scenId === "frost-hold") return buildFrostHoldRun();   // ★[#107] 本筋外の 12 本目
+      if (scenId === "arcane-tower") return buildArcaneTowerRun();   // ★[B 2026-11-27] 新しい行き先 (本筋外)
       return null;                         // 生成クエスト / 未対応 ID は従来の単一マップ
     }
 
@@ -45152,6 +45236,51 @@
         entry: "n0",
         nodes: [
           /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13) = 絵ローカル (23,7) = 砦の門。 */
+          { id: "n0", kind: "start", mapDef: n0,
+            exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
+          { id: "n1", kind: "boss", mapDef: n1, exits: [] },
+        ],
+      };
+    }
+
+    /* ── ★[B 2026-11-27] 崩れた魔術師の塔 (本筋外・独立依頼) — 卓上マップ 2 枚 ──────────────────────
+     *
+     *   n0 start 崩れた広間 ── right → n1 boss 塔主の書斎
+     *
+     * ⭐ 墓所 (#105) の型をそのまま流用: p6Node() を直接 2 回呼ぶ。themeId は silent-tomb を流用
+     *   (1 枚絵・テクスチャ・マスクを墓所から借りる = 新しい素材 0・新しい codex マップ 0。
+     *    「魔法使いの玄室」の絵は塔の主の書斎としてそのまま成立する)。
+     *   scenId は arcane-tower (A2 判定・ボスの語り・NODE_EXTRA_SPAWN_KINDS・SCENARIO_TEX は scenId で引く)。
+     * ⚠ 敵は構造物系 (tombArmor / tombGargoyle = 休眠しない非・第三勢力の既存型) + ボスはリッチ
+     *   (不死の大魔道士・ファラクサスの術の系譜)。⛔ animatedArmor / gargoyle / stoneGolem は置かない
+     *   (砦の守護者の休眠・第三勢力の仕掛けが起きる = #105 §2-12 の教訓)。
+     * ⚠ rect / paint / start / 敵タイルは buildSilentTombRun と同値 (検証済みの間合いをそのまま借りる)。
+     *   座標はすべて global = 絵ローカル + (16, 6)。 */
+    function buildArcaneTowerRun() {
+      /* n0 崩れた広間。入場 = 西の扉 (16,13) + NODE_ENTRY_INSET(2) = (18,13) = 絵ローカル (2,7)。
+       * 2 群 (墓所の前室と同じ間合い):
+       *   手前の崩れた回廊の番人 = ガーゴイル 2 (絵ローカル (5,3) (6,4))
+       *   奥の封印扉の前の番人 = 動く鎧 2 (絵ローカル (21,6) (21,8))
+       *   ⚠ 敵のタイルは n0big のマスクで全部 '.' (墓所の前室の slots を流用)。 */
+      const n0 = p6Node("arcane-tower", "silent-tomb", "n0", "崩れた広間", [6, 16, 21, 39], {
+        paint: "n0big", density: 0, start: { tx: 18, ty: 13 },
+        slots: [[21, 9, "tombGargoyle"], [22, 10, "tombGargoyle"],
+                [37, 12, "tombArmor"], [37, 14, "tombArmor"]],
+      });
+      /* n1 塔主の書斎 (ボス)。入場 = 西辺の中点 (16,13) + 2 = (18,13) = 絵ローカル (2,7)。
+       *   リッチ = 墓所のマミーと同じ床 (絵ローカル (15,7) = 入場から 13.0 タイル ≥ 13 = 入場の語りの最中に戦闘が始まらない)。
+       *   手下 = 動く鎧 1 / ガーゴイル 1 (リッチは召喚・恐怖オーラを持つので墓所より手下を 1 体減らした)。
+       *   ⚠ リッチは displaySize 240 = 墓所のマミーより大きい。(31,13) は石棺の西の開けた床で '.'。
+       *   ⚠ 石棺の台座 (絵ローカル col 16-20 / row 5-9) は n1big のマスクで塞いである。 */
+      const n1 = p6Node("arcane-tower", "silent-tomb", "n1", "塔主の書斎", [6, 16, 21, 39], {
+        paint: "n1big", density: 0, start: { tx: 18, ty: 13 },
+        slots: [[31, 15, "tombArmor"], [31, 10, "tombGargoyle"]],
+        boss: [31, 13, "lich"],
+      });
+      return {
+        entry: "n0",
+        nodes: [
+          /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13) = 絵ローカル (23,7)。 */
           { id: "n0", kind: "start", mapDef: n0,
             exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
           { id: "n1", kind: "boss", mapDef: n1, exits: [] },
