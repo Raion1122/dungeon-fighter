@@ -25,7 +25,7 @@
  *   - 乱数は固定しない。分布は測らない (§8「測らないこと」)。代わりに「何回引いても成り立つ不変条件」を複数回の引き直しで問う。
  *     ⭐ 回数は変異の検出を決定的にするための数:
  *       nofront の (1b) = cleared=[廃坑] で本筋 (森) を入れずに 4 件から 3 件 → 森が入る確率 3/4 ⇒ N_1B=25 で緑のまま (3/4)^25 ≒ 7.5e-4
- *       dup の (1c)     = 12 件から戻さずに 3 件 → 重複なし (11/12)(10/12) ≒ 0.764 ⇒ N_1C=26 で緑のまま 0.764^26 ≒ 9.1e-4
+ *       dup の (1c)     = 13 件 (本筋6+side7) から戻さずに 3 件 → 重複なし (12/13)(11/13) ≒ 0.781 ⇒ N_1C=26 で緑のまま 0.781^26 ≒ 1.6e-3
  *   - 町との往復 ((1g)) は town.html を実際に開き、町が施設へ入るときと同じ
  *     sessionStorage["dragonfighters.enterVia"]="tavern" + location.href="tavern.html" で戻る (town.html enterFacility の作法)。
  *   - 種まきに sessionStorage["dragonfighters.plazaClock"]="21" を入れる (CLAUDE.md #102 節: 酒場に触れるドライバの作法)。
@@ -99,6 +99,7 @@ const CARGO = 'lost-cargo';       /* ★[#104] 本筋の外・廃坑の後に受
 const TOMB = 'silent-tomb';       /* ★[#105] 森の後 */
 const HAG = 'witch-hut';          /* ★[#106] 沼地の後 */
 const GIANT = 'frost-hold';       /* ★[#107] 神殿の後 */
+const ARCANE = 'arcane-tower';    /* ★[B 2026-11-27] 崩れた魔術師の塔・砦 (orc-fort) の後 */
 const SHOP_NAME = '武器防具屋';
 const BACK_NAME = '奥の間へ';
 const VIEW = { width: 1440, height: 900 };
@@ -455,18 +456,19 @@ async function runSuite(browser, port, mutKey, label) {
     const s0 = await open('');
     SC_ALL.push(...(s0.scen || []));
     {
-      /* #81 (0b) の持ち越し: 本筋 6 件は一本道 + 本筋の外 (side) 6 件 (#82 塔の母 / #103 巣穴 / #104 倉庫街 / #105 墓所 / #106 魔女の小屋 / #107 霜の巨人の砦) */
+      /* #81 (0b) の持ち越し: 本筋 6 件は一本道 + 本筋の外 (side) 7 件 (#82 塔の母 / #103 巣穴 / #104 倉庫街 / #105 墓所 / #106 魔女の小屋 / #107 霜の巨人の砦 / B 崩れた魔術師の塔) */
       const sc = SC_ALL.filter((x) => !x.side), sd = SC_ALL.filter((x) => x.side);
       const sdL = sd.filter((x) => x.locked), one = (id) => sd.filter((x) => x.id === id);
-      const sdW = one(WARREN), sdC = one(CARGO), sdT = one(TOMB), sdH = one(HAG), sdG = one(GIANT);
+      const sdW = one(WARREN), sdC = one(CARGO), sdT = one(TOMB), sdH = one(HAG), sdG = one(GIANT), sdA = one(ARCANE);
       const chain = sc.length === 6 && !sc[0].locked && sc.slice(1).every((x, i) => x.locked && x.unlockAfter === sc[i].id)
-        && sd.length === 6 && sdL.length === 5 && sdL.every((y) => sc.some((x) => x.id === y.unlockAfter))
+        && sd.length === 7 && sdL.length === 6 && sdL.every((y) => sc.some((x) => x.id === y.unlockAfter))
         && sdW.length === 1 && !sdW[0].locked && !sdW[0].unlockAfter
         && sdC.length === 1 && sdC[0].locked && sdC[0].unlockAfter === sc[0].id
         && sdT.length === 1 && sdT[0].locked && sdT[0].unlockAfter === sc[1].id
         && sdH.length === 1 && sdH[0].locked && sdH[0].unlockAfter === sc[2].id
-        && sdG.length === 1 && sdG[0].locked && sdG[0].unlockAfter === sc[4].id && SC_ALL.length === 12;
-      R.check('(0c)', '[装置] scenarios が本筋 6 件の一本道 + 本筋の外 (side) 6 件 (' + WARREN + ' = locked なし / ' + CARGO + '・' + TOMB + '・' + HAG + '・' + GIANT + '・塔の母 = locked・前提は本筋)', chain,
+        && sdG.length === 1 && sdG[0].locked && sdG[0].unlockAfter === sc[4].id
+        && sdA.length === 1 && sdA[0].locked && sdA[0].unlockAfter === sc[3].id && SC_ALL.length === 13;
+      R.check('(0c)', '[装置] scenarios が本筋 6 件の一本道 + 本筋の外 (side) 7 件 (' + WARREN + ' = locked なし / ' + CARGO + '・' + TOMB + '・' + HAG + '・' + GIANT + '・' + ARCANE + '・塔の母 = locked・前提は本筋)', chain,
         SC_ALL.map((x) => x.id + (x.side ? '[side]' : '') + (x.locked ? '<' + x.unlockAfter : '')).join(' → '));
     }
     const ID = SC_ALL.filter((x) => !x.side).map((x) => x.id);   // 本筋の一本道の並び ((0c) が守る)
@@ -564,7 +566,7 @@ async function runSuite(browser, port, mutKey, label) {
     {
       const cl = ID.slice();
       const fx = F(cl);
-      let ok = fx.frontier === null && fx.unlocked.length === 12 && expCount(fx, SIZE) === 3;   /* 本筋 6 + side 6 が全部解放済み */
+      let ok = fx.frontier === null && fx.unlocked.length === 13 && expCount(fx, SIZE) === 3;   /* 本筋 6 + side 7 が全部解放済み */
       await prep({ cleared: cl });
       const row = [];
       for (let i = 0; i < N_1C; i++) {
