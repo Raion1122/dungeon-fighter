@@ -5824,7 +5824,8 @@
     const cap = Math.max(1, Math.min(10, (lv | 0) || 1));
     return SKILL_SLOT_CURVE[cap];
   }
-  /* 仲間 (NPC) の Lv を「主人公 Lv 以下・10 以下」に収める **唯一の口** (傭兵名簿 #38 項目2)。
+  /* 仲間 (NPC) の Lv を「主人公 Lv ±2・下限 1・上限 10」に収める **唯一の口** (傭兵名簿 #38 項目2 /
+     ★ 範囲は [決定 2026-11-27] で ≤主人公Lv から 主人公Lv±2 へ更新)。
      ⭐ 呼ぶのは 2 箇所だけ:
         ① assignCompanionLevels()  … 出発時に実 Lv を確定するとき
         ② levelOfMember()          … 準備画面・引き出しが Lv を引くとき (★[#72] memberLevelOf / lowestLevelOfClass もここ経由)
@@ -5837,9 +5838,18 @@
      ⛔ partySkills / allyEquip のデータ構造には触らない (依頼書 §3 / §12 の禁止事項)。
         ここが動かすのは「表示に使う Lv の求め方」だけ。 */
   function clampCompanionLevel(level, heroLevel) {
-    const cap = Math.min((heroLevel | 0) || 1, 10);
+    /* ★[決定 2026-11-27] 仲間 Lv は主人公 Lv に **連動** させる (必須)。幅は主人公 Lv ±2・
+       絶対下限 Lv1・絶対上限 Lv10 ⇒ clamp 範囲 = [max(1, h-2), min(10, h+2)]。
+       ⚠ 旧実装は上限 = min(h,10)・下限 = 1 だったため、名簿 (DFRoster) の低 Lv 古参を
+         声掛けで連れると主人公 Lv7 でも Lv1 のまま残った (「崩れた魔術師の塔」検証4で顕在化)。
+         本決定でこれを是正: 低い顔は h-2 まで底上げ、高い顔は h+2 まで頭打ち = 必ず ±2 に収まる。
+       ⛔ 名簿側の保存 Lv はここで書き換えない (clamp は **使うとき** だけ・育ちはそのまま残す)。 */
+    const h = Math.max(1, Math.min(10, (heroLevel | 0) || 1));
+    const lo = Math.max(1, h - 2);
+    const hi = Math.min(10, h + 2);
     const lv = Math.floor(Number(level));
-    return Math.max(1, Math.min(cap, isFinite(lv) && lv > 0 ? lv : 1));
+    const base = (isFinite(lv) && lv > 0) ? lv : h;
+    return Math.max(lo, Math.min(hi, base));
   }
   /* ★[#72 §5-2] メンバー本人 → その人の Lv。**Lv の引き方の唯一の口**。
        主人公             … 永続 XP 由来 (getLevelFromXP)
@@ -9585,7 +9595,7 @@
   })();
 
   // 仲間(NPC)のレベルをクエストのティア帯で個別抽選 (Q1=ティア帯ランダム)。
-  // 主人公(isHero)は永続Lvを維持。NPC は ≤主人公Lv かつ ≤10 にクランプ。
+  // 主人公(isHero)は永続Lvを維持。NPC は **主人公 Lv ±2** (下限1・上限10) にクランプ ([決定 2026-11-27])。
   function assignCompanionLevels(members, questLevel, heroLevel) {
     if (!members || !members.length) return;
     const tierKey = (typeof QuestGen !== "undefined" && QuestGen.qGetTier)
@@ -9596,7 +9606,8 @@
     members.forEach(m => {
       if (m.isHero) { m.level = heroLevel; return; }
       /* 傭兵名簿 (#38): **既知の顔は振り直さない**。名簿の Lv を clamp だけして使う。
-         ⛔ 上限 min(heroLevel, 10) は動かさない (既存不変条件「NPC Lv ≤ 主人公 Lv」)。
+         ★[決定 2026-11-27] clamp 範囲は主人公 Lv ±2 (下限1・上限10)。低 Lv 古参は h-2 まで底上げ、
+           高 Lv 古参は h+2 まで頭打ち = 必ず主人公 Lv に連動する (旧「NPC Lv ≤ 主人公 Lv」から更新)。
          ⭐ clamp の式は clampCompanionLevel() 1 箇所に集約した (項目2)。準備画面の
            memberLevelOf() も **同じ関数**を呼ぶので、表示 Lv と出発後の実 Lv が食い違わない。 */
       if (m.mercId != null && typeof m.level === "number" && m.level > 0) {

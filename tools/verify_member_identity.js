@@ -813,13 +813,17 @@ const UNITS = {
 
   /* P2g — 新顔の Lv はマッチング画面で確定し、出発で振り直さない (A2)。
    *   マッチングの同期区間は Math.random = 0.999 (帯の上端) / 出発の区間は Math.random = 0 (帯の下端) に固定する
-   *   ⇒ 出発で振り直せば **必ず** 別の値になる盤面で「同じ値のまま」を見る (装置 = 下端 ≠ 上端)。 */
+   *   ⇒ 出発で振り直せば **必ず** 別の値になる盤面で「同じ値のまま」を見る (装置 = 下端 ≠ 上端)。
+   *   ★[決定 2026-11-27] 仲間 Lv が主人公 Lv ±2 に連動するようになったため、主人公 Lv7 では tier1 の
+   *     帯 [2,4] は下端も上端も hero-2=5 へ畳まれ 下端 === 上端 になる (装置が死ぬ)。装置を生かすため
+   *     P2g だけ **tier2 シナリオ** (orc-fort・推奨 Lv6・帯 [5,8]) を使う: clamp [5,8] は hero7 でも 5≠8。 */
   async P2g(ctx) {
+    const P2G_SC = 'orc-fort';   // tier2 (推奨 Lv6)。±2 連動後も 帯の端が主人公 Lv7 で潰れない
     const p = await openTavern(ctx, 'P2g', baseLs(ctx, HERO_XP), ARM.A2);
     const party = [HERO('warrior'), NEWF('mage', 'ヨナ'), ROSTER('cleric', 'リタ', 2, 9002), ROSTER('elf', 'エル', 2, 9003)];
-    const play = await playForced(ctx, p, party, { psm: PSM, rngConst: 0.999 });
+    const play = await playForced(ctx, p, party, { psm: PSM, rngConst: 0.999, sc: P2G_SC });
     const atMatch = await p.evaluate(() => { const m = selection.partyMembers.find((x) => x.classKey === 'mage'); return { level: (typeof m.level === 'number') ? m.level : null, lom: levelOfMember(m), mercId: m.mercId != null ? m.mercId : null }; });
-    const dep = await departProbe(ctx, p, 'mage', 0);
+    const dep = await departProbe(ctx, p, 'mage', 0, P2G_SC);
     await closePage(ctx, p);
     ctx.D.P2g = { party, play, atMatch, dep };
   },
@@ -1051,7 +1055,7 @@ const CLERIC_TRUTH = () => {
 };
 /* 出発 (本番の departToScenario。遷移は abort)。rngConst を渡すと出発の区間だけ Math.random をその定数へ。
  *   lo / hi = 同じページの assignCompanionLevels を「帯の下端 (0)」と「上端 (0.999)」で空の顔に当てた値 (帯の端を写経しない)。 */
-async function departProbe(ctx, p, cls, rngConst) {
+async function departProbe(ctx, p, cls, rngConst, scId) {
   const r = await p.evaluate((c, rc, scId) => {
     const sc = scenarios.find((s) => s.id === scId);
     const heroLv = getLevelFromXP(inventory.xp);
@@ -1066,7 +1070,7 @@ async function departProbe(ctx, p, cls, rngConst) {
     try { departToScenario(); } catch (e) { err = String(e && e.message); } finally { Math.random = R0; }
     const pm = JSON.parse(sessionStorage.getItem('dragonfighters.partyMembers') || 'null');
     return { lo, hi, before, err, after: pm ? pm.filter((m) => m.classKey === c && !m.isHero).map((m) => m.level) : null, pmN: pm ? pm.length : null };
-  }, cls, (typeof rngConst === 'number') ? rngConst : null, SC_ID);
+  }, cls, (typeof rngConst === 'number') ? rngConst : null, scId || SC_ID);
   for (let i = 0; i < 40 && !p.__nav.length; i++) await sleep(100);   // 出発の遷移は非同期 (abort で止めたことを確かめる)
   r.nav = p.__nav.slice();
   return r;

@@ -85,9 +85,13 @@ const STAR_BASE = '★', STAR_UP = '★★';
 const LV_BASE = 2, LV_UP = 5;
 const SCEN_COUNT = 12;
 const BASE_REV = '56ac565';                     // #111 項目4 = #112 の着手前 (5b)
+/* ★[決定 2026-11-27] 仲間 Lv が主人公 Lv ±2 に連動するようになった (clampCompanionLevel)。
+   印あり (★★ = tier2・帯 [5,8]) の列は、主人公 Lv が低いほど ±2 の **下限** (hero-2) で底上げされる:
+     mark.hero4 = clamp(5,4) 4→5 / mark.hero2 = clamp(5,2) 2→4 (plain は帯 [2,4] なので不変・named4 も不変)。
+   印の有無で仲間の強さが変わる (plain < mark) という §4 の趣旨はそのまま (むしろ差が広がる)。 */
 const BAND_WANT = {                             // §4 (依頼書 §2-4 の表の Math.random = 0 の列)
   plain: { hero4: 2, hero2: 2, named4: 3 },
-  mark:  { hero4: 4, hero2: 2, named4: 3 },
+  mark:  { hero4: 5, hero2: 4, named4: 3 },
 };
 const PLAZA_CLOCK = '21';
 
