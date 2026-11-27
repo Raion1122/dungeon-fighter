@@ -228,14 +228,19 @@
       "#skillCheckCard .scMeta b{font-size:16px;}",
       // パーティ全員ロール表示のロスター（代表=判定行 / 参考行=非rep・グレー）
       "#skillCheckCard .scRoster{display:flex;flex-direction:column;gap:6px;margin:8px 0 12px;}",
-      "#skillCheckCard .scRow{display:grid;grid-template-columns:1fr auto 38px 46px;align-items:center;",
+      // ★[検証2026-11-28 #3] 代表者名の列を優先する。旧 `1fr auto` は mod 内訳 (auto) が貪欲で、
+      //   代表行の名前 (1fr) が「ファ…」まで潰れていた。名前 1.6fr / 内訳 1fr の分配にし、
+      //   溢れたら内訳の方を省略 (.scMod の ellipsis)・名前は折り返して**切らない** (.scName)。
+      "#skillCheckCard .scRow{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) 38px 46px;align-items:center;",
       "  gap:8px;padding:5px 8px;border-radius:6px;background:rgba(106,64,16,.06);}",
       "#skillCheckCard .scRow.rep{background:rgba(220,180,30,.18);border:1px solid #caa21a;font-weight:700;}",
       "#skillCheckCard .scRow.ref{opacity:.6;color:#6a5a3a;}",
       // 補助役（Help）行: 参考行よりやや明るく、緑系でわずかに強調（.ref より後に置き opacity/色を上書き）
       "#skillCheckCard .scRow.helper{opacity:.88;color:#3a4a32;background:rgba(40,120,80,.12);border:1px solid rgba(40,120,80,.35);}",
-      "#skillCheckCard .scName{text-align:left;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-      "#skillCheckCard .scMod{font-size:11px;color:#5a3a16;white-space:nowrap;}",
+      // ★[検証2026-11-28 #3] 名前は切らない: 長い代表者名は省略ではなく折り返す (overflow-wrap)。
+      "#skillCheckCard .scName{text-align:left;font-size:14px;line-height:1.2;overflow-wrap:anywhere;word-break:break-word;}",
+      // ★[検証2026-11-28 #3] 内訳 (mod) は幅が足りなければこちらを省略して名前へ場所を譲る。
+      "#skillCheckCard .scMod{font-size:11px;color:#5a3a16;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}",
       "#skillCheckCard .scRow.ref .scMod{color:#7a6a4a;}",
       ".scDie{width:34px;height:34px;border-radius:7px;justify-self:center;",
       "  background:radial-gradient(circle at 38% 32%,#fff 0%,#e9e2cf 55%,#c9bb95 100%);",

@@ -4390,7 +4390,10 @@
       id: "sea-wreck",
       place: "近海の難破船",        /* ⚠ id の直後に置く (検証ドライバが id → place の並びで配信バイトを読む) */
       side: true,
-      title: "近海の難破船",
+      /* ★[検証2026-11-28 #4] place と同語だと依頼ダイアログが「近海の難破船 — 近海の難破船」と重複する
+         (openDialog の #dialogPlace = `依頼: ${place} — ${title}`)。他の依頼と同じく place=場所 / title=依頼名に分ける。
+         文面は index.html の SCENARIOS["sea-wreck"].title (「近海の難破船 — 海蝕洞の鱗の群れ」) の副題に合わせる。 */
+      title: "海蝕洞の鱗の群れ",
       difficulty: "★★★",
       recommendedLevel: 5,         /* 沼地の後の海の寄り道。⚠ 強さの実測で直してよい */
       reward: "難破船に沈んだ交易品",

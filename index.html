@@ -3440,7 +3440,9 @@
     html.dfCornerCheck #skillCheckCard .scMeta { clear: both !important; font-size: 10px !important; line-height: 1.35 !important; margin: 2px 0 3px !important; text-align: left !important; }
     html.dfCornerCheck #skillCheckCard .scMeta b { font-size: 11px !important; }
     html.dfCornerCheck #skillCheckCard .scRoster { gap: 2px !important; margin: 3px 0 4px !important; }
-    html.dfCornerCheck #skillCheckCard .scRow { grid-template-columns: 1fr auto 20px 26px !important; gap: 4px !important; padding: 1px 5px !important; }
+    /* ★[検証2026-11-28 #3] 左上の小さな判定パネル (260px) では名前が最も潰れる (「ファ…」)。
+       名前の列を優先 (1.5fr) し、内訳 (1fr) に場所を譲らせる。折り返し/省略は共有 .scName/.scMod 側。 */
+    html.dfCornerCheck #skillCheckCard .scRow { grid-template-columns: minmax(0,1.5fr) minmax(0,1fr) 20px 26px !important; gap: 4px !important; padding: 1px 5px !important; }
     html.dfCornerCheck #skillCheckCard .scName { font-size: 11px !important; }
     html.dfCornerCheck #skillCheckCard .scMod { font-size: 9px !important; }
     html.dfCornerCheck #skillCheckCard .scDie { width: 20px !important; height: 20px !important; font-size: 11px !important; border-width: 2px !important; border-radius: 5px !important; }
@@ -16616,6 +16618,17 @@
         const f = activeChoiceDismiss; activeChoiceDismiss = null;
         try { f(); } catch (e) {}
       }
+      /* ★[検証2026-11-28 #2] 念のための後始末: 本人の dismiss を通しても通さなくても、
+         残った #choiceDialog の .show を直接畳み、「見つけた罠を解除しますか?」の残骸ボタンが
+         戦闘 UI の下へ貼り付くのを断つ (上で dismiss が畳んでいれば no-op)。
+         ⛔ ここで resolve はしない (await 中の本人が居るなら上の dismiss が必ず resolve 済み)。 */
+      try {
+        const dlg = document.getElementById("choiceDialog");
+        if (dlg && dlg.classList.contains("show")) {
+          dlg.classList.remove("show");
+          setChoiceOpen(false);
+        }
+      } catch (e) {}
     }
     function showChoice(message, yesText = "はい", noText = "いいえ") {
       // Phase 2-K: autoplay 時は自動「はい」(true) で即座に解決
