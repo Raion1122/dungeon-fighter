@@ -16557,8 +16557,17 @@
           document.body.appendChild(dlg);
         }
         dlg.querySelector(".choiceMessage").textContent = message;
-        const btnYes = dlg.querySelector(".choiceYes");
-        const btnNo  = dlg.querySelector(".choiceNo");
+        /* ★[罠ダイアログの紛れ込み修正] #choiceDialog は showCharChoice と共有しており、
+           あちらは候補ごとに class="choiceYes" のボタンを .choiceButtons へ積む。前回 showCharChoice が
+           残したボタン (入口の「2. 封印の術式を読み解く(魔法学)」等) が消えないまま、ここで
+           querySelector(".choiceYes") が**先頭の残骸ボタン**を掴み、残りの候補は罠ダイアログに紛れて出ていた。
+           ⇒ 使い回す前に .choiceButtons を正規の 2 ボタンへ必ず作り直す (showCharChoice の btnArea.innerHTML="" と対)。 */
+        const btnArea = dlg.querySelector(".choiceButtons");
+        btnArea.innerHTML =
+          '<button class="choiceYes" type="button"></button>' +
+          '<button class="choiceNo" type="button"></button>';
+        const btnYes = btnArea.querySelector(".choiceYes");
+        const btnNo  = btnArea.querySelector(".choiceNo");
         btnYes.textContent = yesText + " (Enter)";
         btnNo.textContent  = noText  + " (Esc)";
         dlg.classList.add("show");
@@ -23568,6 +23577,22 @@
     function maybeFumbleFlash(html, type) {
       if (type === "fumble" && html && html.indexOf("FUMBLE!") >= 0) triggerImpactFlash("fumble");
     }
+    /* ★[ダイスポップのはみ出し修正] .rollPop は SX/SY でユニットの画面座標へ置き、transform:translate(-50%)
+       で左右中央寄せする。画面右端/左端のユニットでは左右にはみ出して見切れる。append 後に実測して
+       **left だけ**寄せる (transform は rollRise アニメが全キーフレームで握るので動かさない = .hasVerdict が
+       margin-top で逃がすのと同じ方針)。left と getBoundingClientRect は同じ px なので差分で正しく寄る。 */
+    function clampRollPopX(pop) {
+      try {
+        const margin = 6;
+        const r = pop.getBoundingClientRect();
+        const vw = window.innerWidth || document.documentElement.clientWidth;
+        if (!vw || !r.width) return;
+        let shift = 0;
+        if (r.right > vw - margin) shift = (vw - margin) - r.right;   // 右へはみ出し → 左へ寄せる
+        else if (r.left < margin)  shift = margin - r.left;           // 左へはみ出し → 右へ寄せる
+        if (shift) pop.style.left = (parseFloat(pop.style.left || "0") + shift) + "px";
+      } catch (e) {}
+    }
     function showRollAtPlayer(html, type) {
       const pop = document.createElement("div");
       pop.className = "rollPop " + type;
@@ -23577,6 +23602,7 @@
       pop.style.left = SX(playerX + 48) + "px";
       pop.style.top  = SY(playerY - 24) + "px";
       document.body.appendChild(pop);
+      clampRollPopX(pop);
       maybeFumbleFlash(html, type);
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }
@@ -23590,6 +23616,7 @@
       pop.style.left = SX(e.x + e.def.displaySize / 2) + "px";
       pop.style.top  = SY(e.y - 32) + "px";
       document.body.appendChild(pop);
+      clampRollPopX(pop);
       maybeFumbleFlash(html, type);
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }
@@ -23610,6 +23637,7 @@
       pop.style.left = SX(ally.x + ally.def.displaySize / 2) + "px";
       pop.style.top  = SY(ally.y - 24) + "px";
       document.body.appendChild(pop);
+      clampRollPopX(pop);
       maybeFumbleFlash(html, type);
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }

@@ -7681,10 +7681,15 @@
     const p = confirmSheetPending;
     closeSoloConfirm();
     if (p && p.onOk) { p.onOk(); return; }
+    if (narrationPlaying) return;   /* ★[受注ナレの二重再生 修正] btnAccept と同じ再入ガード */
     try { localStorage.setItem(SOLO_WARN_KEY, "1"); } catch (e) {}
     if (currentScenario) openPrep(currentScenario);
   });
   document.getElementById("btnAccept").addEventListener("click", () => {
+    /* ★[受注ナレの二重再生 修正] 受注ナレ (依頼人の語り = タイプライター) が再生中に「引き受ける」を
+       もう一度押すと openPrep→playQuestAcceptNarration が再入し、語りが頭から再生されて見える。
+       再生中は無視する。⛔ openPrep 側には置かない (検証ドライバが openPrep を直接呼ぶため — :7626 の警告)。 */
+    if (narrationPlaying) return;
     if (!currentScenario || !isUnlocked(currentScenario)) return;
     if (needsSoloWarning()) {
       openConfirmSheet(null);   /* 引数なし = markup の既定文面 (単身出発の確認) */
