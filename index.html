@@ -16624,9 +16624,24 @@
          ⛔ ここで resolve はしない (await 中の本人が居るなら上の dismiss が必ず resolve 済み)。 */
       try {
         const dlg = document.getElementById("choiceDialog");
-        if (dlg && dlg.classList.contains("show")) {
-          dlg.classList.remove("show");
-          setChoiceOpen(false);
+        if (dlg) {
+          if (dlg.classList.contains("show")) {
+            dlg.classList.remove("show");
+            setChoiceOpen(false);
+          }
+          /* ★[検証2026-11-28 #1 戦闘後に選択肢が押せない] cleanup は .show を外すだけで、
+             選んだ/見送った後も **古いボタン DOM が #choiceDialog に残り続ける**。opacity:0 /
+             pointer-events:none で見えないが、戦闘ログの帯の真裏に「押せない選択肢」の亡霊として
+             居座る (ブリッジ実機で実測 = 戦闘後に入口 A2 の 3 択が押せない・ログが帯を占める)。
+             戦闘開始のこの一点で中身を空へ戻し、亡霊を断つ。live な選択はすぐ上の dismiss が既に
+             畳み、作り直す側 (showChoice / showCharChoice は毎回 .choiceButtons を組み直す) が
+             自前で埋め直すので、ここで空にしても誰の表示も壊さない。
+             ⚠ 旧実装は `if (.show)` の中でだけ畳んでいたため、既に .show を失った亡霊 (= まさに
+                この不具合の状態) には一切触れず素通りしていた。無条件で空にすること。 */
+          const btnArea = dlg.querySelector(".choiceButtons");
+          if (btnArea) btnArea.innerHTML = "";
+          const msgEl = dlg.querySelector(".choiceMessage");
+          if (msgEl) msgEl.textContent = "";
         }
       } catch (e) {}
     }
@@ -25679,6 +25694,17 @@
         secondWindUsed = false;
         // 探索フェーズへ復帰 (敗北/ゲームオーバー以外)
         if (!gameOver && !dungeonCleared) setPhase("explore");
+        /* ★[検証2026-11-28 #1 戦闘後に選択肢が押せない] 入口で一旦見送った判定イベント (A2 等) は
+           ev.declined=true になり、tryInteractNodeEvent では「半径の外へ出るまで再提示しない」。
+           だが戦闘は入口のすぐ近くで起きるため、戦闘後もプレイヤーは半径 (約2.5タイル) 内に留まり、
+           判定が **二度と開かないまま** になる (ブリッジ実機 = 戦闘後に入口の選択肢が出ず・亡霊だけ残る)。
+           ⇒ 戦闘を挟んだら文脈が変わる = 同じ場所でもう一度訊いてよい。今居るノードの declined だけ戻し、
+             戦闘直後の tick で確実に再提示できるようにする。
+           ⚠ ?autoplay は showCharChoice が常に候補0で即決 = declined に落ちないので、ヘッドレス検証の
+             決定論は不変。焼き済み (fired) のイベントには declined が無関係なので再提示はされない。 */
+        if (!gameOver && !dungeonCleared) {
+          try { nodeEventsHere().forEach(ev => { if (ev && ev.declined) ev.declined = false; }); } catch (e) {}
+        }
       }
     }
 
