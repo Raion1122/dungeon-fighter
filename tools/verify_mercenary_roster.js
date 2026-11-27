@@ -1198,15 +1198,15 @@ const PROBE_FN = function () {
       '主人公 Lv' + armHi.heroLv + ' 側 ' + armHi.seenLv.length + ' 人 (書き換え対象 '
         + armHi.forced + ' 人) / Lv' + armLo.heroLv + ' 側 ' + armLo.seenLv.length
         + ' 人 (書き換え対象 ' + armLo.forced + ' 人)');
-    check('(2c) 主人公 Lv による clamp が出発時に効く — 主人公 Lv10 では名簿の Lv9 がそのまま出て '
-        + '(帯 [5,8] の外 = 振り直していない証拠)、主人公 Lv3 では 3 に落ちる。'
+    check('(2c) ★[決定 2026-11-27] 主人公 Lv による連動 (±2) が出発時に効く — 主人公 Lv10 では名簿の Lv9 が '
+        + 'そのまま出て (帯 [5,8] の外・範囲 [8,10] 内 = 振り直していない証拠)、主人公 Lv3 では 5 (hero+2) に収まる。'
         + 'かつ **名簿側の 9 は保存されたまま**',
       armHi.heroLv === 10 && armLo.heroLv === 3
         && armHi.seenLv.length >= 1 && armHi.seenLv.every((v) => v === 9)
-        && armLo.seenLv.length >= 1 && armLo.seenLv.every((v) => v === 3)
+        && armLo.seenLv.length >= 1 && armLo.seenLv.every((v) => v === 5)
         && armLo.rosterLv.length >= 1 && armLo.rosterLv.every((v) => v === 9),
-      'Lv10 側の出発 Lv=' + JSON.stringify(armHi.seenLv) + ' / Lv3 側の出発 Lv='
-        + JSON.stringify(armLo.seenLv) + ' / Lv3 側の名簿 Lv=' + JSON.stringify(armLo.rosterLv));
+      'Lv10 側の出発 Lv=' + JSON.stringify(armHi.seenLv) + ' (期待 9) / Lv3 側の出発 Lv='
+        + JSON.stringify(armLo.seenLv) + ' (期待 5=hero+2) / Lv3 側の名簿 Lv=' + JSON.stringify(armLo.rosterLv));
 
     // ── (2e) 準備画面の **表示** Lv にも同じ clamp が効く (項目2 で新設) ──────────
     //   ⚠⚠ (2c) は「出発が焼いた partyMembers の level」を見ている。それだけでは、
@@ -1232,6 +1232,11 @@ const PROBE_FN = function () {
           o.heroLv  = getLevelFromXP(inventory.xp);
           o.slotAt3 = skillSlotsForLevel(3);
           o.slotAt9 = skillSlotsForLevel(9);
+          /* ★[決定 2026-11-27] 連動幅が ≤主人公Lv から 主人公Lv±2 へ変わった。期待値は本番の
+             clampCompanionLevel を直に当てて導く (⛔ 5 等を写経しない)。名簿 Lv9・主人公 Lv3 なら
+             clamp 範囲は [1,5] → 期待 5 (hero+2)。これでも Lv9 の多い枠が漏れないことを示せる。 */
+          o.expectLv   = clampCompanionLevel(9, o.heroLv);
+          o.slotExpect = skillSlotsForLevel(o.expectLv);
           /* 名簿から引いた顔が編成に入るまで引き直す。⚠ 抽選なので 1 回では入らないことがある。
              ⭐ 選ぶのは「その classKey で **先頭** の人」だけ —— memberLevelOf() は
                ms.find(x => x.classKey === classKey) なので、同職が 2 人いると別人を測る。 */
@@ -1256,21 +1261,22 @@ const PROBE_FN = function () {
       console.log('  [2e] ' + JSON.stringify(slotArm));
 
       check('(2z3) [母集団] 主人公 Lv3・名簿 Lv9 の状態を実際に作れて、しかも '
-          + 'Lv3 相当と Lv9 相当のスロット数が **違う** (同じなら (2e) は何も検出できない)',
+          + '連動後の期待 Lv (hero±2) 相当と Lv9 相当のスロット数が **違う** (同じなら (2e) は何も検出できない)',
         !slotArm.err && set.saved === true && set.n >= 1 && slotArm.heroLv === 3
-          && slotArm.rawLevel === 9 && slotArm.slotAt3 !== slotArm.slotAt9,
+          && slotArm.rawLevel === 9 && slotArm.slotExpect !== slotArm.slotAt9,
         '主人公 Lv=' + slotArm.heroLv + ' / 編成に載った生 Lv=' + slotArm.rawLevel
-          + ' / スロット Lv3=' + slotArm.slotAt3 + ' vs Lv9=' + slotArm.slotAt9
+          + ' / 連動後の期待 Lv=' + slotArm.expectLv + ' (スロット ' + slotArm.slotExpect
+          + ') vs Lv9 相当 ' + slotArm.slotAt9
           + ' / 引き直し ' + slotArm.tries + ' 回 (名簿 ' + set.n + ' 人)'
           + (slotArm.err ? ' / err=' + slotArm.err : ''));
-      check('(2e) 名簿 Lv 9・主人公 Lv 3 のとき、準備画面の仲間スキルスロット数が **Lv3 相当** '
-          + '(Lv9 相当の多い枠が出ない)。かつ **名簿側の 9 は保存されたまま**',
-        !slotArm.err && slotArm.memberLevel === 3
-          && slotArm.slots === slotArm.slotAt3 && slotArm.slots !== slotArm.slotAt9
+      check('(2e) ★[決定 2026-11-27] 名簿 Lv 9・主人公 Lv 3 のとき、準備画面の仲間スキルスロット数が '
+          + '**連動後の期待 Lv (hero+2=5) 相当** (Lv9 の多い枠が漏れない)。かつ **名簿側の 9 は保存されたまま**',
+        !slotArm.err && slotArm.memberLevel === slotArm.expectLv
+          && slotArm.slots === slotArm.slotExpect && slotArm.slots !== slotArm.slotAt9
           && Array.isArray(slotArm.rosterLv) && slotArm.rosterLv.length >= 1
           && slotArm.rosterLv.every((v) => v === 9),
-        'memberLevelOf=' + slotArm.memberLevel + ' (期待 3) / スロット=' + slotArm.slots
-          + ' (Lv3 相当 ' + slotArm.slotAt3 + ' / Lv9 相当 ' + slotArm.slotAt9 + ') / 名簿 Lv='
+        'memberLevelOf=' + slotArm.memberLevel + ' (期待 ' + slotArm.expectLv + ') / スロット=' + slotArm.slots
+          + ' (期待 Lv 相当 ' + slotArm.slotExpect + ' / Lv9 相当 ' + slotArm.slotAt9 + ') / 名簿 Lv='
           + JSON.stringify(slotArm.rosterLv));
     }
 
