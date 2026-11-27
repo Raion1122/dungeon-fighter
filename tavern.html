@@ -12742,8 +12742,66 @@
       /* nonce は「引き直したか」を機械で見分けるための印。⛔ ゲームの判定には使わない */
       return { v: 1, seats: out, nonce: Date.now() + "-" + Math.random().toString(36).slice(2, 8) };
     }
+    /* ══ dev 専用テストスイッチ (2026-11-27 arcane-tower の検証依頼) ════════════════════════
+       ⭐ 卓の抽選は運任せなので、側道シナリオ (塔など) を**決定論で**盤面に出す手段を dev にだけ与える。
+       ⭐ ?forcequest=<id> … 指定した**解放済み**シナリオを盤面へ必ず 1 枚載せる。
+       ⚠⚠ どちらのスイッチが立っていても localStorage['dragonfighters.questBoard'] には**一切書かない**
+          = テストでセーブの盤面状態が恒久的に変わらない (依頼の副作用の修正)。
+       ⛔ dev ゲート必須 (__dfDevUnlocked)。素の配布物で付けても無視される = 実プレイヤーのチートにならない。
+       ⛔ 未解放の id は載せない (ロック迂回の抜け穴を作らない。載せても goToTable が未解放で弾くが、
+          そもそも盤面に出さないのが筋)。 */
+    function boardCheatActive() {
+      try {
+        if (!window.__dfDevUnlocked || !window.__dfDevUnlocked()) return false;
+        var s = new URLSearchParams(location.search);
+        return s.has("forcequest") || s.get("unlockall") === "1";
+      } catch (e) { return false; }
+    }
+    function forcedBoard(f) {
+      var id = null;
+      try {
+        if (window.__dfDevCheat && window.__dfDevCheat("forcequest")) {
+          id = new URLSearchParams(location.search).get("forcequest");
+        }
+      } catch (e) { id = null; }
+      if (!id) return null;
+      var sc = scenarios.find(function (s) { return s.id === id; });
+      if (!sc) { console.warn("[tavern] ?forcequest=" + id + " は scenarios に無い id のため無視します。"); return null; }
+      if (!isUnlocked(sc)) {
+        console.warn("[tavern] ?forcequest=" + id + " は未解放 (unlockAfter=" + (sc.unlockAfter || "-")
+          + ") のため盤面に載せません。該当の前提シナリオをクリアしたセーブで実行してください。");
+        return null;
+      }
+      /* frontier (本筋の現在地) + 指定 id を核に、残りを unlocked から詰めて boardCount(f) 件へ揃える。 */
+      var ids = [];
+      if (f.frontier && f.frontier.id !== id) ids.push(f.frontier.id);
+      ids.push(id);
+      var n = boardCount(f);
+      var rest = f.unlocked.filter(function (s) { return ids.indexOf(s.id) < 0; });
+      /* ⚠ fill の 1 行は drawBoard の抽選行とは**別の書き方**にする (verify_quest_draw の dup 変異が
+         「ids.push(rest.splice(...)[0].id);」をちょうど 1 箇所と数えるので、同じ行を二重に持たせない)。 */
+      while (ids.length < n && rest.length) {
+        var pick = rest.splice(Math.floor(Math.random() * rest.length), 1)[0];
+        ids.push(pick.id);
+      }
+      ids = ids.slice(0, n);
+      var seats = TVM.TABLES.map(function (t) { return t.key; });
+      var out = {};
+      ids.forEach(function (id2) { out[seats.splice(Math.floor(Math.random() * seats.length), 1)[0]] = id2; });
+      return { v: 1, seats: out, nonce: "forced-" + id };
+    }
     function loadOrDrawBoard() {
       var f = boardFacts();
+      /* ★ forcedBoard を**先に**試す。中で __dfDevCheat("forcequest") を呼ぶので、dev でないのに
+         ?forcequest を付けたときは「無視しました」の警告が出る (静かな失敗にしない)。 */
+      var forced = forcedBoard(f);
+      if (forced) { board = forced; return forced; }      /* ⛔ localStorage へ保存しない */
+      /* ★ テストスイッチ中は localStorage を読まず・書かず、メモリだけで盤面を保持する
+         (セーブの盤面を汚さない)。スイッチを外せば次回は保存済み / 通常抽選へ素直に戻る。 */
+      if (boardCheatActive()) {
+        if (!boardValid(board, f)) board = drawBoard(f);   /* unlockall 等: メモリだけで引く (保存しない) */
+        return board;
+      }
       var b = null;
       try { b = JSON.parse(localStorage.getItem(BOARD_KEY) || "null"); }
       catch (e) { b = board; }      /* 読めない / 壊れている → メモリの盤面 (無ければ引く) */
