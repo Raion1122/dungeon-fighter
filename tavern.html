@@ -1158,6 +1158,15 @@
     body.dev-mode #debugEvadeRow,
     body.dev-mode #debugAutoplayRow { display: flex; }
 
+    /* ★[dev 2026-11-27] マッチング画面 (#pmBrief) 側のデバッグ出発行。#55 以降、本物の出発は
+       #pmBrief から行われ #prep は ?prepskip=0 専用に退いたため、#prep の中にしか無い
+       #debugAutoplayRow は実プレイでは一度も現れない (ブリッジ再検証の問題1)。dev モードの
+       ときだけ、出発の口 (#pmDepart) の直後に同じ操作を映す。⛔ 既定は display:none =
+       非 dev・素の配布物では DOM にあっても 1px も出ない (base 規則 + hidden 属性の二重の守り)。
+       出す 1 点 (hidden を外す) は #pmDepart と同じ猶予明け (JS 側)。 */
+    #pmDebugRow { display: none; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+    body.dev-mode #pmDebugRow:not([hidden]) { display: flex; }
+
     /* 事前情報チェック (examine/talk/pray): 準備画面の判定ボタン + 結果表示 */
     .intelBtnRow {
       display: flex;
@@ -3553,6 +3562,17 @@
              ⚠ #60 で「準備へ戻る」から改めた —— その準備画面は #55 で廃止済 = 行き先が無かった。
              ⛔ id は変えない — 既存 golden 5 本がこの id で出発の口を掴む。 -->
       <button id="pmDepart" type="button" hidden data-ui-turn>出発する</button>
+      <!-- ★[dev 2026-11-27] マッチング画面のデバッグ出発行 (ブリッジ再検証の問題1)。
+           #55 で #prep が既定フローから外れ、#prep の中の #debugAutoplayRow が実プレイで
+           一度も出なくなったため、dev モード (?dev=1 → body.dev-mode) のときだけここに同じ操作を映す。
+           ⛔ 既定 hidden = 非 dev/素の配布物では出ない。出す 1 点は #pmDepart と同じ猶予明け。
+           ⚠ ボタンは #prep 側と同じハンドラ (departToScenario / departAutoDebug) へ入る。 -->
+      <div id="pmDebugRow" hidden>
+        <button type="button" id="pmBtnDepartAutoplay" class="btn debugEvadeBtn">⚡ オートプレイ出発 (x10)</button>
+        <button type="button" id="pmBtnDepartAutoplayFast" class="btn debugEvadeBtn">⚡⚡ 高速 (x30)</button>
+        <button type="button" id="pmBtnDepartAutoDebug" class="btn debugEvadeBtn">🐞 自動デバッグ巡回 (全6シナリオ)</button>
+        <button type="button" id="pmBtnExitDevMode" class="btn debugEvadeBtn">🚪 開発モードを終了</button>
+      </div>
       <div id="pmHint">タップでスキップ</div>
     </div>
   </div>
@@ -9778,6 +9798,23 @@
     location.replace(location.pathname);
   });
 
+  // ★[dev 2026-11-27] マッチング画面 (#pmBrief) のデバッグ出発行 (ブリッジ再検証の問題1)。
+  //   #55 以降、実プレイの出発は #pmBrief からなので、#prep の中のデバッグ行 (#debugAutoplayRow) が
+  //   一度も現れなかった。ここで #prep 側と**同じハンドラ**へ入る口を映す (ロジックは複製しない)。
+  //   ⚠ stopPropagation = overlay へ抜けて「開示スキップ/背景出発」を叩かないように (pmSwallowTaps と二重の守り)。
+  const pmBtnAuto = document.getElementById("pmBtnDepartAutoplay");
+  if (pmBtnAuto) pmBtnAuto.addEventListener("click", (e) => { e.stopPropagation(); departToScenario(10); });
+  const pmBtnAutoFast = document.getElementById("pmBtnDepartAutoplayFast");
+  if (pmBtnAutoFast) pmBtnAutoFast.addEventListener("click", (e) => { e.stopPropagation(); departToScenario(30); });
+  const pmBtnAutoDebug = document.getElementById("pmBtnDepartAutoDebug");
+  if (pmBtnAutoDebug) pmBtnAutoDebug.addEventListener("click", (e) => { e.stopPropagation(); departAutoDebug(6); });
+  const pmBtnExitDev = document.getElementById("pmBtnExitDevMode");
+  if (pmBtnExitDev) pmBtnExitDev.addEventListener("click", (e) => {
+    e.stopPropagation();
+    try { localStorage.removeItem("df.devMode"); } catch (err) {}
+    location.replace(location.pathname);
+  });
+
   // ─────────────────────────────────────────────────────────────
   // 設定モーダル『冒険の記録を消す』(出荷前の大掃除)
   // 本体を酒場側に置き GameAudio へ登録する。index.html は登録しない = 潜行中に消去 UI が出ることが構造的に不可能。
@@ -11034,6 +11071,9 @@
     /* #60: 潜らずに酒場へ引き返す口。⚠ 撤退 ?pmback=0 / 従来の姿 (?pmsetup=0) /
        review モード (もともと出発しない) では null = 1 度も出さない。 */
     const backEl   = document.getElementById("pmBtnBackTavern");
+    /* ★[dev 2026-11-27] デバッグ出発行。dev モード (body.dev-mode) のときだけ猶予明けに出す。
+       ⛔ 非 dev では CSS で display:none のまま = DOM にあっても見えない。 */
+    const dbgRowEl = document.getElementById("pmDebugRow");
     // null = 従来の姿 (出発の口も引き出しも出さない)。
     const departBtn = setupOn ? departEl : null;
     const drawerBox = setupOn ? drawerEl : null;
@@ -11072,7 +11112,7 @@
     //   ⛔ ?pmsetup=0 では「どこを叩いても出発」の昔の姿へ戻すので、ここも通さない。
     if (setupOn) { cols.forEach(c => pmBindCardTaps(c.el)); pmSwallowTaps(drawerBox); }
     /* #55: 帯の中の指は overlay まで上げない (押した指が開示スキップへ抜けないように)。 */
-    if (setupOn) { pmSwallowTaps(briefEl); pmSwallowTaps(rerollEl); }
+    if (setupOn) { pmSwallowTaps(briefEl); pmSwallowTaps(rerollEl); pmSwallowTaps(dbgRowEl); }
     // #35 STEP2: 引き出しが参照する「今出ているカード」。⛔ 別の配列へ写さない。
     //   閉じるのは前回の開きっぱなしを持ち越さないため (pmLoadoutRepaint も null へ)。
     pmCols = cols;
@@ -11105,6 +11145,7 @@
        ⚠ 開示中に列を差し替えると revealQueue の参照先が消えて開示が止まる。 */
     if (rerollEl) rerollEl.hidden = true;
     if (backEl) backEl.hidden = true;   /* #60: 出すのは猶予明けの 1 点だけ */
+    if (dbgRowEl) dbgRowEl.hidden = true;   /* ★[dev] 開くたびに隠す。出すのは猶予明けの 1 点だけ */
     if (departEl) {
       departEl.hidden = true;
       // ⚠ review の行き先は【出発ではなく酒場】。同じボタンでラベルだけ出し分ける
@@ -11137,6 +11178,9 @@
           /* #60: 「🍺 酒場へ戻る」も **まったく同じ 1 点** で開ける。
              ⛔ ここより前に hidden を外すと「確定を見ずに帰る」が作れてしまう (受入 (1e))。 */
           if (backBtn) backBtn.hidden = false;
+          /* ★[dev 2026-11-27] デバッグ出発行も同じ 1 点で開ける。dev モードのときだけ。
+             ⛔ review は「見るだけ」なので出さない。⛔ body.dev-mode でなければ CSS で display:none のまま。 */
+          if (setupOn && !review && dbgRowEl && document.body.classList.contains("dev-mode")) dbgRowEl.hidden = false;
         }, PM_TAP_GATE));
       };
       const step = () => {

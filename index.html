@@ -21926,6 +21926,20 @@
       // 周囲タイルをフォグオブウォーで「見た」扱いに
       markVisitedAround(pTX, pTY, 6);
 
+      /* ★[B fix 2026-11-27] 塔の「魔力の暴発」を到着ナレ (boss_room_enter) 直後・戦闘前に確実に出す。
+       *   旧実装は 400ms poll 任せで、実プレイでは boss_room_enter の hold 明け〜交戦までの窓が短く、
+       *   poll が quiet tick を取りこぼして未表示だった (ブリッジ再検証の問題2)。
+       *   moveEnemies は narrationHold 中は heroAI を呼ばない (:21070 の gate) ので、到着ナレが明けた
+       *   最初の tick でここが**交戦判定より前に**発火し、字幕を凍結表示してから戦闘へ進む。
+       *   ⛔ 戦闘ループ (runEncounter) には触れない。⛔ Math.random を引かない。
+       *   ⚠ tryArcaneSurgeNarration 自身が「ボスノード/非 busy/#dmMessage 非表示」を全部見るので、
+       *     boss_room_enter が出ている間は false を返し早合点しない。出せたら true = この tick は戦闘へ進めない。
+       *   ⚠ poll は autoplay 用に残置 (そちらは narrationHold を立てないのでここが効かない)。 */
+      if (scenarioId === "arcane-tower" && bossRoomNarrationShown && !encounterActive &&
+          typeof tryArcaneSurgeNarration === "function" && tryArcaneSurgeNarration()) {
+        return;
+      }
+
       // ① 敵発見 → 最も近い敵を目標
       const enemy = findNearestAliveEnemy();
       let goalTX, goalTY;
@@ -29003,17 +29017,22 @@
      * ⛔ 2 択を作らない・Math.random を 1 度も引かない。⚠ ?graph=0 の単一マップ (RUN = null) では語らない。 */
     let arcaneSurgeNarrated = false;
     window.__arcaneSurgeProbe = window.__arcaneSurgeProbe || [];
+    /* ⭐ 出せたら true を返す (出さなかったら false)。heroAI の確定発火口 (下記) が
+     *   「この tick で出せたか」を見て、出せたら戦闘へ進めずに凍結する判断に使う。 */
     function tryArcaneSurgeNarration() {
-      if (arcaneSurgeNarrated) return;
-      if (!RUN || !gameStarted || gameOver || dungeonCleared) return;
-      if (scenarioId !== "arcane-tower" || currentNodeId !== RUN.bossNodeId) return;
-      if (nodeBusy || narrationPlaying || dialogPaused || skillCheckActive) return;
+      if (arcaneSurgeNarrated) return false;
+      if (!RUN || !gameStarted || gameOver || dungeonCleared) return false;
+      if (scenarioId !== "arcane-tower" || currentNodeId !== RUN.bossNodeId) return false;
+      if (nodeBusy || narrationPlaying || dialogPaused || skillCheckActive) return false;
       const dm = document.getElementById("dmMessage");
-      if (dm && dm.classList.contains("show")) return;   // 到着・ボス部屋の語りを上書きしない
+      if (dm && dm.classList.contains("show")) return false;   // 到着・ボス部屋の語りを上書きしない
       arcaneSurgeNarrated = true;
       window.__arcaneSurgeProbe.push({ node: currentNodeId, at: Date.now(), encounter: !!(encounterActive || encounterRunning) });
       showDMMessage("書斎の空気が歪み、床の術式の綻びから魔力が暴発した——骨の指をかざした塔の主が、嗤う。「死を超える術は、まだ完成しておらぬ。だが貴様らを塵にするには、これで足りる」", 4800);
+      return true;
     }
+    /* ⚠ poll は autoplay / ?graph での fallback として残す (autoplay は narrationHold を立てないので
+     *   heroAI の凍結口が効かず、こちらが拾う)。実プレイの確定発火は heroAI の到着検出直後 (下記)。 */
     setInterval(tryArcaneSurgeNarration, 400);
 
     async function runWitchHagDialog() {
