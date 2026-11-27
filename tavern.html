@@ -4346,6 +4346,37 @@
       locked: true,
       unlockAfter: "orc-fort",
     },
+    /* ★[D / 2026-11-27] 新しい行き先「街道の襲撃者の野営地」(本筋外・独立依頼)。
+       ⭐ 開発会議 (dev-meetings/2026-11-27_new-location-scenario.md) の候補 D を実施 (2 本目・最軽量)。
+         屋外テーマ流用・A2 技能判定・既存の罠/宝箱のみ・新メカ無し。
+       ⭐ 敵は既存の盗賊 (bandit / banditArcher / banditHeavy) を流用 = 新規スプライト 0・新 enemy 型 0。
+         個体差 (C3 方式の淡い色差) は ENEMY_VARIATION_TYPES に bandit / banditArcher を足して出す。
+       ⭐ 会議の「ノール」は新 humanoid スプライトが要るため落とし、既存の盗賊シートで「街道の襲撃者」として成立させる
+         (会議第2ラウンドで renamed = 「街道沿いの襲撃者の野営地」)。頭目は盗賊重装兵 (banditHeavy) = scar は名前付き固有なので使わない。
+       ⚠ 地図は見張りの塔 (tower-mother) の卓上マップ 2 枚を themeId で流用 = 新しい codex マップ 0
+         (丘の道 → 崩れた物見櫓。arcane-tower が silent-tomb を流用したのと同じ型)。
+       ⚠ ワールドマップには札を出さない (SITES 不在) = 受注後は index.html へ直行 (world-map.js / world.html は触らない)。
+       ⚠ id は index.html の SCENARIOS と同じ。 */
+    {
+      id: "raider-camp",
+      place: "街道の野営地",        /* ⚠ id の直後に置く (検証ドライバが id → place の並びで配信バイトを読む) */
+      side: true,
+      title: "街道の襲撃者の野営地",
+      difficulty: "★★",
+      recommendedLevel: 4,         /* 森の後の早い寄り道。⚠ 強さの実測で直してよい */
+      reward: "盗賊が奪った隊商の積荷",
+      client: { name: "隊商頭ガレス", role: "フラン隊商組合の護衛頭", type: "warrior" },
+      dialog:
+        "「フランへ続く街道が、盗賊の一団に荒らされている。奴らは丘の上の崩れた物見櫓を塒にして、隊商を片端から襲っているのだ。" +
+        "荷を奪われた仲間も多い。頭目は略奪した鎧を着込んだ大男——あれを討てば、残りは散る。街道の平穏を取り戻してくれ。頼む」",
+      enemies: [
+        { name: "盗賊", boss: false },
+        { name: "盗賊アーチャー", boss: false },
+        { name: "盗賊重装兵の頭目", boss: true },
+      ],
+      locked: true,
+      unlockAfter: "bandits-forest",
+    },
   ];
   /* ══ 撤退スイッチ ?tower=0 (実装依頼書 #82 §7) ═════════════════════════════
      ⭐ このページだけで読む (world.html も自分で読む = ?heromark=0 と同じ「ページ単位で独立」)。
@@ -4423,6 +4454,16 @@
     try { off = new URLSearchParams(location.search).get("arcane") === "0"; } catch (e) { off = false; }
     if (!off) return;
     for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "arcane-tower") scenarios.splice(i, 1);
+  })();
+  /* ══ 撤退スイッチ ?raiders=0 (新しい行き先 D・2026-11-27) ═════════════════════════════
+     ⭐ ?tower=0 〜 ?arcane=0 と同じ「ページ単位で独立」。⛔ sessionStorage へ写さない。
+     配列から raider-camp を外すだけ。⚠ ワールドマップには札を出していない (SITES 不在) ので
+     retire の呼び出しは無い (world.html / js/world-map.js は一切触らない)。 */
+  (function () {
+    var off = false;
+    try { off = new URLSearchParams(location.search).get("raiders") === "0"; } catch (e) { off = false; }
+    if (!off) return;
+    for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "raider-camp") scenarios.splice(i, 1);
   })();
   /* ★[#82] 本筋 6 本 (side を除いた scenarios)。1 枚絵 (renderTables の既定) と奥の間が使う。
      ⭐ 毎回 scenarios から引く (別表を作らない = side を足し引きしても写しがズレない)。 */

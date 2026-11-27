@@ -3949,6 +3949,7 @@
       "witch-hut":       75,   // ★[#106] 隠し 3 (礼金 250 と合わせて 325。取り引きを選ぶと礼金 0 = 75 だけ)
       "frost-hold":      75,   // ★[#107] 隠し 3 (礼金 400 と合わせて 475)
       "arcane-tower":    75,   // ★[B 2026-11-27] 隠し 3 (礼金と合わせる)
+      "raider-camp":     50,   // ★[D 2026-11-27] 隠し 2 (奪われた積荷と合わせる・早い寄り道なので軽め)
     };
     function roadChestBonusGold() {
       if (!ROAD_CHEST_ON || !currentScenario) return 0;
@@ -4296,6 +4297,12 @@
                           wallFace: "wall_face_goblin-mine.png",
                           wallTop:  "wall_top_goblin-mine.png",
                           wallTint: { color: "228,234,244", a: 0.34 } },
+      /* ★[D 2026-11-27] 街道の襲撃者の野営地 (本筋外・独立依頼)。新しい素材は足さない (丘の道も物見櫓も
+       * 見張りの塔 tower-mother の 1 枚絵を themeId で流用する)。テクスチャは森の盗賊団と同じ組を当てる。
+       * ⚠ 無いと SCENARIO_TEX の既定 (廃坑) へ落ちる = 宣言して落ちていないことを明示する。 */
+      "raider-camp":    { floor: "シナリオ2床.png", wall: "シナリオ2壁.png",
+                          wallFace: "wall_face_bandits-forest.png",
+                          wallTop:  "wall_top_bandits-forest.png" },
       // 隊商護衛 (7.9-3): 屋外の街道。専用テクスチャ = 踏み固めた土の道 + 街道脇の路肩(低い乾式石積み)。
       // ChatGPT 自動生成 (painterly・シームレス)。iOS の 96px/タイル制約に合わせ粒度は粗め。
       // ⚠️ [地平線ビュー STEP4] wall は**路肩専用の横長ストリップ 1024×96**。旧 caravan_road_wall.png は
@@ -4941,6 +4948,10 @@
        *   (trapCount:1 × search を両方に宣言) / 宝箱は n0 (広間) だけ。
        *   ⛔ 忘れると罠も宝箱も無言でゼロになる (森 #16 で実際に踏んだ)。 */
       t["arcane-tower"] = { n0: ["search", "loot"], n1: ["search"] };
+      /* ★[D 2026-11-27] 街道の襲撃者の野営地も 2 ノード (荒れた丘の野営地 n0 → 崩れた物見櫓 n1)。
+       *   罠は「部屋ごとに 1 つ」(trapCount:1 × search を両方に宣言) / 宝箱は n0 (野営地) だけ。
+       *   ⛔ 忘れると罠も宝箱も無言でゼロになる (森 #16 で実際に踏んだ)。 */
+      t["raider-camp"] = { n0: ["search", "loot"], n1: ["search"] };
       return t;
     })();
     /* ★[P9 / 2026-08-20 ユーザー決定] 大部屋 n1 の「行かない小部屋」への寄り道の撤退スイッチ。
@@ -12580,6 +12591,32 @@
           ["lich", 57, 13],
         ],
       },
+      /* ★[D 2026-11-27] 街道の襲撃者の野営地 (本筋外・独立依頼・森の後・推奨 Lv4)。
+       * ⭐ 実際の盤面は buildRaiderCampRun (卓上マップ 2 枚・themeId は tower-mother を流用)。spawns は ?graph=0 の単一マップ用の退避先。
+       * ⭐ trapCount:1 × NODE_EXTRA_SPAWN_KINDS の n0/n1 両方の search = 罠は部屋ごとに 1 つ。
+       *   trapTypeByNode は罠の**語り**だけを既存の種類へ割り当てる (乱数を 1 つも足さない・TRAP_TYPES は触らない)
+       *   = thorn (落ち葉の下の罠縄・丘の外れ) / dart (櫓の射かけ罠)。
+       * ⭐ 敵は既存の盗賊 (bandit / banditArcher = 休眠しない既存型) + 頭目は盗賊重装兵 (banditHeavy)。新 enemy 型 0。
+       * ⚠ 値は出発点。強さの実測 (別途のプレイテスト) と合わせて直してよい。 */
+      "raider-camp": {
+        title: "街道の襲撃者の野営地 — 丘の崩れた物見櫓",
+        flavor: "街道を荒らす盗賊団の野営地を抜け、略奪した鎧を纏う頭目を討ち取れ",
+        perceptionDC: 13,
+        trapCount: 1,
+        trapTypeByNode: { n0: "thorn", n1: "dart" },
+        hiddenChestCount: 2,
+        clearXp: 400,
+        clearGold: 150,
+        spawns: [
+          /* ?graph=0 用。buildRaiderCampRun の slots と同じ顔ぶれを並べる */
+          // 荒れた丘の野営地: 盗賊 3 + 盗賊アーチャー 2 + 盗賊重装兵 1
+          ["bandit", 27, 13], ["bandit", 28, 14], ["banditArcher", 27, 12],
+          ["banditHeavy", 39, 12], ["banditArcher", 39, 14], ["bandit", 38, 13],
+          // 崩れた物見櫓: 盗賊アーチャー 1 + 頭目 (盗賊重装兵)
+          ["banditArcher", 55, 14],
+          ["banditHeavy", 57, 13],
+        ],
+      },
     };
 
     // 生成クエスト (酒場の掲示板) があれば ad-hoc シナリオとして採用 (敵キーは ENEMY_TYPES で検証)
@@ -16973,6 +17010,13 @@
         "床にも壁にも、古い術式が刻まれている。禁じられた術——死を超える術を、この塔の主は求めたのだ。",
         "さあ、崩れた塔へ踏み込め。",
       ],
+      /* ★[D 2026-11-27] 街道の襲撃者の野営地 (街道を荒らす盗賊団・頭目は略奪した鎧の大男) */
+      "raider-camp": [
+        "フランへ続く街道を外れ、君たちは荒れた丘へと登った。道の脇には、襲われた隊商の残骸が、焼け焦げたまま転がっている。",
+        "丘の上には、崩れた古い物見櫓がそびえている。盗賊たちはそこを塒にし、天幕を張り、奪った荷を積み上げていた。",
+        "見張りの笑い声が風に乗って届く。櫓の上には、略奪した鎧を着込んだ大男——頭目の影が見える。",
+        "さあ、丘の野営地へ踏み込め。",
+      ],
     };
     /* ★[#111] 卵の親が居る回だけ、巣穴の開幕の語りの 3 行目と 4 行目の間に 1 行 (EGG_PARENT_ON = 赤い卵の印・撤退 ?eggparent=0)。
      *   ⚠ 巣穴の語りには音声 id (dungeon_intro_kobold-warren_*) が 1 本も無い = 添字がずれても鳴る音は無い (依頼書 #111 §12-1 (1))。 */
@@ -18396,6 +18440,9 @@
           すると setEnemyVfx の "" 復帰規約を壊し、クラス側 filter を潰すため。 */
     const ENEMY_VARIATION_TYPES = {
       goblin: 1, goblinArcher: 1, goblinRider: 1, orc: 1, hobgoblin: 1, kobold: 1,
+      /* ★[D 2026-11-27] 街道の襲撃者の野営地で同じ盗賊が並ぶので、森の盗賊団と共通の雑魚にも淡い色差を与える。
+       *   banditMage (固有の術者) と scar (ボス・固有 filter 持ち) は対象外 (上の除外方針どおり)。 */
+      bandit: 1, banditArcher: 1,
     };
     const ENEMY_VARIATION_FILTERS = [
       "",                                                    // 無加工の個体 (1/5)
@@ -43685,6 +43732,23 @@
         fail:    "文様は半ば崩れ、意味を結ばなかった。ただ、奥から漏れる魔力の脈動だけが、確かに強くなっている。",
         damageOnFumble: false,
       },
+      /* ★[D 2026-11-27] 街道の襲撃者の野営地 — 野営地の外れで見張りと略奪品を読み解く知覚判定。
+       *   会議の具体案「A2 技能判定 + 既存の罠・宝箱のみ」。救済 = 候補 0 無罰 / 失敗も無罰 (見逃すだけ)。 */
+      "raider-camp": {
+        key: "a2_camp_scout",
+        prompt: "野営地の外れ、茂みの陰に見張りの焚き火と、積み上げられた略奪品の山が見える。",
+        proceedLabel: "見張りを避けて先へ進む",
+        actLabel: "見張りと略奪品を観察する(知覚)",
+        escLabel: "引き返す (Esc)",
+        check: "perception", dc: 12, classes: ["rogue", "elf"],
+        title: "知覚判定",
+        flavor: "焚き火を囲む見張りの配置と、積まれた荷の封印を、茂みの陰からそっと読み取る…",
+        proceed: "君たちは見張りに気取られぬよう身を低くし、野営地の奥へと回り込んだ。",
+        success: "略奪品の荷には、どれも同じ黒い紋章の封蝋が押されていた。この盗賊団は、ただの野盗ではない——誰かに雇われ、街道の荷を特定の相手へ運んでいる。",
+        crit:    "封蝋の紋章は、竜の意匠だった。盗賊たちが交わす言葉の端に『主の取り分』という声が混じる。この街道荒らしの背後には、ファラクサスの手が伸びている。頭目を討てば、その糸の一端が手に入るだろう。",
+        fail:    "焚き火の煙と見張りの話し声で、荷の中身までは読み取れなかった。ただ、思っていたより盗賊の数が多いことだけは分かった。",
+        damageOnFumble: false,
+      },
     };
 
     async function runA2Event(ev, spec) {
@@ -43838,6 +43902,7 @@
       if (scenId === "witch-hut") return buildWitchHutRun();   // ★[#106] 本筋外の 11 本目
       if (scenId === "frost-hold") return buildFrostHoldRun();   // ★[#107] 本筋外の 12 本目
       if (scenId === "arcane-tower") return buildArcaneTowerRun();   // ★[B 2026-11-27] 新しい行き先 (本筋外)
+      if (scenId === "raider-camp") return buildRaiderCampRun();   // ★[D 2026-11-27] 新しい行き先 (本筋外)
       return null;                         // 生成クエスト / 未対応 ID は従来の単一マップ
     }
 
@@ -45328,6 +45393,51 @@
         entry: "n0",
         nodes: [
           /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13) = 絵ローカル (23,7)。 */
+          { id: "n0", kind: "start", mapDef: n0,
+            exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
+          { id: "n1", kind: "boss", mapDef: n1, exits: [] },
+        ],
+      };
+    }
+
+    /* ── ★[D 2026-11-27] 街道の襲撃者の野営地 (本筋外・独立依頼) — 卓上マップ 2 枚 ──────────────────────
+     *
+     *   n0 start 荒れた丘の野営地 ── right → n1 boss 崩れた物見櫓
+     *
+     * ⭐ 見張りの塔 (#82) の型と**幾何**をそのまま流用: p6Node() を直接 2 回呼ぶ。themeId は tower-mother を流用
+     *   (1 枚絵・テクスチャ・マスクを塔の母から借りる = 新しい素材 0・新しい codex マップ 0。
+     *    「塔へ至る丘の道」の絵は街道脇の荒れた野営地として、「崩れた最上階」は盗賊が塒にした物見櫓として成立する)。
+     *   scenId は raider-camp (A2 判定・罠/宝箱の宣言・NODE_EXTRA_SPAWN_KINDS・SCENARIO_TEX は scenId で引く)。
+     * ⚠ 敵は既存の盗賊 (bandit / banditArcher = 休眠しない非・第三勢力の既存型) + 頭目は盗賊重装兵 (banditHeavy)。
+     *   ⛔ scar は名前付き固有 (森のボス) なので使わない = 新 enemy 型 0・§7 の全数表の言い直しも回避。
+     * ⚠ rect / paint / start / 敵タイルは buildTowerMotherRun と同値 (検証済みの間合い・マスクの '.' をそのまま借りる)。
+     *   enemy の型だけ盗賊へ差し替える (座標は 1 つも動かさない)。 */
+    function buildRaiderCampRun() {
+      /* n0 荒れた丘の野営地。入場 = 西の口 (11,13) + 2 = (13,13) = 絵ローカル (2,8) = 道の上。
+       * 盗賊 2 群 (⚠ 非ボスの既存型だけ。塔の母の slots の座標をそのまま使う):
+       *   西の群れ = 盗賊 x2 + 盗賊アーチャー x1 (北西〜南西の土の地面)
+       *   野営地の中心 = 盗賊重装兵 x1 + 盗賊アーチャー x2 (丘の前の開けた地面)
+       *   ⭐ 2 群の間合い・入場からの距離は buildTowerMotherRun と同一 (別々の戦闘になる)。
+       *   ⚠ 敵のタイルは tower-mother n0big のマスクで全部 '.' (塞いだタイルに置くと絵に穴が開く)。 */
+      const n0 = p6Node("raider-camp", "tower-mother", "n0", "荒れた丘の野営地", [5, 11, 22, 39], {
+        paint: "n0big", density: 0, start: { tx: 13, ty: 13 },
+        slots: [[17, 9, "bandit"], [19, 10, "bandit"], [17, 17, "banditArcher"],
+                [33, 11, "banditHeavy"], [35, 10, "banditArcher"], [34, 16, "bandit"]],
+      });
+      /* n1 崩れた物見櫓 (ボス)。入場 = 西辺の中点 (14,13) + NODE_ENTRY_INSET(2) = (16,13) = 絵ローカル (2,8) = 螺旋階段の上。
+       * 頭目 = 盗賊重装兵 (絵ローカル (17,10) = 塔の母の wyvernBoss と同じ床)。手下 = 盗賊アーチャー 1 (巣の前 (17,6))。
+       *   ⭐ 入場からは 15 タイル以上 = 入場ナレの最中に戦闘が始まらない (塔の母と同値)。
+       *   ⚠ banditHeavy は displaySize 88 = ワイバーンより小さいので (31,15) の開けた床に収まる。
+       *   ⚠ 母の小部屋・巣 (tower-mother n1big のマスクで塞いである所) には敵を置かない。 */
+      const n1 = p6Node("raider-camp", "tower-mother", "n1", "崩れた物見櫓", [5, 14, 21, 39], {
+        paint: "n1big", density: 0, start: { tx: 16, ty: 13 },
+        slots: [[31, 11, "banditArcher"]],
+        boss: [31, 15, "banditHeavy"],
+      });
+      return {
+        entry: "n0",
+        nodes: [
+          /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13)。 */
           { id: "n0", kind: "start", mapDef: n0,
             exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
           { id: "n1", kind: "boss", mapDef: n1, exits: [] },
