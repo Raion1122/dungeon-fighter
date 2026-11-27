@@ -45415,14 +45415,22 @@
     function buildRaiderCampRun() {
       /* n0 荒れた丘の野営地。入場 = 西の口 (11,13) + 2 = (13,13) = 絵ローカル (2,8) = 道の上。
        * 盗賊 2 群 (⚠ 非ボスの既存型だけ。塔の母の slots の座標をそのまま使う):
-       *   西の群れ = 盗賊 x2 + 盗賊アーチャー x1 (北西〜南西の土の地面)
+       *   西の群れ = 盗賊 x3 (北西〜南西の土の地面)
        *   野営地の中心 = 盗賊重装兵 x1 + 盗賊アーチャー x2 (丘の前の開けた地面)
        *   ⭐ 2 群の間合い・入場からの距離は buildTowerMotherRun と同一 (別々の戦闘になる)。
+       *   ⚠⚠ **西の群れ (入場に最も近い (17,17) = 536px) は必ず全員 melee にすること**。塔の母は
+       *       そこを ruinSpider x3 (melee・engagePx=400) にしていたので「543px > 400px = 入場では交戦
+       *       しない」が成立し、入口の A2 知覚判定が戦闘の前に 1 回開けた (45101 の注記)。ところが
+       *       raider-camp 化のとき (17,17) を banditArcher (range:"bow"・engagePx=1152) へ差し替えて
+       *       いたため、**入場した瞬間に銃後の弓が交戦距離 (536<1152) に入り戦闘が latch** し、
+       *       tryInteractNodeEvent の `encounterActive||encounterRunning` 早期 return で **A2 が永久に
+       *       開かなくなっていた** (2026-11-27 ブリッジ検証で実測・修正)。弓は入場から遠い中心の群れへ寄せる
+       *       (塔の母の前庭 = ミノタウロス + orcArcher x2 と同じ melee西 / 遠弓中心 の幾何に戻す)。
        *   ⚠ 敵のタイルは tower-mother n0big のマスクで全部 '.' (塞いだタイルに置くと絵に穴が開く)。 */
       const n0 = p6Node("raider-camp", "tower-mother", "n0", "荒れた丘の野営地", [5, 11, 22, 39], {
         paint: "n0big", density: 0, start: { tx: 13, ty: 13 },
-        slots: [[17, 9, "bandit"], [19, 10, "bandit"], [17, 17, "banditArcher"],
-                [33, 11, "banditHeavy"], [35, 10, "banditArcher"], [34, 16, "bandit"]],
+        slots: [[17, 9, "bandit"], [19, 10, "bandit"], [17, 17, "bandit"],
+                [33, 11, "banditHeavy"], [35, 10, "banditArcher"], [34, 16, "banditArcher"]],
       });
       /* n1 崩れた物見櫓 (ボス)。入場 = 西辺の中点 (14,13) + NODE_ENTRY_INSET(2) = (16,13) = 絵ローカル (2,8) = 螺旋階段の上。
        * 頭目 = 盗賊重装兵 (絵ローカル (17,10) = 塔の母の wyvernBoss と同じ床)。手下 = 盗賊アーチャー 1 (巣の前 (17,6))。
