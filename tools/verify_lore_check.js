@@ -100,7 +100,8 @@ const RND_LO = 0.0;    // d20 = 1  (必ず失敗)
 const DRV_SKILL = {};
 for (const k of ['goblin', 'goblinArcher', 'goblinShaman', 'goblinBrute', 'goblinRider', 'goblinKing', 'goblinChariot', 'hobgoblin',
   'kobold', 'orc', 'orcGrunt', 'orcArcher', 'orcShaman', 'orcBerserker', 'garrock', 'bandit', 'banditArcher', 'banditMage',
-  'banditHeavy', 'scar', 'lizardWarrior', 'lizardHunter', 'lizardRaider', 'lizardPriest', 'swampNovice', 'lizardChieftain']) DRV_SKILL[k] = 'history';
+  'banditHeavy', 'scar', 'lizardWarrior', 'lizardHunter', 'lizardRaider', 'lizardPriest', 'swampNovice', 'lizardChieftain',
+  'sahuagin', 'sahuaginChieftain']) DRV_SKILL[k] = 'history';   /* ★[A 2026-11-28] サハギン (SRD: humanoid) = 歴史 (lizardfolk と同じ扱い) */
 /* ★[#103 2026-10-28] コボルドの族長 = SRD のコボルド (humanoid) をもとにした独自の頭目 ⇒ 人型 = 歴史 (コボルドと同じ。依頼書 §2-6)。 */
 DRV_SKILL.koboldChief = 'history';
 for (const k of ['skeleton', 'zombie', 'skeletonArcher', 'wraith', 'lich', 'caelum', 'ghostFlame']) DRV_SKILL[k] = 'religion';
@@ -155,11 +156,12 @@ const DRV_SLUG = {
    数え直し (2026-11-05・HEAD b59766e のページの ENEMY_TYPES) = 61 キー (技能あり 49 / 対象外 12・cr 43 / 出さない 18)。
    ★[#111 2026-11-07] + 若い赤竜 redDragonWyrmling 1 キー (技能あり = arcana / 脅威度を出す = 規則 ① red-dragon-wyrmling の CR 4)。
    数え直し (2026-11-07・HEAD a277b90 のページの ENEMY_TYPES) = 62 キー (技能あり 50 / 対象外 12・cr 44 / 出さない 18)。 */
-const N_TYPES = 51 + 2 + 1 + 1 + 3 + 1 + 2 + 1, N_SKILL = 40 + 2 + 1 + 1 + 3 + 1 + 1 + 1, N_NATURE = 11 + 1, N_CRKEYS = 34 + 2 + 1 + 3 + 1 + 2 + 1, N_NOCR = 17 + 1;
+const N_TYPES = 51 + 2 + 1 + 1 + 3 + 1 + 2 + 1 + 2, N_SKILL = 40 + 2 + 1 + 1 + 3 + 1 + 1 + 1 + 2, N_NATURE = 11 + 1, N_CRKEYS = 34 + 2 + 1 + 3 + 1 + 2 + 1, N_NOCR = 17 + 1 + 2;   /* ★[A 2026-11-28] + サハギン 2 種 (sahuagin / sahuaginChieftain = 技能あり 2・脅威度なし 2) */
 /* 規則 ③ = 表に載せない (脅威度を出さない) 18 キー (★[#103] koboldChief = SRD に族長は無い) */
 const DRV_NO_CR = ['goblinShaman', 'goblinBrute', 'goblinKing', 'goblinChariot', 'orcShaman', 'orcBerserker', 'garrock', 'banditMage',
   'lizardPriest', 'swampNovice', 'lizardChieftain', 'stoneLegionary', 'sovereignEye', 'shadowBeast', 'direBear', 'umber_hulk', 'caravanWagon',
-  'koboldChief'];
+  'koboldChief',
+  'sahuagin', 'sahuaginChieftain'];   /* ★[A 2026-11-28] サハギンは脅威度を出さない (LORE_CR に載せていない = SRD の CR を引かない) */
 const FRAC = { 0.125: '1/8', 0.25: '1/4', 0.5: '1/2' };
 const crText = (cr) => (cr == null ? '' : (FRAC[cr] || String(cr)));
 const DRV_BOSS_DC = (f) => ((f.isBoss || f.eyeStalks || (f.maxSummons || 0) > 0) ? 15 : 10);   // ⛔ isBossLikeDef を使わない

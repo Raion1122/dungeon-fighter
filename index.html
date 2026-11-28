@@ -11899,6 +11899,54 @@
         deathLine: "…炎の…御方よ…我が血を…捧げ…ます…",
         xp: 900,
       },
+      /* ★[A 2026-11-28] サハギン — 近海の難破船 (sea-wreck) 専用の海の魚人。
+       * ⭐ 依頼者決定: 鱗の魔物を lizardWarrior 流用で済ませていたのを、サハギン専用グラフィックへ差し替える。
+       *   戦闘値・間合い・シート幾何は lizardWarrior と同値 (バランス・当たり判定・描画を変えない)。
+       *   スプライトだけ sahuagin_anim.png (tools/make_sahuagin_sprites.py が lizardWarrior を海色へ変換) へ差し替える。
+       * ⚠ lizardWarrior は沼地 (lizard-swamp) と共有なので、型を分けないと沼のリザードマンまで海色になる ⇒ 新しい型にする。 */
+      sahuagin: {
+        name: "サハギン",
+        flavor: "沈んだ船に巣喰い、三叉の銛で獲物を貫く海の魚人",
+        badge: "🔱",
+        sprite: "assets/sahuagin_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 88,
+        hp: 14, speed: 0.8,
+        hasAttackAnim: true,
+        meleeRange: 160, hitRange: 220,
+        attackDuration: 24, attackHitFrame: 16, attackCooldown: 50,
+        str: 3, dex: 1, atkBonus: 4, ac: 15,
+        dmgDice: "1d6", dmgBonus: 2, critRange: 20, critMult: 2,
+        range: "melee",
+        xp: 200,
+      },
+      /* ★[A 2026-11-28] サハギンの長 — 海蝕洞の祭壇を守る魚人の長 (sea-wreck ボス)。
+       * ⭐ 戦闘値・シート幾何・体の実寸比 (壁の当たり箱) は lizardChieftain と同値。スプライトだけ差し替える。
+       *   summonType も新しい雑魚 sahuagin にして、召喚される手下も海色で統一する。 */
+      sahuaginChieftain: {
+        name: "サハギンの長",
+        flavor: "海蝕洞の祭壇を守る、鱗に覆われた魚人の長",
+        badge: "🦈",
+        sprite: "assets/sahuaginChieftain_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 248,
+        bodyRatioX: 0.625, bodyRatioY: 0.646, bodyOffX: 0.240, bodyOffY: 0.302,
+        hp: 80, speed: 0.7,
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 280,
+        attackDuration: 38, attackHitFrame: 18, attackCooldown: 58,
+        str: 5, dex: 1, atkBonus: 8, ac: 18,
+        dmgDice: "2d8", dmgBonus: 5, critRange: 19, critMult: 3,
+        range: "melee",
+        isBoss: true,
+        ragePhaseHpRatio: 0.7,
+        maxSummons: 2,
+        summonType: "sahuagin",
+        deathLine: "…深き…潮が…我を…呼んで…いる…",
+        xp: 900,
+      },
       // ── Sce3 隠し要素: 沼の守護神・古代ハイドラ (swamp-hydra.md) ──
       // 多頭再生: 物理切断 → 頭が完全再生 (+1本・HP全回復) / 炎・酸切断 → 永続切除。
       // 祭壇接近3択 (立ち去る/破壊/供物強奪) で覚醒。封印中は inactive+passiveNpc でクリア非ブロック。
@@ -12635,10 +12683,12 @@
       /* ★[A 2026-11-28] 近海の難破船 — 海蝕洞の鱗の群れ (本筋外・独立依頼・沼地の後・推奨 Lv5)。
        * ⭐ 会議の A 案 (縮小版): 海という未踏テーマを足す。潮の満ち引きメカは落とし (新メカ無し)、敵は鱗の魔物 1 種に絞る。
        * ⭐ 実際の盤面は buildSeaWreckRun (卓上マップ 2 枚・themeId は lost-cargo を流用)。spawns は ?graph=0 の単一マップ用の退避先。
-       * ⭐ 敵は既存の lizardWarrior (リザードマン戦士) + plagueFrog (Giant Frog = 両生の魔物) + 族長 (lizardChieftain)。新 enemy 型 0。
-       *   ⇒ サハギン (新スプライト + 新 enemy 型 = §7 の全数表 4 本言い直し + SRD 照合) は予算と 60 分の制約で見送り、
-       *     海蝕洞に巣食う「鱗の魔物」を既存の鱗人スプライトで流用して海テーマを成立させる (B/D と同じ流用方針)。
-       *     A2 判定の lore では船乗りが「サハギン」と呼ぶ旧い伝承として海の魚人の設定を残す。
+       * ⭐ 敵 = サハギン (sahuagin・海の魚人) + plagueFrog (Giant Frog = 両生の魔物)。頭目 = サハギンの長 (sahuaginChieftain)。
+       *   ⇒ ★[A 2026-11-28 更新] 当初は lizardWarrior / lizardChieftain を流用していたが、依頼者決定で**サハギン専用グラフィック**へ差し替えた。
+       *     sahuagin / sahuaginChieftain は lizardWarrior / lizardChieftain の戦闘値を**そのまま写した新しい型**で、
+       *     スプライトだけ sahuagin_anim.png / sahuaginChieftain_anim.png (tools/make_sahuagin_sprites.py が海色へ変換) に差し替える。
+       *     型を分けたのは lizardWarrior / lizardChieftain が沼地 (lizard-swamp) と共有だから (沼のリザードマンまで海色になるのを防ぐ)。
+       *     A2 判定の lore では船乗りが「サハギン」と呼ぶ海の魚人の設定を残す。
        * ⭐ trapCount:1 × NODE_EXTRA_SPAWN_KINDS の n0/n1 両方の search = 罠は部屋ごとに 1 つ。
        *   trapTypeByNode は罠の**語り**だけを既存の種類へ割り当てる (乱数を 1 つも足さない・TRAP_TYPES は触らない)
        *   = pit (腐った甲板板の落とし穴・浸水した甲板) / miasma (汚水の瘴気・海蝕洞)。
@@ -12654,12 +12704,12 @@
         clearGold: 200,
         spawns: [
           /* ?graph=0 用。buildSeaWreckRun の slots と同じ顔ぶれを並べる */
-          // 浸水した甲板: リザードマン戦士 3 + Giant Frog 2
-          ["lizardWarrior", 27, 13], ["lizardWarrior", 28, 14], ["plagueFrog", 27, 12],
-          ["lizardWarrior", 39, 12], ["plagueFrog", 39, 14], ["plagueFrog", 38, 13],
-          // 海蝕洞の祭壇: リザードマン戦士 1 + 族長
-          ["lizardWarrior", 55, 14],
-          ["lizardChieftain", 57, 13],
+          // 浸水した甲板: サハギン 3 + Giant Frog 2
+          ["sahuagin", 27, 13], ["sahuagin", 28, 14], ["plagueFrog", 27, 12],
+          ["sahuagin", 39, 12], ["plagueFrog", 39, 14], ["plagueFrog", 38, 13],
+          // 海蝕洞の祭壇: サハギン 1 + サハギンの長
+          ["sahuagin", 55, 14],
+          ["sahuaginChieftain", 57, 13],
         ],
       },
     };
@@ -14323,6 +14373,8 @@
       "enemy.cry.lizardRaider":   ["シャギャアッ!", "シャアアッ!"],
       "enemy.cry.lizardPriest":   ["シャ・ス・スゥ…蛇神よ!", "スゥゥ…贄を…"],
       "enemy.cry.lizardChieftain":["シャアアアッ! 沼を汚す者め!", "シャッ! 我が牙を受けよ!"],
+      "enemy.cry.sahuagin":       ["シャアアッ!", "ゴボォッ…!"],
+      "enemy.cry.sahuaginChieftain":["海の贄となれ!", "深淵へ引きずり込め!"],
       "enemy.cry.hydra":          ["シャアアアアアッ!!", "ゴアアアアッ!"],
       "enemy.cry.orcGrunt":       ["ウォラァッ!", "グォッ!"],
       "enemy.cry.orcArcher":      ["射てェッ!", "グァッ!"],
@@ -16872,6 +16924,10 @@
       { triggerId: "boss_defeat", eventKey: "lizardChieftain", speaker: "dungeon_master", voiceId: "nar_boss_defeat_lizardChieftain",
         subtitle: "「…炎の…御方よ…我が血を…捧げ…ます…」 — リザードマン族長",
         voiceText: "…炎の…御方よ…我が血を…捧げ…ます…" },
+      // ★[A 2026-11-28] 近海の難破船のボス。voiceId の mp3 は未生成 = 字幕のみ no-op (pharaxus と同じ扱い)。
+      { triggerId: "boss_defeat", eventKey: "sahuaginChieftain", speaker: "dungeon_master", voiceId: "nar_boss_defeat_sahuaginChieftain",
+        subtitle: "「…深き…潮が…我を…呼んで…いる…」 — サハギンの長",
+        voiceText: "…深き…潮が…我を…呼んで…いる…" },
       { triggerId: "boss_defeat", eventKey: "garrock", speaker: "dungeon_master", voiceId: "nar_boss_defeat_garrock",
         subtitle: "「…炎の…御方よ…砦は…燃え尽きた…」 — オーク将軍ガロック",
         voiceText: "…炎の…御方よ…砦は…燃え尽きた…" },
@@ -32223,6 +32279,7 @@
       banditMage: "history", banditHeavy: "history", scar: "history", lizardWarrior: "history",
       lizardHunter: "history", lizardRaider: "history", lizardPriest: "history", swampNovice: "history",
       lizardChieftain: "history",
+      sahuagin: "history", sahuaginChieftain: "history",   // ★[A 2026-11-28] サハギン (SRD: humanoid) = 歴史。CR は LORE_CR に載せない = 脅威度は非表示 (lizardChieftain と同じ扱い)
       koboldChief: "history",   // ★[#103] コボルドと同じ。⛔ LORE_CR には載せない (SRD に元が無い)
       plaguePriest: "religion", // ★[#104] 疫病の教団の司祭 = 宗教 (SRD の Cult Fanatic・LORE_CR にも載せる)
       // 宗教 (アンデッド)
@@ -45568,7 +45625,8 @@
      *   (港の倉庫 = 浸水した甲板 / 地下水道の祠 = 海蝕洞の祭壇。どちらも水辺・屋内 = 新しい codex マップ 0・新素材 0。
      *    arcane-tower が silent-tomb を・raider-camp が tower-mother を流用したのと同じ型)。
      *   scenId は sea-wreck (A2 判定・罠/宝箱の宣言・NODE_EXTRA_SPAWN_KINDS・SCENARIO_TEX は scenId で引く)。
-     * ⚠ 敵は既存の鱗の魔物だけ (lizardWarrior = melee・plagueFrog = melee)。頭目は lizardChieftain。新 enemy 型 0。
+     * ⚠ 敵 = サハギン (sahuagin = melee・海の魚人) + plagueFrog (= melee)。頭目は sahuaginChieftain。
+     *   ★[A 2026-11-28] 旧 lizardWarrior / lizardChieftain 流用から**サハギン専用スプライトの新しい型**へ差し替え済み (戦闘値は同値)。
      *   ⛔ lizardHunter (range:"bow"・engagePx=1152) は入場に近い群れへ置かない (536<1152 で入場即交戦 = A2 が永久に
      *      開かなくなる・raider-camp の 2026-11-27 不具合と同根)。入場に最も近い NW 群れは必ず melee にすること。
      * ⚠ rect / paint / start / 敵タイルは buildLostCargoRun と同値 (検証済みの間合い・マスクの '.' をそのまま借りる)。
@@ -45581,8 +45639,8 @@
        *   ⚠ 敵のタイルは lost-cargo n0big のマスクで全部 '.' (塞いだタイルに置くと絵に穴が開く)。 */
       const n0 = p6Node("sea-wreck", "lost-cargo", "n0", "浸水した甲板", [6, 16, 21, 39], {
         paint: "n0big", density: 0, start: { tx: 18, ty: 13 },
-        slots: [[21, 9, "lizardWarrior"], [22, 9, "lizardWarrior"], [22, 10, "plagueFrog"],
-                [36, 13, "lizardWarrior"], [37, 14, "plagueFrog"]],
+        slots: [[21, 9, "sahuagin"], [22, 9, "sahuagin"], [22, 10, "plagueFrog"],
+                [36, 13, "sahuagin"], [37, 14, "plagueFrog"]],
       });
       /* n1 海蝕洞の祭壇 (ボス・屋内)。入場 = 西辺の中点 (18,13) = 絵ローカル (2,7) = 梯子の足元。
        * 鱗の長 = 祭壇の前 (絵ローカル (19,7))。手下 = 鱗の魔物 1 + 大蛙 2。
@@ -45590,8 +45648,8 @@
        *   ⚠ 祭壇とろうそく・積み荷 (絵ローカル col 20-22) と汚水の水路 (row 1-3 / 12-14) は n1big のマスクで塞いである。 */
       const n1 = p6Node("sea-wreck", "lost-cargo", "n1", "海蝕洞の祭壇", [6, 16, 21, 39], {
         paint: "n1big", density: 0, start: { tx: 18, ty: 13 },
-        slots: [[32, 13, "lizardWarrior"], [33, 11, "plagueFrog"], [33, 15, "plagueFrog"]],
-        boss: [35, 13, "lizardChieftain"],
+        slots: [[32, 13, "sahuagin"], [33, 11, "plagueFrog"], [33, 15, "plagueFrog"]],
+        boss: [35, 13, "sahuaginChieftain"],
       });
       return {
         entry: "n0",
