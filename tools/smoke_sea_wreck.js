@@ -2,7 +2,7 @@
 /*
  * smoke_sea_wreck.js — 新しい行き先「近海の難破船」(sea-wreck) の着地スモーク。
  * smoke_raider_camp.js の §A〜§Z を写したもの。forcequest で卓へ載せ → 出発 → index 着地で
- * RUN が 2 ノード組み上がり / ボス = lizardChieftain / A2 = perception DC14 / 罠 = pit,miasma /
+ * RUN が 2 ノード組み上がり / ボス = sahuaginChieftain / A2 = perception DC14 / 罠 = pit,miasma /
  * 全表解決 (SCENARIO_TEX・ENEMY_TYPES の鱗の魔物) / pageerror 0 を確かめる。
  * 使い方: node tools/smoke_sea_wreck.js [--headful] [--port 10722]
  */
@@ -163,12 +163,12 @@ function SEED(cfg) {
         trapN0: g(() => (currentScenario && currentScenario.trapTypeByNode ? currentScenario.trapTypeByNode.n0 : null), null),
         trapN1: g(() => (currentScenario && currentScenario.trapTypeByNode ? currentScenario.trapTypeByNode.n1 : null), null),
         tex: g(() => (typeof SCENARIO_TEX !== 'undefined' && SCENARIO_TEX['sea-wreck']) ? true : false, false),
-        enemyTypesOk: g(() => (typeof ENEMY_TYPES !== 'undefined' && !!ENEMY_TYPES.lizardWarrior && !!ENEMY_TYPES.plagueFrog && !!ENEMY_TYPES.lizardChieftain), false),
+        enemyTypesOk: g(() => (typeof ENEMY_TYPES !== 'undefined' && !!ENEMY_TYPES.sahuagin && !!ENEMY_TYPES.plagueFrog && !!ENEMY_TYPES.sahuaginChieftain), false),
       };
     });
     check('(E1) index 着地 & scenarioId = sea-wreck', /\/index\.html/.test(String(landed)) && gE.scen === 'sea-wreck', 'landed=' + landed + ' scen=' + gE.scen);
     check('(E2) RUN.entry = n0 / 2 ノード', gE.entry === 'n0' && gE.nodeCount === 2, 'entry=' + gE.entry + ' nodes=' + gE.nodeCount);
-    check('(E3) ボスノードのボスキーが lizardChieftain', gE.bossKind === 'lizardChieftain', 'bossKind=' + gE.bossKind + ' bossNode=' + gE.bossNodeId);
+    check('(E3) ボスノードのボスキーが sahuaginChieftain', gE.bossKind === 'sahuaginChieftain', 'bossKind=' + gE.bossKind + ' bossNode=' + gE.bossNodeId);
     check('(E4) A2 判定が perception / DC14 / rogue,elf', gE.a2 && gE.a2.check === 'perception' && gE.a2.dc === 14 && gE.a2.classes === 'rogue,elf', 'a2=' + JSON.stringify(gE.a2));
     check('(E5) 罠 n0 = pit / n1 = miasma (既存の種類を流用)', gE.trapN0 === 'pit' && gE.trapN1 === 'miasma', 'n0=' + gE.trapN0 + ' n1=' + gE.trapN1);
     check('(E6) SCENARIO_TEX / ENEMY_TYPES(鱗の魔物) が解決', gE.tex === true && gE.enemyTypesOk === true, 'tex=' + gE.tex + ' types=' + gE.enemyTypesOk);
